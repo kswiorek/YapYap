@@ -5,10 +5,13 @@ sessions of November 2026 and revised after a full pre-implementation review and
 2026), then completed by the large-file session (14 November 2026): large files are pull-only
 streams (§6.6), the `fileId` is block-hashed (§2), receiver durability is checkpointed (§8) and the sender
 may reference a file in place instead of copying it (§10). A second review against the code (14 November 2026)
-simplified the large path to a plain fetch protocol on its own data channel (no envelopes, no per-transfer key,
+simplified the large path to a plain fetch protocol on its own data channel (no envelopes, no app-layer key,
 §6.6), made the small/large limit a network constant (§1), narrowed the deposit triggers for chunks (§6.3),
 stopped the gap trigger from cancelling transfers (§8) and listed what the outbox needs before it carries
-chunks (§6.2). **Both paths are the base for implementation.**
+chunks (§6.2). A third revision (23 November 2026) split the two jobs one `transferId` used to carry: a **content** per
+send — one key, one sealed half, per-content chunk AAD — carried by **per-hop transfers**
+whose ids are never reused across hops, with relays signing what they carry instead of replaying the author's
+signature (§2, §3.3, §4, §6.4, §7.2, §8). **Both paths are the base for implementation.**
 [`../sprints.mmd`](../sprints.mmd) stays authoritative for sprint sequencing at its coarser grain and is not
 modified by this design.
 
@@ -42,9 +45,12 @@ config file can change per device.
 The core philosophy transplants the guide's delivery model (§6) to files, with one hard separation on top:
 **the message and the transfer are decoupled. A message with an attachment is a notification — "you may want
 this file; make sure you have it" — and carries no key and no chunk parameters. Transfers are the only way
-file bytes move, each one self-contained, and the pull path (DAG message → REQUEST → serve) is the loss-proof
+file bytes move, and the pull path (DAG message → REQUEST → serve) is the loss-proof
 backbone.** A deferred, expired, stalled or partial push is never a loss — the message references the file
-forever, and the receiver can always REQUEST the bytes from a holder.
+forever, and the receiver can always REQUEST the bytes from a holder. A second separation sits inside the
+first (§2): **the content and the transfer are decoupled.** A content — one key, one sealed half, one chunking
+per send — is what the bytes are; a transfer is one hop's carrier of a content's covered suffix. The direct
+push, every relay deposit and every forward of one send carry the same content and differ only in routing.
 
 **Transfers are temporary; files stay.** A transfer lives for `fileTransferTtl` (§15) and then it is gone; a
 completed file lives in the permanent attachment store (§10).
@@ -53,14 +59,14 @@ Grounding facts that shape everything below:
 
 - Chunking is forced everywhere: the WebRTC backend carries at most ~250 KiB per envelope
   (`WebRtcBackendConfig.maxPayloadBytes`), Tor at most 4 MB. The chunk size is **derived** (≈249 KiB after
-  envelope framing) by the composition root, never independently configured (§15); each transfer snapshots the
-  current derived value at creation (§2).
+  envelope framing) by the composition root, never independently configured (§15); each send snapshots the
+  current derived value at content creation, and every leg of the send shares it (§2).
 - **No new ARQ is built.** Both transports are reliable per frame (WebRTC data channels are SCTP, configured
   ordered + fully reliable; Tor links are framed TCP streams), and the router already gives every envelope
   ACK/NACK + dedup + outbox retry. A chunk sent as an ordinary packet is effectively-once per hop. The
   SACK-style ACK payload is the **progress/resume** protocol, not loss detection.
 - Group sends are out of scope for v1, but the design is deliberately encryption-independent: chunk content is
-  an opaque AEAD blob keyed per transfer, so group fan-out (sender keys) is additive later without touching the
+  an opaque AEAD blob keyed per content, so group fan-out (sender keys) is additive later without touching the
   chunk pipeline.
 
 ## 2. Identity: `fileId` and `transferId`
@@ -85,33 +91,51 @@ Grounding facts that shape everything below:
       serve instead of re-hashing the whole file first (§8, §9). Small files run the same code with 1–10 blocks.
     - Hashing needs an incremental SHA-256 on `CryptoProvider` (init/update/final — a block can be 128 MiB). The
       sender hashes once at send, in the same pass as the copy into the store when it copies (§10).
-- **`transferId` = routing session identity (small path only).** A large fetch has no `transferId`, no key and
-  no chunking: it is a byte stream on one channel (§6.6). One push/serve attempt **between two devices**. Keys the relay
-  store, the OFFER, the outbox marker tag, chunk envelope addressing, every control packet but REQUEST (§3.2)
-  and the receiver's per-transfer row (§8). Relays never see or need the `fileId`.
-- **Transfers are device-to-device.** A send to an account is one orchestrator-level send that routing fans
-  out into one transfer per device of that account — the message model's fan-out, pushed one step further (the
-  transfer state itself is device-grain and lives routing-side, §12). This strains relays more than an
-  account-grained design would; that cost is accepted and will be optimized away with group keys and sends.
-  Sibling devices never targeted by a transfer get the file through REQUEST (§9); that pull is normal traffic,
-  not a failure.
-- **A transfer is a completely separate process.** Its key and its chunk parameters are its own: the key is
-  generated fresh for every transfer, and the chunk size is snapshotted at creation. Transfers of the same
-  file share nothing but the plaintext they deliver — every chunking of the same `fileId` puts the same bytes
+- **`contentId` = end-to-end send identity (small path only).** Minted by the sending side when a send starts —
+  the author for a push, the holder for a serve — one per `(file, target device)` send. Everything the legs of
+  one send share *is* the content: one `TransferKey`, one chunking (snapshotted at creation), one sealed half (§3.3). It
+  rides every FILE envelope header in the clear — opaque and routing-visible, never the `fileId` —
+  pins chunk AEAD (§4), and is the receiver's cross-leg identity: the first OFFER processed for a content
+  opens the sealed half, every later one is answered from it (§8). It is also the author's completion key:
+  COMPLETE and CANCEL addressed to the author carry it (§6.5). Contents of the same file share nothing but
+  the plaintext they deliver.
+- **`transferId` = per-hop routing session identity (small path only).** A large fetch has no `transferId`, no
+  key and no chunking: it is a byte stream on one channel (§6.6). One id per hop's session, never reused
+  across hops (like a `BinaryEnvelope`'s packet id): the direct push has one, each deposit leg its own (§6.4),
+  and each relay forward mints a fresh one, persisted on the relay row (§7.2). Keys the relay store, the outbox
+  marker tag, chunk envelope addressing, every control packet but REQUEST (§3.2) and the receiver's per-leg
+  incoming row (§8). Relays never see or need the `fileId`.
+- **Each leg is device-to-device.** A send to an account is one orchestrator-level send that routing fans
+  out into one content per device of that account, and each content into its legs — direct, deposits,
+  forwards — the message model's fan-out, pushed one step further (the content state itself is device-grain
+  and lives routing-side, §12). This strains relays more than an account-grained design would; that cost is
+  accepted and will be optimized away with group keys and sends. Sibling devices never targeted by a leg get
+  the file through REQUEST (§9); that pull is normal traffic, not a failure.
+- **A content is a completely separate process.** Its key and its chunk parameters are its own: the key is
+  generated fresh for every content — every send, direct push or serve — and the chunk size is snapshotted
+  at creation and shared by every leg, so the same index addresses the same bytes in all of them. Contents of
+  the same file share nothing but the plaintext they deliver — every leg of one content puts the same bytes
   at the same offsets, so the receiver merges them by plaintext byte coverage (§8), and resume works across
-  transfers, chunkings and serving devices without any two transfers agreeing on anything.
-- Two grains at the receiver: the **file** state is `fileId`-scoped (coverage, `.part`, valid across
-  transfers); each **incoming transfer** is its own `transferId`-scoped row (key, chunking, author). Relay
-  state is `transferId`-scoped.
+  contents, legs and serving devices without any two agreeing on anything.
+- Three grains at the receiver: the **file** state is `fileId`-scoped (coverage, `.part`, valid across
+  contents); the **content** is `contentId`-scoped — key, chunking, size oracle, author — opened once and
+  cloned per leg (§8); each **incoming leg** is its own `transferId`-scoped row. Relay state is per-hop
+  `transferId`-scoped.
 
 ## 3. Wire protocol
 
-All FILE-family envelopes are signed by their author (the `source` field). A relay forwarding stored envelopes
-replays the original signature verbatim — the relay is never a signature author.
+All FILE-family envelopes are signed by their **carrier** — the device sending them on this hop (the `source`
+field). The author signs the legs it originates (the direct push, every deposit); a relay signs the forward it
+carries (§7.2). Content authenticity never rests on a carrier's signature: the sealed half rides the target's
+Double Ratchet with the author, and chunks ride AEAD under the content key (§4) — a signature says who
+delivered, the ratchet and the key say who wrote. The inverse of the message-transit pattern, where content is
+authenticated inside an unauthenticated carrier. Every FILE envelope header carries its leg's `transferId` and
+its send's `contentId`, both clear, both always encoded; their meaning is per kind, exactly as `transferId`'s
+already is (the REQUEST's `contentId` names the ask itself, and the serve it triggers mints its own, §9).
 
 ### 3.1 Message attachments
 
-`MessagePayload.Text` gains an `attachments` list. Each entry is deliberately minimal — everything a receiver
+`DagPayload.Text` gains an `attachments` list. Each entry is deliberately minimal — everything a receiver
 needs to render the message and decide to REQUEST, nothing more:
 
 | Field        | Notes                                                            |
@@ -139,14 +163,14 @@ needs a decoder for the previous version.
 
 The FILE envelope family is the **small path's** protocol. A large fetch uses none of it (§6.6).
 
-| Kind       | Fields                                                                                                                                                                                    | Author / direction                                                                         |
-|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| `OFFER`    | public half: `chunkSizeBytes`, `totalBytes`, `startIndex`; sealed half: `fileId`, block list (§2), per-transfer key (`TransferKey`), `fileName`, `mimeType` (shared 80-char/255-byte cap) | the serving device → target device (or relay, for deposits)                                |
-| `CHUNK`    | `chunkIndex`, ciphertext (covers `[chunkIndex × chunkSizeBytes, …)` — **the transfer's own chunking**)                                                                                    | pusher → target (replayed by relay)                                                        |
-| `ACK`      | coverage **in the transfer's own chunk indices**: `highestContiguousIndex` (`-1` when none) + `missingRanges` (capped)                                                                    | target → that transfer's pusher                                                            |
-| `COMPLETE` | — (the transfer is the header's `transferId`)                                                                                                                                             | target → **every live transfer author**; also the cancel-on-complete (§8)                  |
-| `REQUEST`  | sealed: `fileId`, held coverage in bytes (`contiguousBytes` + `missingRanges`)                                                                                                            | requester → one candidate device                                                           |
-| `CANCEL`   | `reason` only (no free-form text on the wire)                                                                                                                                             | either endpoint: author → relay/target (abort); target → author (decline, no space, abort) |
+| Kind       | Fields                                                                                                                                                                                                                                                                                            | Author / direction                                                                                                                      |
+|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `OFFER`    | public half: `chunkSizeBytes`, `totalBytes`, `startIndex` (the relay's storage contract, §7.2); sealed half: `fileId`, block list (§2), per-content key (`TransferKey`), `fileName`, `mimeType` (shared 80-char/255-byte cap) and the author-vouched size oracle (`totalBytes`, `chunkSizeBytes`) | the leg's sender → its receiver: author legs (direct → target, deposit → relay); relay → target on forward, re-signed (§7.2)            |
+| `CHUNK`    | `chunkIndex`, ciphertext (covers `[chunkIndex × chunkSizeBytes, …)` — **the content's chunking, uniform across every leg**)                                                                                                                                                                       | pusher → target (direct) or relay (deposit); relay → target on forward, re-signed (§7.2)                                                |
+| `ACK`      | coverage **in the leg's chunk indices** (the content's chunking — uniform, so they read the same from any leg): `highestContiguousIndex` (`-1` when none) + `missingRanges` (capped)                                                                                                              | target → that leg's sender                                                                                                              |
+| `COMPLETE` | — (the leg is the header's `transferId`; the content is the header's `contentId`)                                                                                                                                                                                                                 | target → **every live leg's carrier**, and once to the content author with its `contentId` (§6.5); also the cancel-on-complete (§8)     |
+| `REQUEST`  | sealed: `fileId`, held coverage in bytes (`contiguousBytes` + `missingRanges`)                                                                                                                                                                                                                    | requester → one candidate device                                                                                                        |
+| `CANCEL`   | `reason` only (no free-form text on the wire)                                                                                                                                                                                                                                                     | either endpoint: carrier → its receiver (abort); target → the content author (decline, no space, abort — resolved by `contentId`, §6.5) |
 
 Notes on the rework:
 
@@ -156,17 +180,19 @@ Notes on the rework:
   config (§15), not wire.
 - `CHUNK` loses its `chunkCount` — the covered set is defined by the OFFER (§3.4).
 - The existing per-chunk hash idea stays dead: AEAD tags detect corruption at decrypt; plaintext integrity is
-  the block list, checked against the `fileId` (§2). Blocks are a property of the file, chunks of a transfer —
+  the block list, checked against the `fileId` (§2). Blocks are a property of the file, chunks of a content —
   the two never need to align.
-- **Every FILE envelope but REQUEST is addressed by `transferId`; the `fileId` is payload, needed only for
-  storage.** It appears in exactly two places — the OFFER's sealed half and the REQUEST — and both are
-  ratchet-sealed. ACK, COMPLETE and CANCEL travel to and through relays carrying nothing a relay could tie to
-  the file's content.
-- **ACK speaks the transfer's own chunk indices; REQUEST speaks bytes.** The receiver knows every incoming
-  transfer's chunking from its OFFER, so it maps its byte coverage (which may come from any source) onto each
-  transfer's indices: a chunk counts as covered once its whole range is. The pusher reads its own vocabulary
-  back. A REQUEST precedes any transfer, so it has no chunking to speak and stays in bytes; the server maps
-  them onto the chunking it picks (§3.4).
+- **Every FILE envelope is addressed by its leg's `transferId` and carries its send's `contentId`; the `fileId`
+  is payload, needed only for storage.** The `fileId` appears in exactly two places — the OFFER's sealed half
+  and the REQUEST — and both are ratchet-sealed. The `contentId` is opaque: relays of one round can correlate
+  its legs (they already could through size, chunking and participants — "not readable", never "not
+  correlatable", §3.3), but nothing ties it to the file's content. ACK, COMPLETE and CANCEL travel to and
+  through relays carrying nothing a relay could tie to the file's content.
+- **ACK speaks the leg's chunk indices (the content's chunking, uniform across legs); REQUEST speaks bytes.**
+  The receiver knows every incoming leg's chunking from its content, so it maps its byte coverage (which may
+  come from any source) onto each leg's indices: a chunk counts as covered once its whole range is. The pusher
+  reads its own vocabulary back. A REQUEST precedes any content, so it has no chunking to speak and stays in
+  bytes; the server maps them onto the chunking of the content it mints (§3.4, §9).
 - **REQUEST is direct-only**: it goes to a candidate with an open link (§9), never through a relay. It exists
   only for small files: a holder answers a REQUEST for a file above `smallFileMaxBytes` with DECLINED, and
   both ends agree on the class because the limit is a network value (§1).
@@ -175,44 +201,61 @@ Notes on the rework:
 
 - **Public half** — what relays need for their storage contract: `chunkSizeBytes`, `totalBytes`,
   `startIndex`. From these the relay derives the file-level chunk count (`ceil(totalBytes / chunkSizeBytes)`)
-  and the covered suffix (§3.4). The `transferId` rides the envelope header.
-- **Sealed half** — `fileId`, the block list, the per-transfer key, display metadata (at most ~38 KiB with
+  and the covered suffix (§3.4). The `transferId` and `contentId` ride the envelope header.
+- **Sealed half** — `fileId`, the block list, the per-content key, the size oracle (`totalBytes`,
+  `chunkSizeBytes` — the author-vouched pair the target trusts, §8), display metadata (at most ~38 KiB with
   1,024 block hashes, within both transports' frame limits and the 64 KiB sealed-half bound) — **encrypted to the target
   device through
   the standard Double Ratchet** (the message-path machinery; epoch-1 X3DH bootstraps first contact offline, so
   no session needs to pre-exist). Relays can never read it and never learn the `fileId`.
-- **Key transport: the OFFER's sealed half is the only carrier of a transfer's key.** Messages never carry one (§3.1),
-  and no key outlives its transfer. Every legitimate holder can serve, because serving needs the
-  plaintext, not anyone's key: the holder's serve is a new transfer with a fresh key, sealed to the requester
+- **Key transport: the OFFER's sealed half is the only carrier of a content's key.** Messages never carry one (§3.1),
+  and no key outlives its content (the send's TTL). Every legitimate holder can serve, because serving needs the
+  plaintext, not anyone's key: the holder's serve is a new content with a fresh key, sealed to the requester
   in its own OFFER — a sibling or a fresh device syncing history receives that key with the serve (§9).
-- **One sealed OFFER per transfer, delivered once.** The sealed half is a ratchet message, so the same sealed
-  bytes must never reach the target twice through different routes: the second decrypt would fail as a
-  replay. This is why every relay deposit is its own transfer with its own sealed OFFER (§6.4). The target
+- **One sealed half per content, opened once.** The sealed half is a ratchet message — one-shot by nature —
+  and the design leans on that instead of fighting it: the author seals exactly one per send (a claim picks
+  the sealer; the bytes persist on the send's rows, §6.4), every leg carries the same sealed bytes, and the
+  target opens them on the **first OFFER it processes for the content** — the direct one, whichever forward
+  lands first, any of them. Every later OFFER for the same `contentId` is answered from the opened content
+  without touching the sealed bytes (§8's clone rule), so a duplicate sealed half can only ever be *attempted*
+  twice in corner cases — a straggler forward after the content's rows have ended, or two forwards racing
+  before any row exists — and both fail closed: that one leg ends, the file already delivered or another leg
+  carrying it. The old per-transfer-key rationale ("the same sealed bytes must never reach the target twice;
+  the second decrypt would fail as a replay, so every deposit seals its own") described a design whose
+  duplicate-suppression keyed on the `transferId`; with a clear `contentId` it keys on the content, and one
+  ratchet message serves the whole send. The target
   may still defer an OFFER (or a REQUEST) after opening it — the receive engine is recovering, a store call
   failed — and the sender then redelivers the same bytes: protection keeps the plaintext of frames it opened
   for a few minutes, in memory only, so that redelivery opens again instead of failing as a replay.
-- **Late decrypt is a config invariant, not luck.** The relay replays the sealed half verbatim up to the
+- **Late decrypt is a config invariant, not luck.** The relay carries the sealed half verbatim up to the
   transfer TTL, so the target's ratchet state for that generation must outlive the TTL —
   `fileTransferTtl < supersededSessionRetention` (2 days < 3 days, §15; e2ee.md keeps superseded generations
   decryptable for that window). Known edge, accepted for v1: a sealed half held that long is also an
   out-of-order message within its chain, so a busy chat can push it past the skipped-key limits. The decrypt
-  then fails `PERMANENT_PROTECTION_FAILED`, the relay drops that transfer, and the pull path (§9) recovers.
-- Correlation, honestly: relays cannot *read* the `fileId`, but same-file transfers at one relay are *correlatable*
-  through public metadata (totalBytes, chunk size, covered suffix, participants). "Not
-  readable", never "not correlatable". (Ciphertext no longer confirms it: every transfer has its own key.)
-- The receiver's completeness oracle is `totalBytes` — from the message or any OFFER's public half.
+  then fails `PERMANENT_PROTECTION_FAILED`, that forward ends, and the pull path (§9) recovers. The redesign
+  shrinks the exposure to its physical minimum: one sealed message per send must survive to the target — the
+  per-relay deposits of the old design each carried their own, multiplying exactly this edge by the relay
+  count.
+- Correlation, honestly: relays cannot *read* the `fileId`, but the legs of one content at one relay are *correlatable*
+  by construction — same `contentId`, same ciphertext. "Not
+  readable", never "not correlatable" — and the relays of one round always knew they were in one round;
+  across contents (a second send, a serve) keys and ciphertext differ, and only the public metadata (totalBytes, chunk
+  size, covered suffix, participants) correlates, as before.
+- The receiver's completeness oracle is `totalBytes` — from the message, or from the **sealed half** (the
+  author-vouched copy; the OFFER's public half states the same pair for the relay's storage contract, §7.2,
+  and a re-signing relay's copy of it is not trusted, §8).
   Completeness is coverage of `[0, totalBytes)` (§8); no chunk-count agreement is ever needed, which is what
   lets mixed chunkings coexist.
 
-### 3.4 Covered sets are always suffixes (in the transfer's own chunking)
+### 3.4 Covered sets are always suffixes (in the content's chunking)
 
-Every transfer covers a **contiguous suffix** of the file's chunk sequence in its own chunking:
-`[startIndex, fileCount-1]`.
+Every leg covers a **contiguous suffix** of the content's chunk sequence — uniform across the send's legs, so
+the same index addresses the same bytes in all of them: `[startIndex, fileCount-1]`.
 
 - Initial full transfer: `startIndex = 0`.
 - Direct-link break remainder: `startIndex = highestContiguousAckedPrefix + 1` (§6.4).
-- REQUEST serve: `startIndex` = the chunk boundary at or below the requester's lowest missing byte
-  (floor-aligned in the server's chunking; the few duplicate bytes are dropped on arrival — never reject
+- REQUEST serve: `startIndex` = the chunk boundary at or below the requester's lowest missing byte (floor-aligned in the
+  serve's own content, which mints its own chunking; the few duplicate bytes are dropped on arrival — never reject
   useful data over alignment).
 
 (A large fetch is not a transfer and has no chunk sequence: it names a byte offset, §6.6.)
@@ -222,14 +265,15 @@ sending engine's per-depot bookkeeping to one number per depot: its resume point
 
 ### 3.5 Chunks follow their OFFER
 
-A transfer's chunks flow only after that transfer's OFFER was processed by the target. Both pushers guarantee it
-by construction: the direct push enqueues chunks only after the marker's ACK, and the relay forwards only when
-whole, its own OFFER-ACK gating its chunks. This is
+A leg's chunks flow only after that leg's OFFER was processed by its receiver. Both carriers guarantee it
+by construction: the author's legs enqueue chunks only after the marker's ACK, and the relay forwards only when
+whole, its own OFFER-ACK gating its forward. This is
 load-bearing: a CHUNK envelope carries no `fileId`, so the
-target maps `transferId → fileId` (and the key) only through a processed OFFER — its incoming-transfer row (§8). A chunk
+receiver maps `transferId → content` (and the key) only through a processed OFFER — its incoming row (§8); at the door,
+the stored OFFER additionally pins the `contentId` a chunk's header must match (§7.1). A chunk
 for an unknown or unprocessed `transferId` is never ACKed and never stored — at a target or at a
 relay. Because chunks cannot overtake their OFFER, an unknown `transferId` at the target is never a race: the
-transfer is gone (resolved, cancelled, expired) or never existed, so the chunk is answered **DECLINED** (§3.6),
+leg is gone (resolved, cancelled, expired) or never existed, so the chunk is answered **DECLINED** (§3.6),
 and the sender stops instead of retrying into the void for the rest of the TTL.
 
 ### 3.6 What a DECLINED means
@@ -253,34 +297,40 @@ A DECLINED is read by **what it answers**, never on its own:
 
 - Everything in this section is the **small path**. A large fetch has no app-layer encryption: see the last
   bullet.
-- **Per-transfer symmetric key** (`TransferKey`, AEAD ChaCha20-Poly1305), generated fresh for every transfer — direct
+- **Per-content symmetric key** (`TransferKey`, AEAD ChaCha20-Poly1305), generated fresh for every send — a direct
   push,
-  each relay deposit, each serve. Chunk content **never** goes through the Double Ratchet: a long file would
+  a serve; every deposit leg and every forward of that send reuses it (there is nothing to re-key: a relay
+  never reads the bytes, it only re-carries them). Chunk content **never** goes through the Double Ratchet: a long file
+  would
   explode ratchet state, `MAX_SKIP` bounds out-of-order tolerance, and one lost chunk would break the chain for
   interleaved messages.
-- The **OFFER's sealed half rides the standard ratchet** (§3.3) — one small frame per transfer, bootstraps
+- The **OFFER's sealed half rides the standard ratchet** (§3.3) — one small frame per content, bootstraps
   offline, late-decrypt-safe by the retention invariant.
-- **Chunk AEAD is `CryptoProvider.encryptAead` as it is**: library-managed random IV, AAD = (`transferId`,
-  `chunkIndex`) laid out as the 16 transfer-id bytes followed by the chunk index u32 BE. The AAD pins every
-  chunk to its transfer and position, so a relay can neither
-  reorder chunks nor splice them across transfers. No nonce derivation is needed: one key never outlives one
-  transfer, a random 96-bit IV is safe at any chunk count a transfer reaches, and nothing relies on
+- **Chunk AEAD is `CryptoProvider.encryptAead` as it is**: library-managed random IV, AAD = (`contentId`,
+  `chunkIndex`) laid out as the 16 content-id bytes followed by the chunk index u32 BE. The AAD pins every
+  chunk to its content and position, so a relay can neither
+  reorder chunks nor splice them across contents — and the legs of one content are interchangeable by
+  construction. No nonce derivation is needed: one key never outlives one
+  content, a random 96-bit IV is safe at any chunk count a content reaches, and nothing relies on
   ciphertext being reproducible — re-encrypting a chunk after a restart yields different bytes for the same
   index, which nobody compares (the relay keeps the first by its PK; the receiver tracks plaintext coverage).
-  Keys are threaded explicitly per call (the bootstrap pattern): the pusher passes its push-row key to seal
-  and encrypt, the inbound handler passes its incoming-row key to open and decrypt — protection holds no key.
+  Keys are threaded explicitly per call (the bootstrap pattern): the pusher passes its content's key to seal
+  and encrypt, the inbound handler passes the opened content's key to open and decrypt — protection holds no key.
 - A small-path chunk that happens to travel over a WebRTC link keeps its AEAD: the same outbox row may go over
   Tor on a retry or to a relay, so its format cannot depend on the link.
-- Encryption and decryption happen in routing (through protection), which holds the transfer's key in its
-  push row or incoming-transfer row; the orchestrator only ever supplies and sees plaintext and coverage (§6,
+- Encryption and decryption happen in routing (through protection), which holds the content's key in its
+  push rows or the opened content; the orchestrator only ever supplies and sees plaintext and coverage (§6,
   §8).
-- File routing alone holds the `FileEnvelopeProtection` port (ratchet-sealed OFFER half and REQUEST,
-  signing, per-chunk AEAD via `CryptoProvider`); `protectOffer` seals and signs an OFFER in one call, and
-  no crypto exception leaves protection (failures are `PERMANENT` or `DEFER`).
+- File routing alone holds the `FileEnvelopeProtection` port — one member of the `EnvelopeProtections`
+  bundle the composition root builds and hands the router, so no other routing component reaches it. It
+  covers ratchet-sealed OFFER halves and REQUESTs, signing, and per-chunk AEAD via `CryptoProvider`;
+  `protectOffer` seals and signs an OFFER in one call — the sealed bytes are built once per send and
+  persisted, so no marker re-arm ever seals a second ratchet message (§3.3) — and no crypto exception leaves
+  protection (failures are `PERMANENT` or `DEFER`).
 - **A large fetch relies on the channel.** Its bytes cross exactly one hop, a WebRTC data channel between the
   two devices: DTLS encrypts it, and the DTLS fingerprints are exchanged in signaling that is signed and
   encrypted to the peer device, so the channel is authenticated to that device. No relay ever holds the bytes.
-  An AEAD layer, a per-transfer key and per-chunk signatures on top would protect nothing more (about 475k
+  An AEAD layer, a content key and per-chunk signatures on top would protect nothing more (about 475k
   signatures for 100 GB), and end-to-end integrity is the block list either way (§2). This holds only while
   WebRTC signaling stays signed and sealed — invariant 23.
 
@@ -333,8 +383,9 @@ always a finished CHUNK envelope; the two sources differ in how one is made:
 
 - **Sender's push** — the orchestrator implements `FilePlaintextSource`, a port the router declares: plaintext
   from any byte offset (the stored copy or the referenced original, §10), each block checked against the block
-  list as it is read (§9). The orchestrator never sees a key. Routing cuts the plaintext into the transfer's
-  chunks, encrypts each with the transfer's key and signs it, through protection (§4).
+  list as it is read (§9). The orchestrator never sees a key. Routing cuts the plaintext into the content's
+  chunks, encrypts each with the content's key and signs it, through protection (§4); the sealed half is
+  built once per send, and every leg of the send re-carries the same ciphertext.
 - **Relay's forward** — routing's own relay store hands back the stored CHUNK envelopes as they arrived, with
   the original sender's signature (§7). Nothing is encrypted or signed again. The relay is simply another
   sender whose "file" is a DB table.
@@ -370,7 +421,7 @@ already owns (see §17, rejected alternatives).
 Chunks are individual outbox rows (tagged `FILE_PUSH` for our transfers and `FILE_FORWARD` for
 relay forwards, id = `transferId`) — per-chunk retry, dedup and restart
 survival come free. A window (`maxInFlightChunks`) bounds pending rows: each row holds a ~249 KiB blob, so a
-window of 16 ≈ 3.5 MB of outbox per transfer.
+window of 16 ≈ 3.5 MB of outbox per leg.
 
 Outbox extensions required: the new tag kinds, and `packetId` on `OutboxOutcome` so the engine maps a chunk
 outcome to its index. Unacked chunks are exactly the tagged rows still queued, so the engine's pending set is
@@ -436,17 +487,23 @@ target online simultaneously.
   **highest contiguous ACKed prefix** (`startIndex = prefix + 1`). This is safe by construction: any ACK holes
   below the prefix end are inside the remainder by definition, so the simplification never excludes a hole; it
   may re-send a few chunks the target already got, which the receiver drops as duplicates.
-- **A deposit happens at most once per transfer** (the message backup's claim pattern, restart-safe,
+- **A deposit happens at most once per source transfer** (the message backup's claim pattern, restart-safe,
   claimed durably on the source row's `deposited_at`) — and
   once suffices, because covered sets are suffixes: a later stall's remainder is a subset of the first
   deposit's covered set. The direct path keeps retrying meanwhile; the deposit is the insurance.
 - **Parallel redundancy, never sequential.** The same covered set goes to every relay `RelaySelectionPolicy`
-  returns (§5) — **each deposit its own transfer**: its own `transferId`, its own key, its own separately
-  sealed OFFER. Two relays forwarding one shared sealed OFFER would deliver the same ratchet ciphertext twice,
-  and the second would fail as a replay (§3.3). The "at most once" above counts the deposit *round*, not the
+  returns (§5) — **each relay its own deposit leg**: its own `transferId` and its own outbox rows — one
+  `file_pushes` row of kind DEPOSIT per relay, `via_relay` carrying the
+  outer target while the row's target stays the ultimate device — **all sharing the send's content**: one
+  key, one sealed half, identical chunk ciphertext per index (§3.3, §4). No per-relay sealing exists to
+  duplicate: the per-transfer-key design sealed
+  a fresh OFFER per relay because two relays sharing one sealed half would fail the second forward as a
+  ratchet replay — with per-content keys and a clear `contentId` on every envelope, duplicate suppression keys
+  on the content (the first OFFER the target processes opens the sealed half; every later one is answered from
+  the opened content without touching it, §8), so one sealed message serves the whole round — and the direct
+  leg too. The "at most once" above counts the deposit *round*, not the
   relays in it. A deposit's OFFER is sealed to the ultimate target (the relay stays blind, §3.3) and rides
-  outer-addressed to its relay — one `file_pushes` row of kind DEPOSIT per relay, `via_relay` carrying the
-  outer target while the row's target stays the ultimate device. If one relay's deposit stalls, that is the outbox's
+  outer-addressed to its relay. If one relay's deposit stalls, that is the outbox's
   business — per-chunk
   rows retry at their own cadence, and the reservation TTL eventually cleans what never lands. **The sender
   never chases a failing relay by re-depositing its missing parts elsewhere.**
@@ -456,21 +513,22 @@ target online simultaneously.
 
 ### 6.5 Completion and teardown
 
-Each relay deposit is an **independent transfer** that runs until *that relay* holds its full covered set, or
+Each relay deposit is an **independent leg** that runs until *that relay* holds its full covered set, or
 TTL. One relay completing never cancels the others — the whole point of multiple deposits is the reliability
 probability math behind `RelaySelectionPolicy`.
 
-A transfer's push phase ends when **every deposit has resolved** (complete at its relay, or expired), or
+A send's push phase ends when **every deposit leg has resolved** (complete at its relay, or expired), or
 earlier on the only two legitimate cross-depot teardowns:
 
-- **Target-confirmed receipt**: on readiness the receiver sends COMPLETE to **every live transfer author**
-  (§8) — ordinary routable packets, so "the target has everything" reaches each author even when only relays
-  delivered. Each author resolves its transfer and politely CANCELs its outstanding deposits so relays free
-  quota immediately.
-- **User cancel**: CANCEL to every active transfer and deposit.
+- **Target-confirmed receipt**: on readiness the receiver sends COMPLETE to **every live leg's carrier**
+  (§8) — ordinary routable packets, so "the target has everything" reaches each carrier even when only relays
+  delivered — and once to the **content author with its `contentId`**, so the author resolves the whole send
+  regardless of which hop's id delivered. The author ends its rows and politely CANCELs its outstanding
+  deposit legs so relays free quota immediately.
+- **User cancel**: CANCEL to every active leg and deposit.
 
-COMPLETE is per-transfer-addressed (target → that transfer's author), never account-fanned: the transfer
-logic happens between the two devices that participate in it (§12).
+COMPLETE is per-leg-addressed, plus that one content-addressed copy to the author, never account-fanned: the
+transfer logic happens between the devices that participate in each leg (§12).
 
 ### 6.6 The fetch (large path)
 
@@ -483,8 +541,8 @@ the transport's channel and the file code, the same kind of direct path AV will 
 One fetch = one data channel between the requesting device and one holder.
 
 1. **The requester opens the session.** Its request processor (§9) asks for a WebRTC session with the
-   candidate through the router's existing on-demand opener (`ProactiveSessionOpener.awaitSession`, signaled
-   over Tor as today). Sends never opened connections; a large fetch does, because the requesting device is
+   candidate through the router's budgeted link await (`LinkKeeper.await`, signaled over Tor as today).
+   Sends never opened connections; a large fetch does, because the requesting device is
    the one with the user's intent. No session within `fileSessionOpenTimeout` → that candidate is unreachable
    and the next is asked.
 2. **The requester opens a fetch channel** on that peer connection (no renegotiation; either side may add a
@@ -578,7 +636,9 @@ waste quota. Verified envelopes only; unverified are dropped.
 Two more door rules, both answered **DECLINED** so the sender cleans up at once instead of retrying into a
 dead store: a chunk whose `transferId` has no live transfer row (never admitted, expired reservation,
 evicted), and a chunk index outside the covered suffix (it can never count toward wholeness and only wastes
-quota).
+quota). A third, same answer: a chunk whose header `contentId` does not match the stored OFFER's — spliced
+junk with a right `transferId` but a wrong content. AEAD would catch it at the target's decrypt, but the
+door's check keeps it out of the store and the wholeness count (quota is what the door protects).
 
 ### 7.2 Lifecycle
 
@@ -592,13 +652,18 @@ quota).
    expiry, `fileRelayIdleTtl` for transfers that are not yet whole) cleans up what the sender never finished.
    The TTL is load-bearing for budget correctness, not
    hygiene.
-4. **Forward = the same pusher, DB source**: once whole, the stored OFFER payload is enqueued to the target as
+4. **Forward = the same pusher, DB source, a fresh leg**: once whole, the relay **mints a fresh `transferId`**
+   (persisted on the relay row, so restarts and outbox tags keep it), re-wraps the stored OFFER payload and
+   chunk ciphertexts in fresh envelopes **signed by the relay** — inner `FileEnvelope.source` = the relay,
+   header `contentId` = the stored OFFER's — and pushes them to the target as
    a normal outbox marker; ACK → chunk rows stream from the store; per-chunk ACKs from the target delete rows;
    the transfer row is dropped when drained. The door answers each stored chunk with a coverage ACK built
    from the chunks stored so far, so the depositor's window advances.
-   - Outer `BinaryEnvelope.source` = the relay, inner `FileEnvelope.source` = the original sender with its
-     signature intact — exactly the message-transit pattern (`MessageInboundHandler`): relay transit is
-     unauthenticated at the outer layer, content is authenticated inside.
+    - The author's signature is not replayed — the inverse of the message-transit pattern (`MessageInboundHandler`):
+      there the carrier is unauthenticated at the outer layer and content is
+      authenticated inside; here the carrier is authenticated (the relay's signature, a known device) and the
+      content still authenticates itself — the sealed half rides the target's ratchet with the author, the
+      chunks ride AEAD under the content key (§4). The relay still cannot read anything it carries.
    - **Blind full-send in v1**: the target ACKs every chunk it processes; a chunk whose range is already
      covered returns Success → row deleted. Duplicate waste is bounded; an OFFER-response carrying held-state
      is a later optimization, not a correctness need (§18).
@@ -625,25 +690,32 @@ already recovered by boot; wholeness is recomputed from the store.
 One engine for both classes — the small/large distinction is send-side path policy (§5); the receiver never
 branches on it.
 
-- **Two grains** (a large fetch has only the second: no OFFER, no incoming-transfer row, no key; routing
-  hands the channel's plaintext to the same ingest port). Each processed OFFER creates an **incoming-transfer row**
-  (routing, `transferId`-grain:
-  `fileId`, author device, chunking, covered suffix, key, expiry) — the transfer is a separate process that
+- **Three grains** (a large fetch has none of the file-leg machinery: no OFFER, no rows, no key; routing
+  hands the channel's plaintext to the same ingest port). The **content** (routing, `contentId`-grain) is
+  opened exactly once — by the first OFFER processed for it: `fileId`, key, chunking, the sealed size oracle,
+  author device — and never re-opened; every later OFFER with the same `contentId` (another relay's forward
+  under its minted id, the direct OFFER arriving late) is answered from the opened content and **clones an
+  incoming-transfer row** for its own `transferId`: content fields from the opened content, per-leg fields (covered
+  suffix, timestamps) from the OFFER's public half and header — the same-id re-OFFER idempotence is
+  the transferId-matches case of this rule. Each incoming row (routing, `transferId`-grain) is one leg's
+  state — a leg is a separate process that
   happens to write into the same file. The message or the first OFFER creates the one **receive row**
-  (orchestrator, `fileId`-grain: coverage, `.part`, status). Routing decrypts each chunk with its own
-  transfer's key and hands `(fileId, byteOffset, plaintext)` to the receive engine through the synchronous
-  ingest port; the receive row holds no key, and the receive engine is transfer-agnostic and
+  (orchestrator, `fileId`-grain: coverage, `.part`, status). Routing decrypts each chunk with the content's
+  key and hands `(fileId, byteOffset, plaintext)` to the receive engine through the synchronous
+  ingest port; the receive row holds no key, and the receive engine is content-agnostic and
   **chunking-agnostic**.
 - **Incoming-transfer rows end with their transfer** — COMPLETE sent, CANCEL either way, or expiry — and are
   dropped then. A later chunk for that `transferId` is unknown and gets DECLINED (§3.5, §3.6); the row is not
   kept around to answer it better.
-- **Byte coverage is the whole model.** A chunk covers `[chunkIndex × chunkSizeBytes, …)` in its transfer's
-  chunking — and the bytes at any offset are identical across every transfer of the `fileId` (the `fileId` is
-  the hash of the whole file). Chunks from any number of transfers, with any chunkings, land their byte
-  ranges; fully-covered ranges are duplicates and are dropped — duplicates are normal traffic (multiple relay
-  deposits, the direct path, serves all overlap). **Nothing is rejected for disagreeing with another
-  transfer** — every transfer is a potential accelerator; two chunkings of the same file can finish it
-  together.
+- **Byte coverage is the whole model.** A chunk covers `[chunkIndex × chunkSizeBytes, …)` in its content's
+  chunking — and the bytes at any offset are identical across every content of the `fileId` (the `fileId` is
+  the hash of the whole file), and across every leg of one content by construction (same key, same chunking,
+  byte-identical ciphertext per index). Chunks from any number of contents and legs, with any chunkings, land
+  their byte ranges; fully-covered ranges are duplicates and are dropped — duplicates are normal traffic (multiple relay
+  forwards, the direct path, serves all overlap). **Nothing is rejected for disagreeing with another
+  transfer** — every leg is a potential accelerator; two chunkings of the same file can finish it
+  together. The receive engine never sees contents or legs — only `(fileId, offset, bytes)` — so no staging
+  or disk-write decision ever consults them.
 - **Durable-before-ACK, checkpointed.** The durable state is one contiguous prefix P — bytes `[0, P)` in the
   `.part`, append-only — plus staged ranges beyond it. **The persisted `contiguous_bytes` is the source of
   truth for P, never the file length.** P advances only at **checkpoints** (every `fileCheckpointBytes`, e.g.
@@ -664,7 +736,9 @@ branches on it.
   extend P is answered DEFER — silent, dedup-cleared; the sender's window closes and its retry resumes once P
   advances (chunk rows retry at a flat delay for exactly this, §6.2). Without this, a racing transfer could
   stage an unbounded suffix behind a stuck gap.
-- **Blocks are verified as P passes them.** The first OFFER's block list is checked against the `fileId` (§2)
+- **Blocks are verified as P passes them.** The opened content's block list is checked against the `fileId`
+  (§2) — every input sealed: `totalBytes` and `blockSize` travel in the sealed half (§3.3), so a re-signing
+  relay's public half is never trusted for verification —
   and stored on the receive row; an OFFER whose list does not hash to the `fileId` is CANCELled and its
   author's copy treated as bad. The engine keeps a running SHA-256 of the block containing P, and **P is never
   committed past the end of an unverified block**: every block below P has matched its hash. After a restart
@@ -676,13 +750,16 @@ branches on it.
   automatically at or below its `autoDownloadMaxBytes` (§15), otherwise on a user click — so declining a large
   file means never fetching it: the receive row goes DECLINED locally and nothing goes on the wire. Each
   device decides on its own (no to 100 GB on the phone, yes on the PC); a user re-open fetches it later.
-- **Completeness → READY.** Coverage of `[0, totalBytes)` with the last block verified → **atomic rename →
+- **Completeness → READY.** Coverage of `[0, totalBytes)` — the sealed oracle's value — with the last block
+  verified → **atomic rename →
   status READY**. No final pass: every block was verified on the way. Never READY with an unverified block. On
-  READY the receiver sends **COMPLETE to every live transfer author** (from its incoming-transfer rows); each
-  ends its transfer and cancels its deposits — COMPLETE is the cancel-on-complete. A transfer arriving for an
+  READY the receiver sends **COMPLETE to every live leg's carrier** (from its incoming rows) — the author for
+  authoring legs, each relay for its forward — **and one COMPLETE to the content author carrying its
+  `contentId`**, which resolves the whole send and cancels its deposits — COMPLETE is the cancel-on-complete.
+  A leg arriving for an
   already-READY file has its OFFER **ACKed** (never DECLINED — that would read as a refusal, §3.6), no
-  incoming-transfer row is created, and COMPLETE is sent to its author. A forwarding relay, which is not the
-  author, learns it from the DECLINED on its first chunk and drops the transfer.
+  incoming row is created, and COMPLETE is sent to its carrier. A forwarding relay
+  learns it from the DECLINED on its first chunk and drops the transfer.
 - **A file nobody references is not kept.** A small OFFER is accepted before, or without, its message, so a
   device can be handed files no message ever mentions. A receive row whose `origin_message_id` is still empty
   `fileTransferTtl` after it was created is deleted with its `.part` or finished file. v1 has no bare
@@ -694,8 +771,8 @@ branches on it.
   coverage ending at the bad block, follows the usual candidate order: every holder checks blocks as it reads (§9), so a
   rotten copy stops at its source whichever device is asked. After `fileHashRetryLimit` mismatches
   the file is FAILED.
-- **Progress ACKs** (coverage in the transfer's own chunk indices, capped, §3.2) flow back to each transfer's
-  pusher. Chunk `k` is covered iff `(k + 1) × chunkSize <= P` or `P == totalBytes`; a duplicate chunk
+- **Progress ACKs** (coverage in the leg's chunk indices, capped, §3.2) flow back to each leg's
+  sender. Chunk `k` is covered iff `(k + 1) × chunkSize <= P` or `P == totalBytes`; a duplicate chunk
   is answered with the same coverage ACK (the sender's window only advances on ACKs).
 - **The gap trigger.** If P does not advance for `fileStallTimeout` (minutes — deliberately beyond the
   sender's `chunkAckTimeout` so the push machinery acts first), the
@@ -765,14 +842,14 @@ files get their bytes.
   file ends the transfer with a CANCEL (a fetch with an `ABORT`); the holder treats the file as not held (a reference
   becomes
   SOURCE_LOST, §10) and DECLINEs later REQUESTs for it.
-- For a small file, the serving device (any holder: original sender, sibling that completed) re-runs the push engine
-  with a **fresh
-  `transferId` and a fresh key**, covering the suffix from the floor-aligned boundary at or below the
+- For a small file, the serving device (any holder: original sender, sibling that completed) mints a **fresh
+  content** — its own `contentId`, key and sealed half, sealed to the requester — carried by a fresh
+  `transferId` leg, covering the suffix from the floor-aligned boundary at or below the
   requester's lowest missing byte (§3.4). Mixed chunkings are correct — the receiver is param-agnostic.
-- **One live transfer per (`fileId`, target device) at a serving device.** A REQUEST that reaches a device
+- **One live content per (`fileId`, target device) at a serving device.** A REQUEST that reaches a device
   already pushing that file to the requester (a late OFFER after the grace period, a stalled push) supersedes
-  it: the old transfer is CANCELled and the serve starts fresh from the held coverage. Never two parallel
-  transfers of one file from one device to one device.
+  it: the old content's legs are CANCELled and the serve starts fresh from the held coverage. Never two parallel
+  contents of one file from one device to one device.
 - The candidate-asking loop is **a shared core with two executors** (`routing/candidate`): sync and small
   file requests queue outbox attempts, while large-file fetches run as bounded concurrent calls (`maxConcurrentFetches`
   at a time). Each request class has its own core instance over its own due query (`SMALL` vs `LARGE` rows). A satisfied
@@ -841,12 +918,14 @@ redesign, kotlinx-io issue #241) but not shipped, so the design needs it only fo
 
 **Two grains, one seam:**
 
-- **Routing owns the `transferId` grain** — device vocabulary: the per-device fan-out, per-transfer chunk
-  parameters, per-depot resume points (the pusher's state, restart-recoverable from its rows plus the
-  outbox), the incoming-transfer rows, chunk encryption and decryption, sealed-half protection and every transfer key,
+- **Routing owns the `contentId`/leg grain** — device vocabulary: the per-device fan-out, per-content chunk
+  parameters (one key, one sealed half per send, shared by every leg), per-depot resume points (the pusher's state,
+  restart-recoverable from its rows plus the
+  outbox), the incoming rows and the opened content, chunk encryption and decryption, sealed-half protection and every
+  content key,
   **all
-  transfer signaling** — OFFER, CHUNK, ACK, COMPLETE and CANCEL travel between the two devices that
-  participate in the transfer — the relay store, and the request attempts. For large files it owns the fetch
+  transfer signaling** — OFFER, CHUNK, ACK, COMPLETE and CANCEL travel between the devices of each
+  hop — the relay store, and the request attempts. For large files it owns the fetch
   channel (§6.6): opening the session and the channel, the frames, the credit window — device and channel
   vocabulary, with no table.
 - **The orchestrator owns the `fileId`/account grain** — file vocabulary: send rows per (file, peer account),
@@ -858,24 +937,24 @@ redesign, kotlinx-io issue #241) but not shipped, so the design needs it only fo
   device"), never as *addresses* — replies are routing-owned signaling.
 
 The precedent is the message path: the router fans out per device and the orchestrator never addresses one;
-files push the same line one step further (transfer state itself is device-grain, so it lives routing-side).
+files push the same line one step further (content state itself is device-grain, so it lives routing-side).
 A headless relay node's orchestrator (file service, REQUEST logic, GUI progress) is completely uninvolved in
 forwarding. Serve-on-REQUEST is the one relay-node case that *is* orchestrator business (we hold the file →
 own traffic → our row, account-grain, pushed through the same machinery).
 
 ### Module layout
 
-| Layer                       | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `protocol`                  | `FileEnvelope` rework (§3.2: `transferId`-addressed control packets, chunk-index ACK, sealed byte-coverage REQUEST, the block list in the sealed OFFER half), `Text.attachments` (§3.1, breaking, payload header version 3), the `fileId` construction, the block-size rule and `smallFileMaxBytes` until the network config exists (§1, §2), the fetch frames (§6.6), codecs + round-trip tests, observability profile update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `crypto`                    | incremental SHA-256 on `CryptoProvider` (init/update/final, §2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `protection`                | `FileEnvelopeProtection` (§4): ratchet-sealed OFFER half and REQUEST, per-transfer chunk AEAD and signing (small path only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `routing`                   | the push engine (`file/push`): per-device fan-out + per-transfer actors, cutting and protecting chunks from `FilePlaintextSource`, relay forwards over the DB chunk source; the fetch (`file/fetch`, §6.6): both ends of the fetch channel, credit window, frames passed straight to the transport; the relay door (admission/park) + `FileIncomingTransfers` (the target side's per-transfer rows); a thin `FileInboundHandler` dispatching local envelopes to the target/serve handlers and foreign ones to the door; `FileCarrier` port on `Router` + account-level file events; the `FilePlaintextSource` port (orchestrator implements it); the file request processor on the shared candidate core (a large request opens a session and a fetch channel); `OutboxTag.Kind.FILE_PUSH`/`FILE_FORWARD`; `packetId` on `OutboxOutcome`; the outbox changes of §6.2 (blob-less due query, messages first, FILE retry policy); per-kind relay backup (markers message-backed, chunks never) and the gone-only deposit triggers (§6.3) |
-| `orchestrator/file`         | the file machinery: `FileIds` block hashing, classification, descriptor creation, the block-checking plaintext source, the file store (copies and references, quota and retention, §10), the receive engine (coverage, staging, checkpoints, block verification, ready), the auto-download decision, the REQUEST trigger + coordinator, serve-on-REQUEST and serve-on-fetch with the serve gate (account-level); stores: `file_descriptors`, `file_receives`, `file_receive_chunks`, `pending_file_requests`; the DAG gains `message_attachments`; the transfer enums move out of `persistence/DatabaseEnums.kt` to the owning stores                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `orchestrator/runtime/file` | the GUI-facing file facade: `FileTransferService` (`receiveState`, `localFilePath`, `acceptFile`, `declineFile`) over `orchestrator/file` — sending goes through `MessagingService.sendMessage` with picked files (no separate file-send entry point, §10); progress display and open land with the GUI surface — the runtime stays the GUI's whole API ([`../gui-api.md`](../gui-api.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `transport/webrtc`          | a file channel kind opened per fetch by either side (the backend already multiplexes by label: envelope and AV channels), carrying raw frames instead of `BinaryEnvelope`s; `bufferedAmount` low-threshold exposure; channel close events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `orchestrator/file/io`      | chunk-shaped read/write boundary over kotlinx.io, plus the positioned read (`expect`/`actual`, §11)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `wiring`                    | `FileLimits` (derived chunk size, chained like `MessageLimits`), config wiring incl. the storage-pledge split                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Layer                       | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `protocol`                  | `FileEnvelope` rework (§3.2: `transferId`-addressed control packets, chunk-index ACK, sealed byte-coverage REQUEST, the block list in the sealed OFFER half), `Text.attachments` (§3.1, breaking, payload header version 3), the `fileId` construction, the block-size rule and `smallFileMaxBytes` until the network config exists (§1, §2), the fetch frames (§6.6), codecs + round-trip tests, observability profile update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `crypto`                    | incremental SHA-256 on `CryptoProvider` (init/update/final, §2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `protection`                | `FileEnvelopeProtection` (§4): ratchet-sealed OFFER half and REQUEST, per-content chunk AEAD and signing (small path only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `routing`                   | the file service (`file/FileService`, the `FileCarrier` itself): the push engine (`file/push`): per-device fan-out + per-leg actors over one shared content per send, cutting and protecting chunks from `FilePlaintextSource`, relay forwards over the DB chunk source (re-signed under a minted id); the fetch (`file/fetch`, §6.6): both ends of the fetch channel, credit window, frames passed straight to the transport; the relay door (admission/park) + `FileIncomingTransfers` (the target side's per-leg rows and the opened content); the file inbound face under `file/inbound` (`FileInboundHandler` dispatching local envelopes to the target/serve handlers and foreign ones to the door); the `FilePlaintextSource` port (orchestrator implements it); the file request processor on the shared candidate core (a large request opens a session and a fetch channel); `OutboxTag.Kind.FILE_PUSH`/`FILE_FORWARD`; `packetId` on `OutboxOutcome`; the outbox changes of §6.2 (blob-less due query, messages first, FILE retry policy); per-kind relay backup (markers message-backed, chunks never) and the gone-only deposit triggers (§6.3) |
+| `orchestrator/file`         | the file machinery: `FileIds` block hashing, classification, descriptor creation, the block-checking plaintext source, the file store (copies and references, quota and retention, §10), the receive engine (coverage, staging, checkpoints, block verification, ready), the auto-download decision, the REQUEST trigger + coordinator, serve-on-REQUEST and serve-on-fetch with the serve gate (account-level); stores: `file_descriptors`, `file_receives`, `file_receive_chunks`, `pending_file_requests`; the DAG gains `message_attachments`; the transfer enums move out of `persistence/DatabaseEnums.kt` to the owning stores                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `orchestrator/runtime/file` | the GUI-facing file facade: `FileTransferService` (`receiveState`, `localFilePath`, `acceptFile`, `declineFile`) over `orchestrator/file` — sending goes through `MessagingService.sendMessage` with picked files (no separate file-send entry point, §10); progress display and open land with the GUI surface — the runtime stays the GUI's whole API ([`../gui-api.md`](../gui-api.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `transport/webrtc`          | a file channel kind opened per fetch by either side (the backend already multiplexes by label: envelope and AV channels), carrying raw frames instead of `BinaryEnvelope`s; `bufferedAmount` low-threshold exposure; channel close events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `orchestrator/file/io`      | chunk-shaped read/write boundary over kotlinx.io, plus the positioned read (`expect`/`actual`, §11)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `wiring`                    | `FileLimits` (derived chunk size, chained like `MessageLimits`), config wiring incl. the storage-pledge split                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 Within the orchestrator the split follows the layer's own shape: the machinery is `orchestrator/file`, a
 domain package beside `dag` and `sync`, and the GUI reaches it only through `FileTransferService` in
@@ -890,14 +969,15 @@ session state, because accepting is the requester's local decision (§8).
 
 ## 13. Database sketch
 
-Final DDL lands with implementation; every schema change ships with a migration (guide §4).
+Final DDL lands with implementation; every schema change ships with a migration (guide §4) — the file tables
+have shipped to no install, so their v1 migration is edited in place rather than extended.
 
 ```
 -- orchestrator (own traffic — file/account grain; transfers never model message linkage, files do)
 message_attachments (         -- DAG-owned, filled at ingest: the serve gate's fileId → message index
   message_id TEXT, file_id TEXT, PRIMARY KEY (message_id, file_id)   -- + index on file_id
 )
-file_descriptors (            -- the permanent store index: what we hold (no key: keys are per transfer)
+file_descriptors (            -- the permanent store index: what we hold (no key: keys are per content)
   file_id TEXT PK, file_name TEXT, mime_type TEXT,
   total_bytes INT, block_size INT, block_hashes BLOB,   -- the block list (§2), sent in every OFFER
   storage TEXT,               -- COPY (in the store) | REFERENCE (the original in place, §10)
@@ -925,13 +1005,16 @@ file_receive_chunks (         -- staging is the chunk tracker: staged, not-yet-d
 )
 pending_file_requests (file_id TEXT PK, status TEXT, next_attempt_at, …)
 
--- routing (transferId grain: pushing, forwarding, asking)
-file_pushes (                 -- the push engine's per-device transfer state (small path; a large fetch has no row)
-  transfer_id TEXT PK, file_id TEXT, target_device TEXT, via_relay TEXT NULL,
+-- routing (content ids + per-hop transfer ids: pushing, forwarding, asking)
+file_pushes (                 -- the push engine's per-leg state (small path; a large fetch has no row)
+  transfer_id TEXT PK,        -- this leg's routing id: one per direct push, one per deposit relay
+  content_id TEXT,            -- the send's end-to-end identity: every leg of one send shares it (§2)
+  file_id TEXT, target_device TEXT, via_relay TEXT NULL,
                         -- via_relay: outer envelope target for DEPOSIT rows (the relay);
                         -- NULL for DIRECT/SERVE (outer == target_device)
   kind TEXT,                  -- DIRECT | DEPOSIT | SERVE
-  key BLOB,                   -- this transfer's own key
+  key BLOB,                   -- the content's key: minted once per send, shared by every leg (deposits copy)
+  sealed_offer BLOB NULL,     -- the content's sealed half, built once (§3.3); claimed once, copied to legs
   chunk_size_bytes INT, start_index INT, …               -- the covered suffix; resume derives
   status …,                   -- CREATED | IN_FLIGHT | COMPLETED | ENDED | EXPIRED | DECLINED | CANCELLED (§14)
   created_at, expires_at, deposited_at NULL              -- the deposit round claim (one round, §6.4)
@@ -941,15 +1024,17 @@ file_push_chunks (            -- chunk index recovery across restarts: packetId 
 )
 -- No file_transfers table: per-account send state is a routing query over file_pushes
 -- (non-DEPOSIT rows, same aggregation as the events; FileCarrier.sendState).
-file_incoming_transfers (     -- the receiver's per-transfer rows: chunk mapping, decryption, COMPLETE targets
-  transfer_id TEXT PK, file_id TEXT, author_device TEXT,
+file_incoming_transfers (     -- the receiver's per-leg rows; content fields come from the opened content (§8)
+  transfer_id TEXT PK, content_id TEXT, file_id TEXT, author_device TEXT,
   key BLOB, chunk_size_bytes INT, total_bytes INT, start_index INT,
+                              -- key/chunking/total: the opened content's (the sealed oracle), cloned per leg
   created_at, expires_at       -- dropped on end: COMPLETE sent, CANCEL, expiry
 )
 file_relay_transfers (
   transfer_id TEXT PK, source_device, target_device,
   chunk_size_bytes INT, total_bytes INT, start_index INT,   -- covered suffix, wholeness derived
-  offer_payload BLOB,                                       -- replayed verbatim on forward
+  offer_payload BLOB,                                       -- the stored OFFER payload, re-wrapped on forward
+  forward_transfer_id TEXT NULL,                            -- minted at WHOLE: the forward leg's routing id (§7.2)
   status TEXT,                                              -- RESERVED | WHOLE | FORWARDING | STREAMING
                                                           -- (rows are deleted when drained, declined, expired or
                                                           -- evicted: forget after delivery, never DRAINED/EXPIRED)
@@ -980,10 +1065,12 @@ See [`transfer states.mmd`](transfer%20states.mmd). Compact listing:
   block list checked) → done (READY, channel closed) / ended (`FETCH_DECLINED`, session or channel dropped,
   `ABORT` from the receiver's gap trigger, or a block mismatch at the source). No row on either end: an ended
   fetch is forgotten, and the next one starts from the checkpointed P.
-- **Incoming transfer (`transferId`-scoped, routing)**: ACTIVE (OFFER processed) → dropped on COMPLETE sent,
+- **Incoming leg** (`transferId`-scoped, routing): ACTIVE (OFFER processed — the first per content opens it,
+  later ones clone from the opened content, §8) → dropped on COMPLETE sent,
   CANCEL either way, or expiry. The gap trigger does not end it (§8).
 - **Receiver (`fileId`-scoped)**: an accepted OFFER starts IN_FLIGHT (`.part` reserved) → READY (coverage
-  complete, last block verified, P committed at the total, renamed, COMPLETE to live authors); IN_FLIGHT →
+  complete, last block verified, P committed at the total, renamed, COMPLETE per live leg's carrier and to
+  the content author); IN_FLIGHT →
   STALLED on a block mismatch below `fileHashRetryLimit` (`.part` truncated to the block's start), FAILED at
   the limit; DECLINED when there is no space (at the OFFER, or when a drain or fetch write no longer fits) or
   for a large file this device did not fetch — local, re-openable by the user; IN_FLIGHT → **STALLED** (no
@@ -992,7 +1079,7 @@ See [`transfer states.mmd`](transfer%20states.mmd). Compact listing:
   write); READY → **EVICTED** (quota LRU; fetched again only on a user re-open); a READY file whose stored
   copy was lost (its descriptor no longer HELD) is received again from scratch; IN_FLIGHT that never
   progresses expires → the REQUEST trigger re-opens.
-- **Relay transfer**: RESERVED (admitted) → WHOLE (covered suffix complete) → FORWARDING (marker
+- **Relay transfer**: RESERVED (admitted) → WHOLE (covered suffix complete; forward id minted) → FORWARDING (marker
   queued) → STREAMING (marker ACKed, chunks queued); deleted when drained, declined, expired, evicted or
   cancelled (forget after delivery — no DRAINED/EXPIRED states); **dropped when the target DECLINED
   the forwarded OFFER**.
@@ -1033,13 +1120,14 @@ Per guide §2, each layer's config type lives next to its code:
   file relay-store budget, each keeping its own eviction semantics (per-row LRU vs whole-transfer LRU). Our
   own outbox rows are **never** part of the pledge (a user's undelivered traffic is not network charity).
   Relay-profile presets (tens of GB for always-on nodes) are deferred (§18).
-- **Config invariant: `fileTransferTtl < supersededSessionRetention`** (2 days < 3 days) — the ratchet-sealed
-  OFFER half must stay decryptable for the whole transfer TTL. `supersededSessionRetention` is e2ee.md's
+- **Config invariant: `fileTransferTtl < supersededSessionRetention`** (2 days < 3 days) — a send's one sealed
+  half must stay decryptable for the whole transfer TTL. `supersededSessionRetention` is e2ee.md's
   superseded-generation retention, renamed to Duration form and bumped from 2 days (see the planned note
   there). Skipped-key limits within a chain are not covered by it — an accepted edge the pull path recovers (§3.3).
 - Derived in wiring (`FileLimits`, chained from the transport backend configs like `MessageLimits`):
   `chunkSizeBytes ≈ 249.5 KiB` (255,525 bytes at the default 256,000-byte frames), at least the protocol's
-  64 KiB minimum chunk; each transfer snapshots the current derived value at creation (§2).
+  64 KiB minimum chunk; each send snapshots the current derived value at content creation, and every leg of the
+  send shares it (§2).
 - **Not config**: the block-size rule and the `fileId` version tag (§2) are protocol constants — every device
   must compute the same `fileId` for the same bytes.
 - Startup checks: `maxStagedBytes ≥ fileCheckpointBytes` (staging must hold a checkpoint's worth) and
@@ -1053,40 +1141,46 @@ Per guide §2, each layer's config type lives next to its code:
 
 1. Anything a relay pushes is whole — count-based check over the covered suffix; this is the ceiling by
    design (the relay cannot and must not verify content).
-2. One relay hop, ever: deposits happen only at a transfer's authoring device (a serve is an authoring
+2. One relay hop, ever: deposits happen only at a send's authoring device (a serve is an authoring
    device too), redundancy is parallel (same covered set at every policy-selected relay), forwarding relays
    never re-deposit, the sender never chases a failing relay.
 3. Relays are not REQUEST candidates; relays forget after delivery.
 4. Never READY without full byte coverage and every block verified; P is never committed past an unverified
    block. A mismatch is a failed attempt costing one block, retried a bounded number of times.
-5. A transfer's key travels only inside its OFFER's ratchet-sealed half — never in messages, never in the
-   clear — and lives no longer than its transfer. Only routing and protection ever hold one.
-6. Key and chunk parameters are per transfer; chunk AEAD binds (`transferId`, `chunkIndex`) as AAD. Nothing
-   relies on ciphertext being reproducible.
-7. Covered sets are contiguous suffixes in the transfer's own chunking; per-depot engine state is one resume
+5. A content's key travels only inside its OFFER's ratchet-sealed half — never in messages, never in the
+   clear — and lives no longer than its content (the send's TTL). Only routing and protection ever hold one.
+6. Key and chunk parameters are per content — one key, one chunking, one sealed half per send, shared by
+   every leg of that send; chunk AEAD binds (`contentId`, `chunkIndex`) as AAD, so legs are interchangeable
+   and nothing crosses contents. Nothing relies on ciphertext being reproducible.
+7. Covered sets are contiguous suffixes in the content's chunking (uniform across legs); per-depot engine
+   state is one resume
    point.
 8. The marker is establishment-only; ACK = processed: an outbox chunk is processed when decrypted and durably
    staged; a fetch's `PROGRESS` is sent only after the fsync and the P commit (§8).
-9. Receiver file state is `fileId`-scoped byte coverage — transfer- and chunking-agnostic; each incoming
-   transfer is its own `transferId`-scoped row; relay state is `transferId`-scoped.
+9. Receiver file state is `fileId`-scoped byte coverage — content- and chunking-agnostic; the opened content
+   is `contentId`-scoped (answered once, cloned per leg); each incoming leg is its own `transferId`-scoped
+   row; relay state is per-hop `transferId`-scoped.
 10. One REQUEST candidate at a time.
 11. STALLED / EXPIRED are re-requestable; DECLINED / CANCELLED / FAILED / EVICTED are refused — never
     auto-resurrected. The gap trigger opens a REQUEST and cancels no transfer.
-12. The relay verifies the original sender's signature on OFFER and CHUNK before storing anything; chunks
+12. The relay verifies the original sender's signature on OFFER and CHUNK before storing anything — and a
+    chunk whose header `contentId` does not match the stored OFFER's is DECLINED at the door, never stored;
+    chunks
     without a live transfer row are DECLINED at the door, never stored.
 13. Transfers are temporary (`fileTransferTtl`); files stay.
-14. A transfer's chunks flow only after its OFFER was processed by the target (§3.5).
+14. A leg's chunks flow only after its OFFER was processed by its receiver (§3.5).
 15. Any DECLINED touching a transfer cleans up that party's state for it; only the target's DECLINED **on an
     OFFER** is terminal for the send to that device — a DECLINED on a chunk ends the transfer quietly as
     ENDED (§3.6). A sender transfer is COMPLETED only by a COMPLETE.
-16. Transfers are device-to-device; the orchestrator speaks files and accounts, routing fans out and signals
+16. Each leg is device-to-device; the orchestrator speaks files and accounts, routing fans out and signals
     per device.
 17. In envelopes the `fileId` travels only in the OFFER's sealed half and the sealed, direct-only REQUEST;
-    every other FILE envelope is addressed by `transferId`. Outside envelopes it appears only in a fetch's
+    every FILE envelope is addressed by its leg's `transferId` and carries its send's `contentId` (clear,
+    opaque — it names a send, never the file). Outside envelopes it appears only in a fetch's
     `FETCH` frame, inside the DTLS channel to the one peer device.
 18. Every serve passes the serve gate: the requester's account must see a message referencing the `fileId`.
-19. One sealed OFFER per transfer, and one transfer per relay deposit; at a serving device, one live transfer
-    per (`fileId`, target device).
+19. One sealed half per content — opened once at the target, cloned per leg thereafter; one deposit leg per
+    relay per round; at a serving device, one live content per (`fileId`, target device).
 20. Large files are pull-only: nothing large is sent unasked; the receiving device decides to fetch, and
     declining is local. `smallFileMaxBytes` is one value for the whole network.
 21. A fetch lives within one data channel of one WebRTC session; it never waits for a session and never goes
@@ -1099,6 +1193,10 @@ Per guide §2, each layer's config type lives next to its code:
 24. Chunk rows deposit only on signals that the target is gone (link closed, no link, no chunk ACK at all
     within `chunkAckTimeout`) — never on one slow or retried chunk (§6.3).
 25. A received file that no message references within `fileTransferTtl` is deleted (§8).
+26. A relay signs what it carries, never what it reads: deposit legs are author-signed (verified at the
+    door, §7.1), forwards are relay-signed carriers of author-encrypted content under a freshly minted
+    `transferId`; the sealed half and the chunk AEAD authenticate the content end-to-end, and a carrier's
+    signature vouches only for delivery.
 
 ## 17. Rejected alternatives
 
@@ -1107,13 +1205,13 @@ Recorded so they are not relitigated:
 - **Whole file as one packet** — transport frame caps (250 KiB WebRTC, 4 MB Tor) make it impossible; chunking
   everywhere.
 - **Chunk content through the Double Ratchet** — ratchet state explosion, `MAX_SKIP` bounds, chain breakage
-  for interleaved messages; a per-transfer symmetric key instead.
+  for interleaved messages; a per-content symmetric key instead.
 - **A key in the message plaintext** — transfers must be self-contained; the OFFER's sealed half is the
   single key carrier (§3.3).
 - **One key per file with deterministic per-range ciphertext** — the original design: it needed range-derived
   nonces to avoid nonce reuse across chunkings, keys stored with the file and re-sealed on every serve, and
   broke outright when two senders of the same file generated two keys. Cross-holder ciphertext identity
-  bought nothing the receiver's plaintext coverage doesn't already give; per-transfer keys instead (§4).
+  bought nothing the receiver's plaintext coverage doesn't already give; per-content keys instead (§4).
 - **`fileId`-keyed control packets** — ACKs to a forwarding relay would hand it the plaintext hash; control
   packets are addressed by `transferId` (§3.2).
 - **Keeping incoming-transfer rows to answer late chunks** — any retention window can be outlived by one more
@@ -1153,7 +1251,7 @@ Recorded so they are not relitigated:
   may equally mean it stalled or expired there; that outcome is ENDED (§3.6).
 - **Receiver-side chunk-parameter enforcement** — byte coverage (§8) makes mixed chunkings contribute instead
   of conflict; rejecting useful data on principle buys nothing (the block hashes are the gate). Chunk parameters
-  are snapshotted per transfer and never compared across transfers.
+  are snapshotted per content and never compared across contents.
 - **One staging table for relay and receive** — one owner per table (guide §4), and ciphertext for foreign
   traffic never mixes with own plaintext; the two stores share a shape, never a table (§13).
 - **The OFFER as the REQUEST's ACK** — outbox rows must leave through their own disposition, not an
@@ -1179,6 +1277,18 @@ Recorded so they are not relitigated:
   32 KiB, small enough to send whole in every OFFER.
 - **One fsync per chunk** — ~230 a second at 50 MB/s; checkpoints batch them (§8).
 - **Always copying into the store** — doubles 100 GB on disk; the user picks copy or reference (§10).
+- **Per-relay sealed OFFERs (the pre-separation design)** — one `transferId` carried both hop-routing and
+  content identity, so sharing one sealed half across relays would fail the second forward as a ratchet
+  replay; the fix cost one ratchet message and one key per relay per send. Splitting the identities (a clear
+  `contentId` per send, per-content key and AAD, §2) makes duplicate suppression key on the content, so the
+  shared sealed half is safe (§3.3, §8) and per-hop transferIds cost nothing.
+- **Verbatim-replayed signatures on forwards** — "the relay is never a signature author" bought nothing once
+  content authenticity rides the ratchet and the AEAD; re-signing makes the forward a clean per-hop carrier
+  under a freshly minted id (§7.2). The inverse of message transit, where the carrier is unauthenticated and
+  the content is signed inside.
+- **One deposit row per round (a depot table)** — an intermediate draft of the separation modeled the round
+  as a single sender row with per-relay depots; per-relay legs sharing one content keep the existing
+  per-leg row model with no new sender-side tables (§6.4).
 
 ## 18. Deferred
 
@@ -1267,9 +1377,18 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
   for an unknown or unprocessed `transferId` is never ACKed or stored (target and relay — the §3.5 negative).
 - OFFER sealed-half late decrypt: the session superseded mid-hold; the retention invariant
   (`fileTransferTtl < supersededSessionRetention`) keeps it decryptable at the TTL edge.
-- Same file at one relay under two transferIds: different keys and ciphertext, independent rows, both
+- Same file at one relay under two contents: different keys and ciphertext, independent rows, both
   forward.
-- Relay deposit round to two relays: two transferIds, two sealed OFFERs, both forwards decrypt at the target.
+- Relay deposit round to two relays: one sealed half, one key; two legs and two minted forward ids — the
+  first forward processed opens the sealed half, the second clones from the opened content, and both streams
+  merge at the target.
+- Direct OFFER arriving after a forward: same `contentId` — a cloned row, no second ratchet open, chunks
+  merge by coverage.
+- Straggler forward after the content's rows ended: its OFFER is processed fresh, the sealed-half open fails
+  closed (`PERMANENT`) and that leg ends — the file was already delivered, no state corrupted.
+- Forwarded envelopes: the signature verifies against the relay device; the content decrypts under the
+  content key.
+- A chunk with the right `transferId` but a wrong header `contentId` is DECLINED at the door, never stored.
 - Block mismatch: `.part` truncated to the bad block's start, earlier blocks kept → STALLED → re-REQUEST (usual
   candidate order) → FAILED after `fileHashRetryLimit`; a holder with a rotten block ends the serve at that
   block and declines later REQUESTs.
@@ -1287,8 +1406,8 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
 
 | Existing                                                                               | Disposition                                                                                                                                                                   |
 |----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `protocol/envelopes/FileEnvelope.kt` (+ codec test)                                    | reworked per §3.2 (coverage-based ACK/REQUEST, suffix OFFER, dropped wire types); observability profile revisited                                                             |
-| `protection/envelope/FileEnvelopeProtection.kt`, `SignedAndEncryptedFileProtection.kt` | the file port and its implementation on `BaseProtection` (ratchet-sealed OFFER half and REQUEST, per-transfer chunk AEAD)                                                     |
+| `protocol/envelopes/FileEnvelope.kt` (+ codec test)                                    | reworked per §3.2 (coverage-based ACK/REQUEST, suffix OFFER, `contentId` header, dropped wire types); observability profile revisited                                         |
+| `protection/envelope/FileEnvelopeProtection.kt`, `SignedAndEncryptedFileProtection.kt` | the file port and its implementation on `BaseProtection` (ratchet-sealed OFFER half and REQUEST, per-content chunk AEAD; the sealed half built once per send and persisted)   |
 | `crypto/primitives/CryptoProvider` (`sha256`, `encryptAead`)                           | `encryptAead` reused unchanged (chunk AEAD with library IV + AAD, §4); gains an incremental SHA-256 for block hashing (§2)                                                    |
 | `routing/inbound/handlers/FileInboundHandler.kt` (stub)                                | real logic per §7 (relay) and §8 (target: synchronous ingest port)                                                                                                            |
 | `persistence` `file_transfers`, `file_chunk_tracker`, `spaces` (placeholders)          | reworked and regrained per §13 (orchestrator: file/account grain; routing: transferId grain); `spaces` untouched by this design                                               |
@@ -1297,7 +1416,7 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
 | `routing/outbound/RelayDepositor.kt`, `OutboxProcessor` triggers                       | the trigger policy extracted for shared use; the marker uses the message triggers, chunk rows their own set (§5, §6.3)                                                        |
 | `routing/store/PacketOutbox.kt` (`OutboxTag`), `Outbox.sq`, `OutboxProcessor`          | new `Kind.FILE`; `OutboxOutcome` gains `packetId`; the due query stops loading blobs and orders messages first; FILE rows get a flat retry (§6.2)                             |
 | `routing/policy/LinkPreferencePolicy.kt` (retry delays)                                | unchanged for messages; chunk rows do not use its `fastRetryBudget` / `standbyRetryDelay` (§6.2)                                                                              |
-| `routing/outbound/ProactiveSessionOpener.kt` (`awaitSession`)                          | used as it is to open a session for a large fetch; its doc's "fallback to Tor" for files is removed (§6.6)                                                                    |
+| `routing/link/LinkKeeper.kt` (`await`)                                                 | used as it is to open a session for a large fetch; its doc's "fallback to Tor" for files is removed (§6.6)                                                                    |
 | `protocol/envelopes/MessageEnvelope.kt` (`Text`, `PAYLOAD_HEADER_VERSION`)             | `Text` gains `attachments` in the signed bytes; the header version goes 2 → 3; test data is reset (§3.1)                                                                      |
 | `JvmWebRtcBackend` channel labels (`envelope`, `av`)                                   | add a per-fetch file channel kind carrying raw frames, `bufferedAmount` low-threshold (the `onBufferedAmountChange` hook exists, unused) and channel close events (§6.6, §12) |
 | `wiring/MessageLimits.kt`                                                              | joined by `FileLimits` (derived chunk size) and the storage-pledge split (§15)                                                                                                |

@@ -369,8 +369,9 @@ Working:
 - Global chain (accounts, devices, admin roles), rooms with a membership fold, the message DAG and sync.
 - Onboarding by invite, adding devices, recovery.
 - Small-file transfer, both paths: direct push, REQUEST/serve pull path, relay deposits
-  with store-and-forward, stall deposit and the receiver gap trigger, receive engine with
-  file store (per-transfer keys via `TransferKey`, hardened codecs); large files pull-only over WebRTC data channels
+  with store-and-forward (one content per send — a single key and sealed half shared by every leg, forwards
+  re-signed under minted ids), stall deposit and the receiver gap trigger, receive engine with
+  file store (per-send keys via `TransferKey`, hardened codecs); large files pull-only over WebRTC data channels
   (fetch protocol, no envelopes, no keys — DTLS plus the block list — and the receive engine shared with small files).
 - Compose desktop GUI.
 
