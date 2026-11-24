@@ -1,8 +1,8 @@
 package org.yapyap.routing.inbound
 
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -10,19 +10,30 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.ping.PingProvider
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.outbound.EnvelopeDispatcher
+import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
+import org.yapyap.routing.presence.PingProvider
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
-import org.yapyap.routing.router.FakeSyncPayloadProvider
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
-import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RouterTransport
-import org.yapyap.routing.sync.SyncHandler
-import org.yapyap.sync.FakePeerAvailabilityStore
-import org.yapyap.sync.buildSyncRoutingStack
-import org.yapyap.sync.testDeviceIdentity
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -44,41 +55,65 @@ class InboundDedupClearTest {
     @Test
     fun throwingHandler_clearsDedup_retryIsHandledAndAcked() = runBlocking {
         val clock = FakeClock(now)
-        val stack = buildSyncRoutingStack(
-            localDevice = testDeviceIdentity(localDevice),
+        val local = DeviceIdentity(
+            localDevice,
+            SigningPublicKey(byteArrayOf(1)),
+            EncryptionPublicKey(byteArrayOf(2)),
+        )
+        val identity = FakeIdentityResolverForRouter(
+            localDevice = local,
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
             torByPeer = mutableMapOf(remoteDevice to TorEndpoint("remote.onion", 80)),
-            clock = clock,
         )
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
+        val config = MutableStateFlow(RouterConfig())
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = localDevice,
+            devices = identity,
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
+            clock = clock,
+            routerConfig = config,
+        )
+        val dedup = InMemoryPacketDeduplicator()
+        val dispatcher = EnvelopeDispatcher(ctx, identity)
+        val policy = LinkPreferencePolicy(config)
+        val outboxProcessor = outboxProcessorUnderTest(
+            tor = tor,
+            webRtc = webRtc,
+            identity = identity,
+            clock = clock,
+            routerConfig = config.value,
+        )
+        val systemSender = SystemSender(ctx, policy, dispatcher, dedup)
         var calls = 0
         val handler = InboundEnvelopeHandler {
             calls++
             if (calls == 1) throw IllegalStateException("boom")
             InboundHandleResult.Success()
         }
-        val config = MutableStateFlow(RouterConfig())
         val availability = PeerAvailabilityRegistry(clock, config, FakePeerAvailabilityStore())
         val processor = InboundEnvelopeProcessor(
-            ctx = stack.ctx,
-            systemSender = stack.systemSender,
+            ctx = ctx,
+            systemSender = systemSender,
+            routes = identity,
+            packetDeduplicator = dedup,
             handlers = mapOf(PacketType.MESSAGE to handler),
-            outboxProcessor = stack.outboxProcessor,
-            syncHandler = SyncHandler(
-                stack.ctx,
-                stack.outboundMessenger,
-                FakeSyncPayloadProvider(),
-                stack.systemSender
-            ),
+            outboxProcessor = outboxProcessor,
             peerAvailabilityRegistry = availability,
             pingProvider = PingProvider(
-                stack.ctx,
+                ctx,
                 config,
-                MutableSharedFlow(extraBufferCapacity = 1),
                 FakeFrontierSnapshotProvider(),
-                stack.systemSender,
+                systemSender,
                 availability,
             ),
-            onSyncDeclined = { _, _ -> },
         )
         val packetId = Uuid.random()
         val inbound = BinaryEnvelope(
@@ -96,7 +131,7 @@ class InboundDedupClearTest {
         processor.handle(inbound, RouterTransport.TOR)
         assertEquals(2, calls, "the retry is handled fresh, not dropped as a duplicate")
 
-        val acks = stack.tor.sendsExcludingHeartbeat().filter { it.second.packetType == PacketType.SYSTEM }
+        val acks = tor.sendsExcludingHeartbeat().filter { it.second.packetType == PacketType.SYSTEM }
         assertEquals(1, acks.size, "only the successful handling is ACKed")
         val ack = assertIs<SystemPayload.PacketAck>(SystemEnvelope.decode(acks.single().second.payload).decodePayload())
         assertEquals(packetId, ack.packetId)

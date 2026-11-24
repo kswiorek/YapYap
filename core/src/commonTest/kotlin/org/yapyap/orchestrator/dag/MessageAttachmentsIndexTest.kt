@@ -6,7 +6,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.testfixtures.FakeCausalHoldRepository
 import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
@@ -43,7 +43,7 @@ class MessageAttachmentsIndexTest {
         )
     }
 
-    private fun attachment(i: Int) = MessagePayload.Attachment(
+    private fun attachment(i: Int) = DagPayload.Attachment(
         fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8" + "0123456789abcdef"[i % 16] + "0123456789abcdef"[(i / 16) % 16]),
         fileName = "file-$i.bin",
         mimeType = null,
@@ -55,7 +55,7 @@ class MessageAttachmentsIndexTest {
         val repo = FakeMessageRepository()
         val dag = engine(repo)
         val payload = dag.append(roomId, MessageDraft.Text("hi", listOf(attachment(0), attachment(1))))
-        val text = payload as MessagePayload.Text
+        val text = payload as DagPayload.Text
         assertEquals(2, text.attachments.size)
         for (attachment in text.attachments) {
             assertEquals(listOf(payload.messageId), repo.findMessageIdsByFileId(attachment.fileId))
@@ -66,7 +66,7 @@ class MessageAttachmentsIndexTest {
     fun orphanArrival_writesIndexRows() = runTest {
         val repo = FakeMessageRepository()
         val dag = engine(repo)
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = testAccount,
@@ -87,7 +87,7 @@ class MessageAttachmentsIndexTest {
         val repo = FakeMessageRepository()
         val dag = engine(repo)
         val payload = dag.append(roomId, MessageDraft.Text("hi", listOf(attachment(0))))
-        val text = payload as MessagePayload.Text
+        val text = payload as DagPayload.Text
         // Duplicate ingest of the same message: early dedup, no second index row.
         dag.ingest(text)
         dag.ingest(text)

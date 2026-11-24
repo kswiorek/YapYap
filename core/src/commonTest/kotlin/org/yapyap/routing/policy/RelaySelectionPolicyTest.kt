@@ -6,14 +6,16 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
-import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.sync.FakePeerAvailabilityStore
-import org.yapyap.sync.testDeviceIdentity
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -102,7 +104,7 @@ class RelaySelectionPolicyTest {
         val other = peer("other")
 
         val ctx = testRoutingContext(
-            localDevice = testDeviceIdentity(self),
+            localDevice = DeviceIdentity(self, SigningPublicKey(byteArrayOf(1)), EncryptionPublicKey(byteArrayOf(2))),
             peersByAccount = mapOf(
                 AccountId("acct-t") to listOf(target, sibling),
                 AccountId("acct-o") to listOf(other),
@@ -135,7 +137,7 @@ class RelaySelectionPolicyTest {
         val unknown = peer("unknown")
 
         val ctx = testRoutingContext(
-            localDevice = testDeviceIdentity(self),
+            localDevice = DeviceIdentity(self, SigningPublicKey(byteArrayOf(1)), EncryptionPublicKey(byteArrayOf(2))),
             peersByAccount = mapOf(
                 AccountId("acct-t") to listOf(target),
                 AccountId("acct-k") to listOf(known, unknown),
@@ -162,18 +164,21 @@ class RelaySelectionPolicyTest {
         peersByAccount: Map<AccountId, List<PeerId>>,
     ): RoutingContext {
         val clock = FakeClock(epochSeconds(1_000L))
+        val identity = FakeIdentityResolverForRouter(localDevice, peersByAccount)
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
         return RoutingContext(
-            localIdentity = FakeIdentityResolverForRouter(localDevice, peersByAccount),
+            localIdentity = identity,
             localDeviceId = localDevice.deviceId,
-            devices = FakeIdentityResolverForRouter(localDevice, peersByAccount),
-            routes = FakeIdentityResolverForRouter(localDevice, peersByAccount),
-            packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-            torTransport = RecordingTorTransport(),
-            webRtcTransport = RecordingWebRtcTransport(),
+            devices = identity,
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
             clock = clock,
             routerConfig = MutableStateFlow(RouterConfig()),
-            transportLimits = MutableStateFlow(testTransportLimits()),
         )
     }
 

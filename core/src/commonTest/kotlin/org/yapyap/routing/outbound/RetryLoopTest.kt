@@ -1,11 +1,14 @@
 package org.yapyap.routing.outbound
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds

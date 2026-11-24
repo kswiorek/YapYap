@@ -2,6 +2,7 @@ package org.yapyap.routing.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.persistence.Device_routes
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.PeerId
@@ -104,7 +105,7 @@ internal class DefaultDeviceRouteStore(
             queries.selectAllRoutes().executeAsList().mapNotNull { it.toAvailability() }
         }
 
-    private fun org.yapyap.persistence.Device_routes.toAvailability(): PeerAvailability? {
+    private fun Device_routes.toAvailability(): PeerAvailability? {
         if (reliability_score == null && last_seen_timestamp == null) return null
         return PeerAvailability(
             deviceId = device_id,

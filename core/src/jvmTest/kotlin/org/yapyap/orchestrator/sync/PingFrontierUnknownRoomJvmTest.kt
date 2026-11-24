@@ -1,4 +1,4 @@
-package org.yapyap.sync
+package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -7,12 +7,13 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
-import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.DatabaseConnection
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
+import org.yapyap.routing.message.FakeInboundMessagePipeline
+import org.yapyap.routing.message.RecordingSyncRouter
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.AfterTest
@@ -50,7 +51,6 @@ class PingFrontierUnknownRoomJvmTest {
             messageRepository = DefaultMessageRepository(db),
             pendingSyncRepository = syncs,
             messageCarrier = RecordingSyncRouter().messages,
-            syncCarrier = RecordingSyncRouter().syncs,
             roomChanges = emptyFlow(),
             identityChanges = emptyFlow(),
             clock = FakeClock(epochSeconds(1_000L)),

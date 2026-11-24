@@ -5,7 +5,13 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.uuid.Uuid
 
 class SystemEnvelopeCodecTest {
@@ -51,24 +57,14 @@ class SystemEnvelopeCodecTest {
 
     @Test
     fun systemPayload_syncRequest_encodeDecode_roundTrip() {
-        val original = SystemPayload.SyncRequest(
+        val original = SyncPayload.Request(
             roomId = RoomId(Uuid.random()),
             syncId = Uuid.random(),
             missingIds = listOf(Uuid.random(), Uuid.random()),
             knownIds = listOf(Uuid.random()),
         )
-        val decoded = SystemPayload.SyncRequest.decode(original.encode())
+        val decoded = SyncPayload.Request.decode(original.encode())
         assertSyncRequestEquals(original, decoded)
-    }
-
-    @Test
-    fun systemPayload_syncNack_encodeDecode_roundTrip() {
-        val original = SystemPayload.SyncNack(
-            syncId = Uuid.random(),
-            reason = "ancestor not found",
-        )
-        val decoded = SystemPayload.SyncNack.decode(original.encode())
-        assertSyncNackEquals(original, decoded)
     }
 
     @Test
@@ -155,48 +151,6 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
-    fun systemEnvelope_full_encodeDecode_syncRequest_roundTrip() {
-        val syncRequest = SystemPayload.SyncRequest(
-            roomId = RoomId(Uuid.random()),
-            syncId = Uuid.random(),
-            missingIds = listOf(Uuid.random()),
-            knownIds = listOf(Uuid.random(), Uuid.random()),
-        )
-        val env = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(42L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = syncRequest.encode(),
-        )
-        val round = SystemEnvelope.decode(env.encode())
-        assertSystemEnvelopeEquals(env, round)
-    }
-
-    @Test
-    fun systemEnvelope_full_encodeDecode_syncNack_roundTrip() {
-        val syncNack = SystemPayload.SyncNack(
-            syncId = Uuid.random(),
-            reason = "request expired",
-        )
-        val env = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(42L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = syncNack.encode(),
-        )
-        val round = SystemEnvelope.decode(env.encode())
-        assertSystemEnvelopeEquals(env, round)
-    }
-
-    @Test
     fun systemEnvelopeKind_enum_wireValuesDistinct() {
         val wires = SystemEnvelopeKind.entries.map { it.wireValue }.toSet()
         assertEquals(SystemEnvelopeKind.entries.size, wires.size)
@@ -248,12 +202,6 @@ class SystemEnvelopeCodecTest {
             expected is SystemPayload.PacketNack && actual is SystemPayload.PacketNack ->
                 assertPacketNackEquals(expected, actual)
 
-            expected is SystemPayload.SyncRequest && actual is SystemPayload.SyncRequest ->
-                assertSyncRequestEquals(expected, actual)
-
-            expected is SystemPayload.SyncNack && actual is SystemPayload.SyncNack ->
-                assertSyncNackEquals(expected, actual)
-
             expected is SystemPayload.Ping && actual is SystemPayload.Ping ->
                 assertPingEquals(expected, actual)
 
@@ -273,16 +221,11 @@ class SystemEnvelopeCodecTest {
         assertEquals(expected.reasonText, actual.reasonText)
     }
 
-    private fun assertSyncRequestEquals(expected: SystemPayload.SyncRequest, actual: SystemPayload.SyncRequest) {
+    private fun assertSyncRequestEquals(expected: SyncPayload.Request, actual: SyncPayload.Request) {
         assertEquals(expected.roomId, actual.roomId)
         assertEquals(expected.syncId, actual.syncId)
         assertEquals(expected.missingIds, actual.missingIds)
         assertEquals(expected.knownIds, actual.knownIds)
-    }
-
-    private fun assertSyncNackEquals(expected: SystemPayload.SyncNack, actual: SystemPayload.SyncNack) {
-        assertEquals(expected.syncId, actual.syncId)
-        assertEquals(expected.reason, actual.reason)
     }
 
     private fun assertPingEquals(expected: SystemPayload.Ping, actual: SystemPayload.Ping) {

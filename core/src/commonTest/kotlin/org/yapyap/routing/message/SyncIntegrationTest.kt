@@ -1,4 +1,4 @@
-package org.yapyap.sync
+package org.yapyap.routing.message
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,20 +22,23 @@ import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.SyncPayload
+import org.yapyap.routing.policy.DefaultSyncPeerPolicy
+import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.InMemorySyncAttemptStore
+import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.SyncCarrier
-import org.yapyap.routing.sync.SyncHandler
-import org.yapyap.routing.sync.SyncRetryProcessor
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.RouterLifecycle
+import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeCausalHoldRepository
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeIdentityResolver
@@ -43,7 +46,6 @@ import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.FakeSignatureProvider
 import org.yapyap.testfixtures.NoopMessageCarrier
-import org.yapyap.testfixtures.NoopSyncCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -58,10 +60,10 @@ import kotlin.uuid.Uuid
  * End-to-end sync integration test.
  *
  * Wires the real orchestration + routing sync stack together (DagEngine, InboundMessagePipeline,
- * SyncCoordinator, SyncRetryProcessor, SyncHandler, DefaultSyncPayloadProvider) across two logical
- * nodes (local requester + remote responder) whose recording Tor transports are relayed by hand.
- * Verifies that a missing message is actually requested over the wire and, when the response is
- * ingested back, the gap is closed and the pending sync is deleted.
+ * SyncCoordinator, MessagePullProcessor, MessageService, DefaultSyncPayloadProvider) across two
+ * logical nodes (local requester + remote responder) whose recording Tor transports are relayed
+ * by hand. Verifies that a missing message is actually requested over the wire and, when the
+ * response is ingested back, the gap is closed and the pending sync is deleted.
  */
 class SyncIntegrationTest {
 
@@ -103,7 +105,6 @@ class SyncIntegrationTest {
         messageRepository = localMessageRepo,
         pendingSyncRepository = pendingRepo,
         messageCarrier = router.messages,
-        syncCarrier = router.syncs,
         roomChanges = emptyFlow(),
         identityChanges = emptyFlow(),
         clock = localTime,
@@ -113,8 +114,8 @@ class SyncIntegrationTest {
     private fun textMsg(
         messageId: Uuid = Uuid.random(),
         prevIds: List<Uuid>,
-    ): MessagePayload.Text =
-        MessagePayload.Text(
+    ): DagPayload.Text =
+        DagPayload.Text(
             messageId = messageId,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -131,7 +132,7 @@ class SyncIntegrationTest {
      */
     private suspend fun seed(
         repo: FakeMessageRepository,
-        msg: MessagePayload.Text,
+        msg: DagPayload.Text,
         isOrphaned: Boolean,
         ancestryComplete: Boolean,
     ) {
@@ -156,6 +157,24 @@ class SyncIntegrationTest {
         while (pendingRepo.all().isNotEmpty()) {
             yield()
         }
+    }
+
+    private fun messageService(stack: SyncRoutingStack, provider: DefaultSyncPayloadProvider): MessageService {
+        val lifecycle = RouterLifecycle().apply { markStarted() }
+        return MessageService(
+            ctx = stack.ctx,
+            lifecycle = lifecycle,
+            outboxProcessor = stack.outboxProcessor,
+            systemSender = stack.systemSender,
+            relaySelection = NoRelaySelection,
+            syncAttemptStore = InMemorySyncAttemptStore(),
+            syncProvider = provider,
+            peerPolicy = DefaultSyncPeerPolicy(stack.ctx),
+            maxIdlePoll = MutableStateFlow(1.seconds),
+            torLinkKeeper = stack.torLinkKeeper,
+            webRtcLinkKeeper = stack.webRtcLinkKeeper,
+            frontiers = emptyFlow(),
+        )
     }
 
     // ------------------------------------------------------------------
@@ -195,7 +214,7 @@ class SyncIntegrationTest {
                 torByPeer = mutableMapOf(localDevice to TorEndpoint("it-local.onion", 80)),
                 clock = FakeClock(epochSeconds(now)),
             )
-            val retryProcessor = SyncRetryProcessor(
+            val retryProcessor = MessagePullProcessor(
                 ctx = localStack.ctx,
                 attempts = InMemorySyncAttemptStore(),
                 syncs = DefaultSyncPayloadProvider(
@@ -204,15 +223,15 @@ class SyncIntegrationTest {
                     MutableStateFlow(OrchestratorConfig()),
                     DefaultRoomVisibility(localMessageRepo, localRoomRepo),
                 ),
-                systemSender = localStack.systemSender,
+                envelopes = localStack.outboundMessenger,
                 outboxProcessor = localStack.outboxProcessor,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 maxIdlePoll = MutableStateFlow(1.seconds),
+                linkKeeper = localStack.torLinkKeeper,
             )
-            val remoteHandler = SyncHandler(
-                ctx = remoteStack.ctx,
-                outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(
+            val remoteHandler = messageService(
+                remoteStack,
+                DefaultSyncPayloadProvider(
                     remoteMessageRepo,
                     FakePendingSyncRepository(),
                     MutableStateFlow(OrchestratorConfig()),
@@ -227,7 +246,6 @@ class SyncIntegrationTest {
                         ),
                     ),
                 ),
-                systemSender = remoteStack.systemSender,
             )
             router.onStartSync = { syncId, at -> retryProcessor.start(syncId, at) }
 
@@ -250,9 +268,9 @@ class SyncIntegrationTest {
             // The retry processor sends a SyncRequest to the remote device.
             localStack.tor.awaitSendCount(1)
             val sent = localStack.tor.sends.single().second
-            assertEquals(org.yapyap.protocol.PacketType.SYSTEM, sent.packetType)
+            assertEquals(PacketType.MESSAGE, sent.packetType)
             val syncRequest =
-                SystemEnvelope.decode(sent.payload).decodePayload() as SystemPayload.SyncRequest
+                MessagePayload.decode(MessageEnvelope.decode(sent.payload).payload) as SyncPayload.Request
             assertEquals(roomId, syncRequest.roomId)
             assertEquals(sync.syncId, syncRequest.syncId)
             assertEquals(listOf(m1.messageId), syncRequest.missingIds)
@@ -261,11 +279,11 @@ class SyncIntegrationTest {
             // Remote handles the request and sends the missing message back.
             // Only m1 is returned: the responder serves the target plus its ancestry,
             // and the orphan m2 is already present locally (it triggered the sync).
-            remoteHandler.reply(syncRequest, localDevice, remoteHandler.messagesFor(syncRequest, localDevice))
+            remoteHandler.onSyncRequested(syncRequest, localDevice)
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(1) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
-                MessageEnvelope.decode(bin.payload).decodePayload()
+                MessagePayload.decode(MessageEnvelope.decode(bin.payload).payload) as DagPayload
             }
             assertTrue(returned.any { it.messageId == m1.messageId }, "missing message m1 not returned")
 
@@ -320,7 +338,7 @@ class SyncIntegrationTest {
                 torByPeer = mutableMapOf(localDevice to TorEndpoint("it-local.onion", 80)),
                 clock = FakeClock(epochSeconds(now)),
             )
-            val retryProcessor = SyncRetryProcessor(
+            val retryProcessor = MessagePullProcessor(
                 ctx = localStack.ctx,
                 attempts = InMemorySyncAttemptStore(),
                 syncs = DefaultSyncPayloadProvider(
@@ -329,15 +347,15 @@ class SyncIntegrationTest {
                     MutableStateFlow(OrchestratorConfig()),
                     DefaultRoomVisibility(localMessageRepo, localRoomRepo),
                 ),
-                systemSender = localStack.systemSender,
+                envelopes = localStack.outboundMessenger,
                 outboxProcessor = localStack.outboxProcessor,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 maxIdlePoll = MutableStateFlow(1.seconds),
+                linkKeeper = localStack.torLinkKeeper,
             )
-            val remoteHandler = SyncHandler(
-                ctx = remoteStack.ctx,
-                outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(
+            val remoteHandler = messageService(
+                remoteStack,
+                DefaultSyncPayloadProvider(
                     remoteMessageRepo,
                     FakePendingSyncRepository(),
                     MutableStateFlow(OrchestratorConfig()),
@@ -352,7 +370,6 @@ class SyncIntegrationTest {
                         ),
                     ),
                 ),
-                systemSender = remoteStack.systemSender,
             )
             router.onStartSync = { syncId, at -> retryProcessor.start(syncId, at) }
 
@@ -374,16 +391,16 @@ class SyncIntegrationTest {
 
             localStack.tor.awaitSendCount(1)
             val syncRequest =
-                SystemEnvelope.decode(localStack.tor.sends.single().second.payload)
-                    .decodePayload() as SystemPayload.SyncRequest
+                MessagePayload.decode(MessageEnvelope.decode(localStack.tor.sends.single().second.payload).payload)
+                        as SyncPayload.Request
             assertEquals(listOf(m4.messageId), syncRequest.missingIds)
             assertEquals(listOf(m1.messageId), syncRequest.knownIds)
 
-            remoteHandler.reply(syncRequest, localDevice, remoteHandler.messagesFor(syncRequest, localDevice))
+            remoteHandler.onSyncRequested(syncRequest, localDevice)
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(3) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
-                MessageEnvelope.decode(bin.payload).decodePayload()
+                MessagePayload.decode(MessageEnvelope.decode(bin.payload).payload) as DagPayload
             }
             assertTrue(returned.any { it.messageId == m2.messageId })
             assertTrue(returned.any { it.messageId == m3.messageId })
@@ -441,28 +458,29 @@ class SyncIntegrationTest {
     }
 }
 
-/** Minimal [Router] that records outgoing sends and can emit inbound messages into the pipeline. */
+/** Minimal [MessageCarrier] that records outgoing sends and can emit inbound messages into the pipeline. */
 private class RecordingRouter {
-    private val _incomingMessages = MutableSharedFlow<MessagePayload>(replay = 64, extraBufferCapacity = 64)
-    val sent = mutableListOf<MessagePayload>()
+    private val _incomingMessages = MutableSharedFlow<DagPayload>(replay = 64, extraBufferCapacity = 64)
+    val sent = mutableListOf<DagPayload>()
 
-    /** Where [SyncCarrier.startSync] goes: the test's local sync retry processor. */
+    /** Where [MessageCarrier.startSync] goes: the test's local sync retry processor. */
     var onStartSync: suspend (Uuid, Instant) -> Unit = { _, _ -> }
 
     val messages: MessageCarrier = object : NoopMessageCarrier() {
-        override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
+        override val incomingMessages: Flow<DagPayload> = _incomingMessages.asSharedFlow()
+        override val deliveries: Flow<MessageAck> = emptyFlow()
+        override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+        override val frontiers: Flow<PingFrontiers> = emptyFlow()
 
-        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+        override suspend fun sendMessage(target: AccountId, payload: DagPayload): AccountPushReport {
             sent.add(payload)
             return super.sendMessage(target, payload)
         }
-    }
 
-    val syncs: SyncCarrier = object : NoopSyncCarrier() {
         override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = onStartSync(syncId, firstAttemptAt)
     }
 
-    suspend fun emitIncoming(payload: MessagePayload) {
+    suspend fun emitIncoming(payload: DagPayload) {
         _incomingMessages.emit(payload)
     }
 }

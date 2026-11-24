@@ -1,12 +1,12 @@
 package org.yapyap.routing.file.push
 
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.PeerId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
@@ -107,9 +107,12 @@ class FilePushEngineTest {
             h2.pushes.recordChunk(transfer, index, packetId)
         }
         for ((env, tag) in h.sent) {
-            h2.sent += env to tag
-            val decoded = FileEnvelope.decode(env.payload).decodePayload() as? FilePayload.EncryptedChunk
-            if (decoded != null) h2.packetIndex[env.packetId] = decoded.chunkIndex
+            val decoded = FileEnvelope.decode(env.payload).decodePayload()
+            val retry = if (decoded is FilePayload.EncryptedChunk) org.yapyap.routing.store.RetryClass.FLAT
+            else org.yapyap.routing.store.RetryClass.STANDARD
+            val backup = if (decoded is FilePayload.Offer && tag != null) org.yapyap.routing.store.RelayBackup.PENDING
+            else org.yapyap.routing.store.RelayBackup.NONE
+            h2.outboxStore.enqueue(env, h2.clock.now(), tag = tag, relayBackup = backup, retryClass = retry)
         }
         val replayed = h2.sent.size
         val replayedChunks = h2.chunkIndices().size

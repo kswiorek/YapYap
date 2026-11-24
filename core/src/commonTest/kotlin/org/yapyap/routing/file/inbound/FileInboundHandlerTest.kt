@@ -1,16 +1,15 @@
-package org.yapyap.routing.inbound.handlers
+package org.yapyap.routing.file.inbound
 
-import org.yapyap.crypto.keys.SigningPrivateKey
-import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.e2ee.managerForPeer
 import org.yapyap.crypto.e2ee.testTransportLimits
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.protection.FakeIdentityResolverForProtection
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.FileProtectContext
@@ -18,10 +17,11 @@ import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
@@ -44,18 +44,25 @@ import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FileRefusalReason
+import org.yapyap.routing.file.push.FilePushEngine
+import org.yapyap.routing.file.push.FileSender
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
+import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
 import org.yapyap.routing.router.InMemoryFileRelayStore
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
-import org.yapyap.routing.router.NoopFilePushOps
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -154,30 +161,34 @@ class FileInboundHandlerTest {
             receiverSession,
             crypto,
         )
-        val service = DefaultEnvelopeProtectionService(
-            webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            messageProtection = PlaintextMessageProtection(crypto),
-            systemProtection = PlaintextSystemProtection(crypto),
-            bootstrapProtection = BootstrapProtection(
+        val protections = DefaultEnvelopeProtections(
+            signal = PlaintextWebRtcSignalProtection(crypto),
+            message = PlaintextMessageProtection(crypto),
+            system = PlaintextSystemProtection(crypto),
+            bootstrap = BootstrapProtection(
                 crypto,
                 BootstrapKeySource { null },
             ),
+            file = receiverProtection,
         )
         val local = receiverPeer.device
         val identity = FakeIdentityResolverForRouter(localDevice = local)
         val clock = FakeClock(now)
+        val configFlow = MutableStateFlow(RouterConfig())
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
         val ctx = RoutingContext(
             localIdentity = identity,
             localDeviceId = local.deviceId,
             devices = identity,
-            routes = identity,
-            packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = service,
-            torTransport = RecordingTorTransport(),
-            webRtcTransport = RecordingWebRtcTransport(),
-            clock = clock,
-            routerConfig = MutableStateFlow(RouterConfig()),
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = protections,
+            clock = clock,
+            routerConfig = configFlow,
         )
         val incoming = InMemoryFileIncomingTransferStore()
         val transfers = FileIncomingTransfers(incoming, clock)
@@ -209,7 +220,45 @@ class FileInboundHandlerTest {
         val target = FileTargetHandler(ctx, receiverProtection, transfers, ingest, signals, onOfferReceived = {})
         val door =
             FileRelayDoor(ctx, receiverProtection, InMemoryFileRelayStore(), TrackingPacketOutbox(), onRelayWhole = {})
-        val serve = FileServeHandler(ctx, ingest, NoopFilePushOps())
+        val fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024))
+        val pushes = org.yapyap.routing.router.InMemoryFilePushStore()
+        val fileOutbox = TrackingPacketOutbox()
+        val senderEngine = FilePushEngine(
+            ctx = ctx,
+            protection = receiverProtection,
+            plaintext = FakeFilePlaintextSource(),
+            pushes = pushes,
+            outbox = outboxProcessorUnderTest(
+                tor = tor,
+                webRtc = webRtc,
+                identity = identity,
+                outbox = fileOutbox,
+                clock = clock,
+                routerConfig = configFlow.value,
+            ),
+            outboxStore = fileOutbox,
+            events = kotlinx.coroutines.flow.MutableSharedFlow(extraBufferCapacity = 64),
+            relaySelection = DefaultRelaySelectionPolicy(
+                ctx,
+                PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore()),
+                configFlow,
+            ),
+            relay = InMemoryFileRelayStore(),
+            incoming = transfers,
+        )
+        val serve = FileServeHandler(
+            ctx,
+            ingest,
+            FileSender(
+                ctx = ctx,
+                protection = receiverProtection,
+                plaintext = FakeFilePlaintextSource(),
+                pushes = pushes,
+                engine = senderEngine,
+                events = kotlinx.coroutines.flow.MutableSharedFlow(extraBufferCapacity = 64),
+                fileLimits = fileLimits,
+            ),
+        )
         return Harness(
             handler = FileInboundHandler(ctx, receiverProtection, target, door, serve),
             target = target,

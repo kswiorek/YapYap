@@ -1,8 +1,8 @@
-package org.yapyap.sync
+package org.yapyap.routing.presence
 
+import org.yapyap.protocol.PeerId
 import org.yapyap.routing.store.PeerAvailability
 import org.yapyap.routing.store.PeerAvailabilityStore
-import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
 /** In-memory [PeerAvailabilityStore] for tests: no dispatcher, records writes into maps. */

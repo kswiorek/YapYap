@@ -1,9 +1,5 @@
 package org.yapyap.orchestrator.file
 
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.MAX_FILE_NAME_BYTES
-import org.yapyap.protocol.MAX_FILE_NAME_CHARS
-import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -30,9 +26,13 @@ import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MAX_FILE_NAME_BYTES
+import org.yapyap.protocol.MAX_FILE_NAME_CHARS
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileSendState
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -49,6 +49,7 @@ private class NoopCarrier : FileCarrier {
     override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
     override suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason) =
         Unit
+    override suspend fun endIncoming(fileId: FileId, end: org.yapyap.routing.file.port.FileReceiveEnd) = Unit
 }
 
 /** Records what quota would spare at each call: the explicit keep set plus every pinned file. */
@@ -260,6 +261,6 @@ class FileSendServiceTest {
         assertNull(DefaultFileSendService.displayMimeType("x".repeat(200)))
         assertEquals("image/png", DefaultFileSendService.displayMimeType("image/png"))
         // Whatever comes out is a valid attachment.
-        MessagePayload.Attachment(FileId("f".repeat(64)), trimmedEmoji, null, 1)
+        DagPayload.Attachment(FileId("f".repeat(64)), trimmedEmoji, null, 1)
     }
 }

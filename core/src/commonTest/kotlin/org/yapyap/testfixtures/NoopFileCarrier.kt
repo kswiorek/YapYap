@@ -25,4 +25,6 @@ internal open class NoopFileCarrier : FileCarrier {
 
     override suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason) =
         Unit
+
+    override suspend fun endIncoming(fileId: FileId, end: org.yapyap.routing.file.port.FileReceiveEnd) = Unit
 }

@@ -2,7 +2,11 @@ package org.yapyap.crypto.signature
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerKeys
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -13,8 +17,8 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.DeviceRouteStore
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse

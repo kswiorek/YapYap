@@ -103,7 +103,9 @@ class PublicApiSurfaceTest {
         "org.yapyap.config.ToggleSetting",
         "org.yapyap.config.PeriodSetting",
         // --- Shared-internal vocabulary (public for codegen/signatures; NOT GUI API) --
-        "org.yapyap.protocol.MessagePayloadType",
+        "org.yapyap.protocol.MessagePayloadFamily",
+        "org.yapyap.protocol.DagPayloadType",
+        "org.yapyap.protocol.SyncPayloadType",
         "org.yapyap.protocol.envelopes.PacketNackReason",
         "org.yapyap.crypto.e2ee.session.SessionRole",
         "org.yapyap.crypto.e2ee.session.SessionStatus",

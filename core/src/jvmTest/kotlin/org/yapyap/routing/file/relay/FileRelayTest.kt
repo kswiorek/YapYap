@@ -1,11 +1,11 @@
 package org.yapyap.routing.file.relay
 
-import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -24,10 +24,11 @@ import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
@@ -41,19 +42,24 @@ import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.FileIncomingTransfers
 import org.yapyap.routing.file.FileTransferSignals
+import org.yapyap.routing.file.inbound.FileInboundHandler
+import org.yapyap.routing.file.inbound.FileRelayDoor
+import org.yapyap.routing.file.inbound.FileServeHandler
+import org.yapyap.routing.file.inbound.FileTargetHandler
 import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.file.push.FileOutbox
 import org.yapyap.routing.file.push.FilePushEngine
-import org.yapyap.routing.inbound.handlers.FileInboundHandler
-import org.yapyap.routing.inbound.handlers.FileRelayDoor
-import org.yapyap.routing.inbound.handlers.FileServeHandler
-import org.yapyap.routing.inbound.handlers.FileTargetHandler
+import org.yapyap.routing.file.push.FileSender
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.outbound.EnvelopeDispatcher
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.NoRelaySelection
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.InboundHandleResult
-import org.yapyap.routing.router.NoopFilePushOps
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
@@ -65,8 +71,6 @@ import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.RelayBackup
-import org.yapyap.routing.store.RetryClass
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -83,7 +87,7 @@ import kotlin.time.Duration.Companion.hours
 import kotlin.uuid.Uuid
 
 /**
- * Step 18: the relay door and the forward driver (design §7).
+ * The relay door and the forward driver (design §7).
  *
  * The relay is dumb to content: signature-checked at the door, ciphertext stored
  * verbatim, forwarded only when whole. Nothing here touches the orchestrator —
@@ -101,7 +105,7 @@ class FileRelayTest {
         val handler: FileInboundHandler,
         val relay: FileRelayStore,
         val engine: FilePushEngine,
-        val sent: MutableList<Pair<BinaryEnvelope, OutboxTag?>>,
+        val outboxStore: TrackingPacketOutbox,
         val authorProtections: SignedAndEncryptedFileProtection,
         val strangerProtections: SignedAndEncryptedFileProtection,
         val authorId: PeerId,
@@ -109,7 +113,12 @@ class FileRelayTest {
         val targetId: PeerId,
         val strangerId: PeerId,
         val clock: FakeClock,
-    )
+    ) {
+        val sent: List<Pair<BinaryEnvelope, OutboxTag?>>
+            get() = outboxStore.enqueued
+                .filter { outboxStore.contains(it.packetId) }
+                .map { env -> env to outboxStore.tagOf(env.packetId) }
+    }
 
     private suspend fun Harness.awaitForwardGone(transferId: TransferId) {
         withTimeout(5_000) { while (relay.find(transferId) != null) delay(10) }
@@ -117,28 +126,6 @@ class FileRelayTest {
 
     private suspend fun Harness.awaitSentSize(size: Int) {
         withTimeout(5_000) { while (sent.size < size) delay(10) }
-    }
-
-    private class RecordingRelayOutbox(val sent: MutableList<Pair<BinaryEnvelope, OutboxTag?>>) : FileOutbox {
-        override suspend fun enqueue(
-            envelope: BinaryEnvelope,
-            tag: OutboxTag,
-            relayBackup: RelayBackup,
-            retryClass: RetryClass
-        ) {
-            sent += envelope to tag
-        }
-
-        override suspend fun enqueueDirect(envelope: BinaryEnvelope) {
-            sent += envelope to null
-        }
-
-        override suspend fun deleteByTag(tag: OutboxTag) {
-            sent.removeAll { it.second == tag }
-        }
-
-        override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> =
-            sent.mapNotNull { (env, t) -> if (t == tag) env.packetId else null }
     }
 
     private suspend fun harness(
@@ -191,11 +178,12 @@ class FileRelayTest {
             ),
             crypto,
         )
-        val relayService = DefaultEnvelopeProtectionService(
-            webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            messageProtection = PlaintextMessageProtection(crypto),
-            systemProtection = PlaintextSystemProtection(crypto),
-            bootstrapProtection = BootstrapProtection(crypto, BootstrapKeySource { null }),
+        val relayService = DefaultEnvelopeProtections(
+            signal = PlaintextWebRtcSignalProtection(crypto),
+            message = PlaintextMessageProtection(crypto),
+            system = PlaintextSystemProtection(crypto),
+            bootstrap = BootstrapProtection(crypto, BootstrapKeySource { null }),
+            file = relayProtection,
         )
         val clock = FakeClock(now)
         val config = RouterConfig(relayStoragePledgeBytes = pledgeBytes)
@@ -207,39 +195,66 @@ class FileRelayTest {
             ),
             accountStatuses = bannedAccounts.associateWith { IdentityStatus.BANNED }.toMutableMap(),
         )
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
+        val peerLinks = PeerLinks(relayIdentity, webRtc, tor)
         val ctx = RoutingContext(
-            localIdentity = FakeIdentityResolverForRouter(localDevice = relayPeer.device),
+            localIdentity = relayIdentity,
             localDeviceId = relayPeer.device.deviceId,
             devices = relayIdentity,
-            routes = FakeIdentityResolverForRouter(localDevice = relayPeer.device),
-            packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = relayService,
-            torTransport = RecordingTorTransport(),
-            webRtcTransport = RecordingWebRtcTransport(),
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = peerLinks,
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = chunkSize, fetchFrameBytes = chunkSize)),
+            envelopeProtections = relayService,
             clock = clock,
             routerConfig = MutableStateFlow(config),
-            transportLimits = MutableStateFlow(testTransportLimits()),
         )
         val relay = DefaultFileRelayStore(openMemoryDatabase().database, Dispatchers.Unconfined)
-        val sent = mutableListOf<Pair<BinaryEnvelope, OutboxTag?>>()
+        val outboxStore = TrackingPacketOutbox()
         val pushes = DefaultFilePushStore(openMemoryDatabase().database, Dispatchers.Unconfined)
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val plaintext = FakeFilePlaintextSource()
         val incomingTransfers = FileIncomingTransfers(
             DefaultFileIncomingTransferStore(openMemoryDatabase().database, Dispatchers.Unconfined), clock,
         )
+        val registry = PeerAvailabilityRegistry(
+            clock = clock,
+            routerConfig = MutableStateFlow(config),
+            store = FakePeerAvailabilityStore(),
+        )
+        val linkKeeper = LinkKeeper(
+            name = "Tor-test",
+            sessions = ctx.peerLinks.tor,
+            targets = { emptyList() },
+            ready = flowOf(false),
+            config = MutableStateFlow(config.torLinkKeeperConfig),
+            clock = clock,
+        )
+        val processor = OutboxProcessor(
+            ctx = ctx,
+            dispatcher = EnvelopeDispatcher(ctx, relayIdentity),
+            transportPolicy = org.yapyap.routing.policy.LinkPreferencePolicy(MutableStateFlow(config)),
+            packetOutbox = outboxStore,
+            maxIdlePoll = MutableStateFlow(config.retryLoopMaxIdlePoll),
+            peerAvailabilityRegistry = registry,
+            linkKeeper = linkKeeper,
+            relayCopies = { null },
+        )
         val engine = FilePushEngine(
             ctx = ctx,
             protection = relayProtection,
             plaintext = plaintext,
             pushes = pushes,
-            outbox = RecordingRelayOutbox(sent),
+            outbox = processor,
+            outboxStore = outboxStore,
             events = events,
             relaySelection = NoRelaySelection,
             relay = relay,
             incoming = incomingTransfers,
         )
-        val packetOutbox = TrackingPacketOutbox()
+        val sender = FileSender(ctx, relayProtection, plaintext, pushes, engine, events, ctx.fileLimits)
         val handler = FileInboundHandler(
             ctx = ctx,
             protection = relayProtection,
@@ -262,11 +277,11 @@ class FileRelayTest {
                 },
                 onOfferReceived = {},
             ),
-            door = FileRelayDoor(ctx, relayProtection, relay, packetOutbox, onRelayWhole = { engine.onRelayWhole(it) }),
-            serve = FileServeHandler(ctx, RefusingFilePorts(), NoopFilePushOps()),
+            door = FileRelayDoor(ctx, relayProtection, relay, outboxStore, onRelayWhole = { engine.onRelayWhole(it) }),
+            serve = FileServeHandler(ctx, RefusingFilePorts(), sender),
         )
         return Harness(
-            handler, relay, engine, sent, authorProtection, strangerProtections,
+            handler, relay, engine, outboxStore, authorProtection, strangerProtections,
             authorPeer.device.deviceId, relayPeer.device.deviceId, targetPeer.device.deviceId,
             strangerPeer.device.deviceId, clock,
         )
@@ -697,7 +712,7 @@ class FileRelayTest {
         // Outbox rows pruned while this relay was down (their ACKs never observed):
         // stored packet ids no longer resolve, so the sweep re-streams them.
         val chunkPackets = h.sent.drop(1).map { it.first.packetId }.toSet()
-        h.sent.removeAll { (env, _) -> env.packetId in chunkPackets }
+        for (packetId in chunkPackets) h.outboxStore.remove(packetId)
         h.engine.sweepForwards()
         h.awaitSentSize(1 + 3)
 

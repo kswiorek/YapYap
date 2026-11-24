@@ -1,7 +1,5 @@
 package org.yapyap.routing.file.fetch
 
-import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.TorEndpoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -17,8 +15,9 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
@@ -29,7 +28,9 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
+import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.FakeFilePorts
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -41,7 +42,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
-import kotlin.uuid.Uuid
 
 /**
  * Focused unit tests for [FileFetchService]: serve gating, block-list checks,
@@ -157,9 +157,9 @@ class FileFetchServiceTest {
         transport = transport,
         plaintext = plaintext,
         ingest = gate,
-        serveGate = gate,
+        requests = gate,
         routerConfig = MutableStateFlow(routerConfig),
-        frameBytes = MutableStateFlow(chunkSize),
+        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = chunkSize, fetchFrameBytes = chunkSize)),
         events = events,
         clock = clock,
     )

@@ -35,7 +35,7 @@ internal class FileInboundHandler(
             throw e
         } catch (e: Exception) {
             AppLog.warn(
-                component = LogComponent.FILE,
+                component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode file envelope",
                 fields = mapOf("error" to e.toString()),

@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 
 class FileLimitsTest {
 
-    private val defaults = FileLimits.from(RuntimeConfig())
+    private val defaults = fileLimitsFor(RuntimeConfig())
 
     @Test
     fun chunkSize_isTheSmallerTransportFrameLessEveryLayersFraming() {
@@ -27,7 +27,7 @@ class FileLimitsTest {
     @Test
     fun chunkSize_followsTheSmallerTransport() {
         val limits =
-            FileLimits.from(TransportLimits(torMaxPayloadBytes = 100 * 1024, webRtcMaxPayloadBytes = 250 * 1024))
+            fileLimitsFor(TransportLimits(torMaxPayloadBytes = 100 * 1024, webRtcMaxPayloadBytes = 250 * 1024))
         assertEquals(defaults.chunkSizeBytes - 150 * 1024, limits.chunkSizeBytes)
     }
 
@@ -36,14 +36,14 @@ class FileLimitsTest {
         val webRtc = RuntimeConfig().webRtc.maxPayloadBytes
         assertEquals(webRtc - FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES, defaults.fetchFrameBytes)
         // Tor never carries fetch frames.
-        val smallTor = FileLimits.from(TransportLimits(torMaxPayloadBytes = 100 * 1024, webRtcMaxPayloadBytes = webRtc))
+        val smallTor = fileLimitsFor(TransportLimits(torMaxPayloadBytes = 100 * 1024, webRtcMaxPayloadBytes = webRtc))
         assertEquals(defaults.fetchFrameBytes, smallTor.fetchFrameBytes)
     }
 
     @Test
     fun tinyTransport_failsInsteadOfClamping() {
         assertFailsWith<IllegalArgumentException> {
-            FileLimits.from(TransportLimits(torMaxPayloadBytes = 1024, webRtcMaxPayloadBytes = 1024))
+            fileLimitsFor(TransportLimits(torMaxPayloadBytes = 1024, webRtcMaxPayloadBytes = 1024))
         }
     }
 }

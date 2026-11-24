@@ -17,6 +17,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -45,7 +46,7 @@ class MessageProtectionTest {
         )
         val envelope = protection.protect(payload, ctx)
         val opened = protection.open(envelope)
-        assertEquals(payload.messageId, opened.messageId)
+        assertEquals(payload.messageId, (opened as DagPayload.Text).messageId)
         assertEquals(payload, opened)
     }
 

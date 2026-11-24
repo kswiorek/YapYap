@@ -1,7 +1,7 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.MessagePayloadType
+import org.yapyap.protocol.DagPayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -26,7 +26,7 @@ class MessageEnvelopeCodecTest {
 
     @Test
     fun messagePayload_text_encodeDecode_roundTrip() {
-        val original = MessagePayload.Text(
+        val original = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
@@ -37,13 +37,13 @@ class MessageEnvelopeCodecTest {
             authorSignature = testSignature,
         )
         val bytes = original.encode()
-        val decoded = MessagePayload.Text.decode(bytes)
+        val decoded = DagPayload.Text.decode(bytes)
         assertMessagePayloadEquals(original, decoded)
     }
 
     @Test
     fun messagePayload_globalEvent_encodeDecode_roundTrip() {
-        val original = MessagePayload.GlobalEvent(
+        val original = DagPayload.GlobalEvent(
             messageId = Uuid.random(),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
@@ -53,13 +53,13 @@ class MessageEnvelopeCodecTest {
             authorSignature = testSignature,
         )
         val bytes = original.encode()
-        val decoded = MessagePayload.GlobalEvent.decode(bytes)
+        val decoded = DagPayload.GlobalEvent.decode(bytes)
         assertGlobalEventPayloadEquals(original, decoded)
     }
 
     @Test
     fun messagePayload_encodeForAuthorSigning_excludesSignature() {
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
@@ -77,7 +77,7 @@ class MessageEnvelopeCodecTest {
 
     @Test
     fun messageEnvelope_full_encodeDecode_globalEvent_roundTrip() {
-        val payload = MessagePayload.GlobalEvent(
+        val payload = DagPayload.GlobalEvent(
             messageId = Uuid.random(),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
@@ -102,7 +102,7 @@ class MessageEnvelopeCodecTest {
 
     @Test
     fun messageEnvelope_full_encodeDecode_text_roundTrip() {
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
@@ -128,7 +128,7 @@ class MessageEnvelopeCodecTest {
 
     @Test
     fun messageEnvelope_encodeForSigning_omitsSignatureBytes() {
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
@@ -156,7 +156,7 @@ class MessageEnvelopeCodecTest {
 
     @Test
     fun messageEnvelope_full_encodeDecode_signedSignatureBytes_roundTrip() {
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
@@ -183,13 +183,13 @@ class MessageEnvelopeCodecTest {
 
     @Test
     fun messagePayloadType_enum_wireValuesDistinct() {
-        val wires = MessagePayloadType.entries.map { it.wireValue }.toSet()
-        assertEquals(MessagePayloadType.entries.size, wires.size)
+        val wires = DagPayloadType.entries.map { it.wireValue }.toSet()
+        assertEquals(DagPayloadType.entries.size, wires.size)
     }
 
     @Test
     fun messagePayload_types_matchDiscriminant() {
-        val text = MessagePayload.Text(
+        val text = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
@@ -199,9 +199,9 @@ class MessageEnvelopeCodecTest {
             text = "",
             authorSignature = testSignature,
         )
-        assertEquals(MessagePayloadType.TEXT, text.payloadType)
+        assertEquals(DagPayloadType.TEXT, text.payloadType)
 
-        val ge = MessagePayload.GlobalEvent(
+        val ge = DagPayload.GlobalEvent(
             messageId = Uuid.random(),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
@@ -210,7 +210,7 @@ class MessageEnvelopeCodecTest {
             eventBytes = byteArrayOf(),
             authorSignature = testSignature,
         )
-        assertEquals(MessagePayloadType.GLOBAL_EVENT, ge.payloadType)
+        assertEquals(DagPayloadType.GLOBAL_EVENT, ge.payloadType)
     }
 
     private fun assertMessageEnvelopeEquals(expected: MessageEnvelope, actual: MessageEnvelope) {
@@ -224,21 +224,21 @@ class MessageEnvelopeCodecTest {
             expected.signature == null -> assertNull(actual.signature)
             else -> assertContentEquals(expected.signature, actual.signature!!)
         }
-        assertMessagePayloadEquals(expected.decodePayload(), actual.decodePayload())
+        assertMessagePayloadEquals(MessagePayload.decode(expected.payload), MessagePayload.decode(actual.payload))
     }
 
     private fun assertMessagePayloadEquals(expected: MessagePayload, actual: MessagePayload) {
         when {
-            expected is MessagePayload.Text && actual is MessagePayload.Text ->
+            expected is DagPayload.Text && actual is DagPayload.Text ->
                 assertTextPayloadEquals(expected, actual)       // ← replace plain assertEquals
-            expected is MessagePayload.GlobalEvent && actual is MessagePayload.GlobalEvent ->
+            expected is DagPayload.GlobalEvent && actual is DagPayload.GlobalEvent ->
                 assertGlobalEventPayloadEquals(expected, actual)
 
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }
 
-    private fun assertTextPayloadEquals(expected: MessagePayload.Text, actual: MessagePayload.Text) {
+    private fun assertTextPayloadEquals(expected: DagPayload.Text, actual: DagPayload.Text) {
         assertEquals(expected.messageId, actual.messageId)
         assertEquals(expected.roomId, actual.roomId)
         assertEquals(expected.senderAccountId, actual.senderAccountId)
@@ -251,8 +251,8 @@ class MessageEnvelopeCodecTest {
     }
 
     private fun assertGlobalEventPayloadEquals(
-        expected: MessagePayload.GlobalEvent,
-        actual: MessagePayload.GlobalEvent,
+        expected: DagPayload.GlobalEvent,
+        actual: DagPayload.GlobalEvent,
     ) {
         assertEquals(expected.messageId, actual.messageId)
         assertEquals(expected.roomId, actual.roomId)

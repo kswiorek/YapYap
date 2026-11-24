@@ -80,6 +80,7 @@ class LinkKeeperTest {
         recheckInterval = 60.seconds,
         retryJitter = 0.25,
         minWait = 100.milliseconds,
+        reopenCadence = 1.seconds,
     )
 
     private fun TestScope.harness(

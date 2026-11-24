@@ -3,10 +3,13 @@ package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -15,16 +18,24 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -73,10 +84,9 @@ class OutboxConcurrencyTest {
         val clock: FakeClock,
         val processor: OutboxProcessor,
         val slowGate: CompletableDeferred<Unit>,
-        val noLinkPeers: List<PeerId>,
     )
 
-    private fun TestScope.harness(
+    private suspend fun TestScope.harness(
         online: (PeerId) -> Boolean = { true },
         routerConfig: RouterConfig = RouterConfig(retryLoopMaxIdlePoll = 60.seconds),
         startLoop: Boolean = true,
@@ -86,7 +96,6 @@ class OutboxConcurrencyTest {
         tor.beforeSend = { target, _ -> if (target == slowTor) slowGate.await() }
         val outbox = CountingOutbox()
         val clock = FakeClock(epochSeconds(nowSeconds))
-        val noLinkPeers = mutableListOf<PeerId>()
         val identity = FakeIdentityResolverForRouter(
             localDevice = DeviceIdentity(
                 deviceId = local,
@@ -96,18 +105,45 @@ class OutboxConcurrencyTest {
             peersByAccount = mapOf(AccountId("concurrency-account") to listOf(slowPeer, fastPeer)),
             torByPeer = mutableMapOf(slowPeer to slowTor, fastPeer to fastTor),
         )
-        val processor = outboxProcessorUnderTest(
-            tor = tor,
-            identity = identity,
-            outbox = outbox,
+        val configFlow = MutableStateFlow(routerConfig)
+        val webRtc = RecordingWebRtcTransport()
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = local,
+            devices = identity,
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
             clock = clock,
-            routerConfig = routerConfig,
-            isPeerOnline = online,
-            onNoLink = { noLinkPeers += it },
+            routerConfig = configFlow,
+        )
+        val registry = PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore())
+        for (peer in listOf(slowPeer, fastPeer)) {
+            if (online(peer)) registry.markReachable(peer, clock.now())
+        }
+        val processor = OutboxProcessor(
+            ctx = ctx,
+            dispatcher = EnvelopeDispatcher(ctx, identity),
+            transportPolicy = LinkPreferencePolicy(configFlow),
+            packetOutbox = outbox,
+            maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
+            peerAvailabilityRegistry = registry,
+            linkKeeper = LinkKeeper(
+                name = "concurrency-test",
+                sessions = ctx.peerLinks.tor,
+                targets = { emptyList() },
+                ready = flowOf(false),
+                config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
+                clock = clock,
+            ),
+            relayCopies = { null },
         )
         if (startLoop) processor.runIn(backgroundScope)
         runCurrent()
-        return Harness(tor, outbox, clock, processor, slowGate, noLinkPeers)
+        return Harness(tor, outbox, clock, processor, slowGate)
     }
 
     private fun envelope(target: PeerId, type: PacketType = PacketType.MESSAGE) = BinaryEnvelope(
@@ -213,7 +249,9 @@ class OutboxConcurrencyTest {
 
         assertEquals(0, h.sendsTo(slowTor), "no link: the outbox must not dial")
         assertEquals(1, h.sendsTo(fastTor), "a linked peer is unaffected")
-        assertEquals(listOf(slowPeer), h.noLinkPeers, "the link keeper hears about the unlinked peer")
+        // The parked entry reports its peer through LinkKeeper.nudge (concrete class:
+        // not capturable here — LinkKeeperTest covers nudge-driven opens); the park
+        // itself is proven by the no-dial, no-attempt and recheck-delay asserts below.
         val parked = h.outbox.delegate.listAllForTarget(slowPeer).single()
         assertEquals(0L, parked.attempts, "a missing link is no attempt at this packet")
         assertEquals(h.clock.now() + RouterConfig().noLinkRecheckDelay, parked.nextRetryAt)

@@ -1,8 +1,10 @@
 package org.yapyap.routing.file
 
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protection.envelope.FileOfferPublicHalf
 import org.yapyap.protection.envelope.FileOfferSealedManifest
@@ -24,26 +26,34 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.file.inbound.FileInboundHandler
+import org.yapyap.routing.file.inbound.FileRelayDoor
+import org.yapyap.routing.file.inbound.FileServeHandler
+import org.yapyap.routing.file.inbound.FileTargetHandler
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
-import org.yapyap.routing.file.port.FileSendState
-import org.yapyap.routing.inbound.handlers.FileInboundHandler
-import org.yapyap.routing.inbound.handlers.FileRelayDoor
-import org.yapyap.routing.inbound.handlers.FileServeHandler
-import org.yapyap.routing.inbound.handlers.FileTargetHandler
+import org.yapyap.routing.file.push.FilePushEngine
+import org.yapyap.routing.file.push.FileSender
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
+import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
+import org.yapyap.routing.router.InMemoryFilePushStore
 import org.yapyap.routing.router.InMemoryFileRelayStore
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.store.FileIncomingTransfer
+import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -58,7 +68,7 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
- * Step 16, holder side: a sealed REQUEST is answered by serving — gate pass + fresh
+ * Holder side: a sealed REQUEST is answered by serving — gate pass + fresh
  * floor-aligned transfer — or DECLINED so the requester moves on at once.
  */
 class FileInboundServeTest {
@@ -68,6 +78,7 @@ class FileInboundServeTest {
     private val holderAccount = AccountId("serve-holder-account")
     private val fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     private val now = epochSeconds(10_000L)
+    private val chunkSize = 220 * 1024
 
     private class FakeIngest(var canServe: Boolean = true) : FakeFilePorts {
         var coverage: FileCoverage? = FileCoverage(0L, emptyList())
@@ -90,26 +101,15 @@ class FileInboundServeTest {
         }
     }
 
-    private class FakePusher : FilePushOps {
-        val serves = mutableListOf<Triple<FileId, PeerId, Long>>()
-        var serveResult = true
-        override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
-        override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
-        override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean {
-            serves += Triple(fileId, device, fromOffset)
-            return serveResult
-        }
-        override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> =
-            emptyMap()
-    }
-
     private class FakeIncoming : FileIncomingTransferStore {
-        override suspend fun insert(row: FileIncomingTransfer) = Unit
-        override suspend fun find(transferId: TransferId): FileIncomingTransfer? = null
-        override suspend fun findByFile(fileId: FileId): List<FileIncomingTransfer> = emptyList()
+        override suspend fun insert(row: org.yapyap.routing.store.FileIncomingTransfer) = Unit
+        override suspend fun find(transferId: TransferId): org.yapyap.routing.store.FileIncomingTransfer? = null
+        override suspend fun findByFile(fileId: FileId): List<org.yapyap.routing.store.FileIncomingTransfer> =
+            emptyList()
         override suspend fun delete(transferId: TransferId) = Unit
         override suspend fun deleteByFile(fileId: FileId) = Unit
-        override suspend fun pruneExpired(now: Instant): List<FileIncomingTransfer> = emptyList()
+        override suspend fun pruneExpired(now: Instant): List<org.yapyap.routing.store.FileIncomingTransfer> =
+            emptyList()
     }
 
     private class OpenOnlyProtection(
@@ -165,32 +165,85 @@ class FileInboundServeTest {
 
     private fun harness(
         canServe: Boolean = true,
-        serveResult: Boolean = true,
-    ): Triple<FileInboundHandler, FakeIngest, FakePusher> {
+        held: Boolean = true,
+    ): Triple<FileInboundHandler, FakeIngest, InMemoryFilePushStore> {
         val identity = FakeIdentityResolverForRouter(
             localDevice = deviceIdentity(localDevice),
             peersByAccount = mapOf(holderAccount to listOf(holderDevice)),
         )
         val clock = FakeClock(now)
+        val configFlow = MutableStateFlow(RouterConfig())
         val protection = OpenOnlyProtection(
             FilePayload.Request(fileId, 300_000L, emptyList()),
             now,
         )
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
         val ctx = RoutingContext(
             localIdentity = identity,
             localDeviceId = localDevice,
             devices = identity,
-            routes = identity,
-            packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-            torTransport = RecordingTorTransport(),
-            webRtcTransport = RecordingWebRtcTransport(),
-            clock = clock,
-            routerConfig = MutableStateFlow(RouterConfig()),
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
+            clock = clock,
+            routerConfig = configFlow,
         )
         val ingest = FakeIngest(canServe)
-        val pusher = FakePusher().also { it.serveResult = serveResult }
+        val pushes = InMemoryFilePushStore()
+        val plaintext = FakeFilePlaintextSource(
+            describeImpl = { id ->
+                if (held && id == fileId) {
+                    FileManifest(
+                        fileId = id,
+                        totalBytes = 1_000_000L,
+                        blockSize = 1024 * 1024,
+                        blockHashes = emptyList(),
+                        fileName = "big.bin",
+                        mimeType = "application/octet-stream",
+                    )
+                } else null
+            },
+        )
+        val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
+        val outbox = TrackingPacketOutbox()
+        val outboxProcessor = outboxProcessorUnderTest(
+            tor = tor,
+            webRtc = webRtc,
+            identity = identity,
+            outbox = outbox,
+            clock = clock,
+            routerConfig = configFlow.value,
+        )
+        val relaySelection = DefaultRelaySelectionPolicy(
+            ctx,
+            PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore()),
+            configFlow,
+        )
+        val engine = FilePushEngine(
+            ctx = ctx,
+            protection = PassthroughFileProtection(),
+            plaintext = plaintext,
+            pushes = pushes,
+            outbox = outboxProcessor,
+            outboxStore = outbox,
+            events = events,
+            relaySelection = relaySelection,
+            relay = InMemoryFileRelayStore(),
+            incoming = FileIncomingTransfers(FakeIncoming(), clock),
+        )
+        val sender = FileSender(
+            ctx = ctx,
+            protection = PassthroughFileProtection(),
+            plaintext = plaintext,
+            pushes = pushes,
+            engine = engine,
+            events = events,
+            fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize)),
+        )
         val incomingTransfers = FileIncomingTransfers(FakeIncoming(), clock)
         val signals = object : FileTransferSignals {
             override suspend fun coverageAck(
@@ -218,9 +271,9 @@ class FileInboundServeTest {
                 TrackingPacketOutbox(),
                 onRelayWhole = {},
             ),
-            serve = FileServeHandler(ctx, ingest, pusher),
+            serve = FileServeHandler(ctx, ingest, sender),
         )
-        return Triple(handler, ingest, pusher)
+        return Triple(handler, ingest, pushes)
     }
 
     private fun requestEnvelope(fromOffset: Long = 300_000L): BinaryEnvelope {
@@ -248,31 +301,34 @@ class FileInboundServeTest {
 
     @Test
     fun requestWithGatePass_servesFromHeldOffset() = runTest {
-        val (handler, ingest, pusher) = harness(canServe = true)
+        val (handler, ingest, pushes) = harness(canServe = true)
 
         val result = handler.handle(requestEnvelope(fromOffset = 300_000L))
 
         assertIs<InboundHandleResult.Success>(result)
         assertEquals(listOf(fileId to holderAccount), ingest.servedFor)
-        assertEquals(listOf(Triple(fileId, holderDevice, 300_000L)), pusher.serves)
+        val serve = pushes.allByFile(fileId).single()
+        assertEquals(holderDevice, serve.targetDevice)
+        assertEquals((300_000L / chunkSize).toInt(), serve.startIndex, "serve floor-aligns at the held offset")
     }
 
     @Test
     fun requestWithGateRefusal_isDeclinedAtOnce() = runTest {
-        val (handler, _, pusher) = harness(canServe = false)
+        val (handler, _, pushes) = harness(canServe = false)
 
         val result = handler.handle(requestEnvelope())
 
         assertEquals(InboundHandleResult.Rejected(PacketNackReason.DECLINED), result)
-        assertTrue(pusher.serves.isEmpty(), "no serve started on refusal")
+        assertTrue(pushes.allByFile(fileId).isEmpty(), "no serve started on refusal")
     }
 
     @Test
     fun requestWhenNotHeld_isDeclinedAtOnce() = runTest {
-        val (handler, _, pusher) = harness(canServe = true, serveResult = false)
+        val (handler, _, pushes) = harness(canServe = true, held = false)
 
         val result = handler.handle(requestEnvelope())
 
         assertEquals(InboundHandleResult.Rejected(PacketNackReason.DECLINED), result)
+        assertTrue(pushes.allByFile(fileId).isEmpty(), "nothing held: no serve started")
     }
 }

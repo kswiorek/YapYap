@@ -18,6 +18,7 @@ import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RelayBackup
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -69,7 +70,7 @@ class OutboxRelayBackupTest {
             outbox = outbox,
             clock = clock,
             routerConfig = config,
-            relayCopies = { envelope -> backedUp += envelope.packetId; 2 },
+            relayCopies = { _ -> RelayCopies { envelope, _ -> backedUp += envelope.packetId; 2 } },
         )
         processor.runIn(backgroundScope)
         runCurrent()
@@ -88,7 +89,14 @@ class OutboxRelayBackupTest {
     )
 
     private suspend fun Harness.enqueue(envelope: BinaryEnvelope, backup: RelayBackup = RelayBackup.PENDING) =
-        processor.enqueueAndWake(envelope, clock.now(), relayBackup = backup)
+        processor.enqueueAndWake(
+            envelope,
+            clock.now(),
+            relayBackup = backup,
+            // Relay copies are keyed by the row's tag kind: an untagged row names nobody
+            // waiting on its outcome, so it never owes a backup.
+            tag = OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()),
+        )
 
     @Test
     fun acknowledgedInTime_relaysCarryNothing() = runTest {
@@ -144,7 +152,12 @@ class OutboxRelayBackupTest {
         // The in-memory ACK timer died with the process; the stored attempt count tells.
         val h = harness()
         val msg = message()
-        h.outbox.enqueue(msg, h.clock.now(), relayBackup = RelayBackup.PENDING)
+        h.outbox.enqueue(
+            msg,
+            h.clock.now(),
+            relayBackup = RelayBackup.PENDING,
+            tag = OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()),
+        )
         h.outbox.recordAttempt(msg.packetId, h.clock.now(), h.clock.now())
         h.processor.wake()
         runCurrent()

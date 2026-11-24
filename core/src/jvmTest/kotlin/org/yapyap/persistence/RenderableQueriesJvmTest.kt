@@ -13,7 +13,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -46,8 +46,8 @@ class RenderableQueriesJvmTest {
         sender: AccountId,
         tick: Long,
         parents: List<Uuid> = emptyList(),
-    ): MessagePayload.Text =
-        MessagePayload.Text(
+    ): DagPayload.Text =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = sender,
@@ -57,7 +57,7 @@ class RenderableQueriesJvmTest {
             text = "hi",
         )
 
-    private suspend fun DefaultMessageRepository.seedLinked(msg: MessagePayload.Text) {
+    private suspend fun DefaultMessageRepository.seedLinked(msg: DagPayload.Text) {
         insert(
             msg,
             isOrphaned = false,

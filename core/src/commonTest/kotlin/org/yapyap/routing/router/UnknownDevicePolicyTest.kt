@@ -5,7 +5,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
@@ -14,16 +13,16 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.FileRoutingPorts
-import org.yapyap.sync.FakePeerAvailabilityStore
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -85,7 +84,7 @@ class UnknownDevicePolicyTest {
         )
 
     private fun plaintextMessagePayload(): ByteArray {
-        val text = MessagePayload.Text(
+        val text = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = account,
@@ -136,38 +135,40 @@ class UnknownDevicePolicyTest {
     @Test
     fun reachability_markedForKnownDevice_notForUnknownDevice() = runBlocking {
         val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
+        val webRtc = RecordingWebRtcTransport()
         val availabilityStore = FakePeerAvailabilityStore()
-        val router = DefaultRouter(
+        val identity = identityWith()
+        val clock = FakeClock(epochSeconds(10_000L))
+        val config = MutableStateFlow(RouterConfig())
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = identity.localDeviceId,
+            devices = identity,
             torTransport = tor,
-            webRtcTransport = RecordingWebRtcTransport(),
-            localIdentity = identityWith(),
-            localDeviceId = identityWith().localDeviceId,
-            devices = identityWith(),
-            routes = identityWith(),
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
+            clock = clock,
+            routerConfig = config,
+        )
+        val router = DefaultRouter(
+            ctx = ctx,
+            routes = identity,
             packetDeduplicator = InMemoryPacketDeduplicator(),
             packetOutbox = TrackingPacketOutbox(),
-            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-            clock = FakeClock(epochSeconds(10_000L)),
-            routerConfig = MutableStateFlow(RouterConfig()),
-            transportLimits = MutableStateFlow(testTransportLimits()),
+            peerAvailabilityStore = availabilityStore,
             syncAttemptStore = InMemorySyncAttemptStore(),
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
-            peerAvailabilityStore = availabilityStore,
-            filePorts = FileRoutingPorts(
-                ingest = RefusingFilePorts(),
-                requests = RefusingFilePorts(),
-                serveGate = RefusingFilePorts(),
-                plaintext = FakeFilePlaintextSource(),
-                receiveEnds = NoFileReceiveEnds,
-                incoming = InMemoryFileIncomingTransferStore(),
-                pushes = InMemoryFilePushStore(),
-                relay = InMemoryFileRelayStore(),
-                requestAttempts = InMemoryFileRequestAttemptStore(),
-                protection = PassthroughFileProtection(),
-                chunkSizeBytes = MutableStateFlow(220 * 1024),
-                fetchFrameBytes = MutableStateFlow(220 * 1024),
-            ),
+            fileIngest = RefusingFilePorts(),
+            fileRequests = RefusingFilePorts(),
+            filePlaintext = FakeFilePlaintextSource(),
+            fileIncomingStore = InMemoryFileIncomingTransferStore(),
+            filePushStore = InMemoryFilePushStore(),
+            fileRelayStore = InMemoryFileRelayStore(),
+            fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
         )
         router.start()
 
@@ -363,7 +364,7 @@ class UnknownDevicePolicyTest {
         // message is for another peer. The handler returns Success + EnqueueForRelay
         // without authenticating the claimed source — the sender's mapping must not
         // move, even though the arrival onion differs from the stored one.
-        val innerText = MessagePayload.Text(
+        val innerText = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = account,

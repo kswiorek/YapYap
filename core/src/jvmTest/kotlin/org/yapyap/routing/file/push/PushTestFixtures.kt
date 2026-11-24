@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeout
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protection.envelope.FileEnvelopeProtection
@@ -28,24 +29,28 @@ import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.outbound.EnvelopeDispatcher
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.policy.RelaySelectionPolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.TransportLimits
+import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.router.testRoutingContext
 import org.yapyap.routing.store.DefaultFileIncomingTransferStore
 import org.yapyap.routing.store.DefaultFilePushStore
 import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.FilePushStore
 import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.RelayBackup
-import org.yapyap.routing.store.RetryClass
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -147,8 +152,8 @@ internal data class PushHarness(
     val plaintext: FakeFilePlaintextSource,
     val protection: RecordingFileProtectionService,
     val pushes: FilePushStore,
-    val sent: MutableList<Pair<BinaryEnvelope, OutboxTag?>>,
-    val packetIndex: MutableMap<Uuid, Int>,
+    val outboxStore: TrackingPacketOutbox,
+    val processor: OutboxProcessor,
     val fileEvents: MutableSharedFlow<FileEvent>,
     val clock: FakeClock,
     val bytes: ByteArray,
@@ -156,6 +161,12 @@ internal data class PushHarness(
     val chunkSize: Int,
     val ctx: RoutingContext,
 )
+
+/** Current queued outbox rows as (envelope, tag) pairs, derived from the store. */
+internal val PushHarness.sent: List<Pair<BinaryEnvelope, OutboxTag?>>
+    get() = outboxStore.enqueued
+        .filter { outboxStore.contains(it.packetId) }
+        .map { env -> env to outboxStore.tagOf(env.packetId) }
 
 internal fun pushHarness(
     totalBytes: Long = 1024L * 1024,
@@ -199,67 +210,65 @@ internal fun pushHarness(
     // Real SQL store on in-memory SQLite: restart recovery, the deposit claim and the
     // chunk index all rely on store atomicity, not on fake semantics.
     val pushes = DefaultFilePushStore(openMemoryDatabase().database, Dispatchers.Unconfined)
-    val sent = mutableListOf<Pair<BinaryEnvelope, OutboxTag?>>()
-    val packetIndex = mutableMapOf<Uuid, Int>()
     val fileEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
     val clock = FakeClock(epochSeconds(now))
-    val ctx = RoutingContext(
-        localIdentity = identity,
-        localDeviceId = localPeerId,
-        devices = identity,
-        routes = identity,
-        packetDeduplicator = InMemoryPacketDeduplicator(),
-        envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-        torTransport = RecordingTorTransport(),
-        webRtcTransport = RecordingWebRtcTransport(),
+    val routerConfig = RouterConfig()
+    val tor = RecordingTorTransport()
+    val webRtc = RecordingWebRtcTransport()
+    val ctx = testRoutingContext(
+        identity = identity,
+        tor = tor,
+        webRtc = webRtc,
         clock = clock,
-        routerConfig = MutableStateFlow(RouterConfig()),
-        transportLimits = MutableStateFlow(TransportLimits(4 * 1024 * 1024, 250 * 1024)),
+        routerConfig = routerConfig,
+        protections = PassthroughFakeEnvelopeProtectionService(),
+        fileChunkSize = chunkSize,
     )
-    val outbox = object : FileOutbox {
-        override suspend fun enqueue(
-            envelope: BinaryEnvelope,
-            tag: OutboxTag,
-            relayBackup: RelayBackup,
-            retryClass: RetryClass
-        ) {
-            sent += envelope to tag
-            // Recover the chunk index the same way the actor records it.
-            val decoded = FileEnvelope.decode(envelope.payload).decodePayload()
-            if (decoded is FilePayload.EncryptedChunk) packetIndex[envelope.packetId] = decoded.chunkIndex
-        }
-
-        override suspend fun enqueueDirect(envelope: BinaryEnvelope) {
-            sent += envelope to null
-        }
-
-        override suspend fun deleteByTag(tag: OutboxTag) {
-            sent.removeAll { it.second == tag }
-        }
-
-        override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> =
-            sent.mapNotNull { (env, t) -> if (t == tag) env.packetId else null }
-    }
+    val outboxStore = TrackingPacketOutbox()
+    val registry = PeerAvailabilityRegistry(
+        clock = clock,
+        routerConfig = MutableStateFlow(routerConfig),
+        store = FakePeerAvailabilityStore(),
+    )
+    val linkKeeper = LinkKeeper(
+        name = "Tor-test",
+        sessions = ctx.peerLinks.tor,
+        targets = { emptyList() },
+        ready = flowOf(false),
+        config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
+        clock = clock,
+    )
+    val processor = OutboxProcessor(
+        ctx = ctx,
+        dispatcher = EnvelopeDispatcher(ctx, identity),
+        transportPolicy = LinkPreferencePolicy(MutableStateFlow(routerConfig)),
+        packetOutbox = outboxStore,
+        maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
+        peerAvailabilityRegistry = registry,
+        linkKeeper = linkKeeper,
+        relayCopies = { null },
+    )
     val engine = FilePushEngine(
         ctx = ctx,
         protection = protection,
         plaintext = plaintext,
         pushes = pushes,
-        outbox = outbox,
+        outbox = processor,
+        outboxStore = outboxStore,
         events = fileEvents,
         relaySelection = relaySelection,
         relay = DefaultFileRelayStore(openMemoryDatabase().database, Dispatchers.Unconfined),
         incoming = testIncomingTransfers(clock),
     )
-    val sender = FileSender(ctx, protection, plaintext, pushes, engine, fileEvents, MutableStateFlow(chunkSize))
+    val sender = FileSender(ctx, protection, plaintext, pushes, engine, fileEvents, ctx.fileLimits)
     return PushHarness(
         engine,
         sender,
         plaintext,
         protection,
         pushes,
-        sent,
-        packetIndex,
+        outboxStore,
+        processor,
         fileEvents,
         clock,
         bytes,

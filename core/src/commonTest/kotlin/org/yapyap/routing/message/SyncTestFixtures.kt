@@ -1,4 +1,4 @@
-package org.yapyap.sync
+package org.yapyap.routing.message
 
 
 import kotlinx.coroutines.CoroutineScope
@@ -6,9 +6,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.PendingSync
@@ -17,32 +18,34 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.outbound.OutboundMessenger
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.message.port.SyncPayloadProvider
+import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
-import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.sync.SyncPayloadProvider
+import org.yapyap.routing.router.TypingIndicatorEvent
+import org.yapyap.routing.router.testRoutingContext
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.NoopMessageCarrier
-import org.yapyap.testfixtures.NoopSyncCarrier
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -70,10 +73,11 @@ internal class FakePendingSyncRepository(
     private val frontierOf: suspend (RoomId) -> List<Uuid> = { emptyList() },
 ) : PendingSyncRepository {
     private val rows = linkedMapOf<Uuid, PendingSync>()
+    private val mutex = Mutex()
 
     // Test-only concurrency: multithreaded tests (Dispatchers.Default
     // background loops racing the test thread) must not CME on iteration.
-    private val mutex = Mutex()
+    // (Mutex import kept for the withLock calls below.)
 
     override suspend fun insertSync(
         syncId: Uuid,
@@ -96,11 +100,11 @@ internal class FakePendingSyncRepository(
         }
     }
 
-    override suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest? {
+    override suspend fun buildSyncRequest(syncId: Uuid): SyncPayload.Request? {
         // Snapshot under lock, then build outside it: frontierOf is caller
         // code and must never run under this mutex (non-reentrant).
         val row = mutex.withLock { rows[syncId] } ?: return null
-        return SystemPayload.SyncRequest(
+        return SyncPayload.Request(
             roomId = row.roomId,
             syncId = syncId,
             missingIds = listOf(row.targetMessageId),
@@ -145,19 +149,19 @@ internal class FakePendingSyncRepository(
  * configurable batch of messages and recording what was asked for.
  */
 internal class RecordingSyncPayloadProvider(
-    var messages: List<MessagePayload> = emptyList(),
+    var messages: List<DagPayload> = emptyList(),
     private val pending: PendingSyncRepository = FakePendingSyncRepository(),
 ) : SyncPayloadProvider {
-    val requests = mutableListOf<SystemPayload.SyncRequest>()
+    val requests = mutableListOf<SyncPayload.Request>()
     val requesters = mutableListOf<AccountId>()
 
-    override suspend fun syncRequest(syncId: Uuid): SystemPayload.SyncRequest? = pending.buildSyncRequest(syncId)
+    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? = pending.buildSyncRequest(syncId)
 
     override suspend fun syncCandidates(syncId: Uuid): List<AccountId> = pending.candidateAccounts(syncId)
 
     override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> = pending.syncIdsWithCandidate(account)
 
-    override suspend fun syncMessages(request: SystemPayload.SyncRequest, requester: AccountId): List<MessagePayload> {
+    override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> {
         requests.add(request)
         requesters.add(requester)
         return messages
@@ -168,9 +172,14 @@ internal class RecordingSyncPayloadProvider(
 internal class RecordingSyncRouter {
     val started = mutableListOf<Pair<Uuid, Instant>>()
     val reopened = mutableListOf<Pair<Uuid, AccountId>>()
-    val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
+    val sent = mutableListOf<Pair<AccountId, DagPayload>>()
 
-    val syncs: SyncCarrier = object : NoopSyncCarrier() {
+    val messages: MessageCarrier = object : NoopMessageCarrier() {
+        override val incomingMessages: Flow<DagPayload> = MutableSharedFlow()
+        override val deliveries: Flow<MessageAck> = emptyFlow()
+        override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+        override val frontiers: Flow<PingFrontiers> = emptyFlow()
+
         override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
             started += syncId to firstAttemptAt
         }
@@ -178,10 +187,8 @@ internal class RecordingSyncRouter {
         override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
             reopened += syncId to account
         }
-    }
 
-    val messages: MessageCarrier = object : NoopMessageCarrier() {
-        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+        override suspend fun sendMessage(target: AccountId, payload: DagPayload): AccountPushReport {
             sent += target to payload
             return super.sendMessage(target, payload)
         }
@@ -215,6 +222,8 @@ internal class SyncRoutingStack(
     val outboxProcessor: OutboxProcessor,
     val outboundMessenger: OutboundMessenger,
     val systemSender: SystemSender,
+    val torLinkKeeper: LinkKeeper,
+    val webRtcLinkKeeper: LinkKeeper,
 )
 
 internal fun buildSyncRoutingStack(
@@ -226,33 +235,54 @@ internal fun buildSyncRoutingStack(
     val tor = RecordingTorTransport()
     val webRtc = RecordingWebRtcTransport()
     val identity = FakeIdentityResolverForRouter(localDevice, peersByAccount, torByPeer)
-    val ctx = RoutingContext(
-        localIdentity = identity,
-        localDeviceId = localDevice.deviceId,
-        devices = identity,
-        routes = identity,
-        packetDeduplicator = InMemoryPacketDeduplicator(),
-        envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-        torTransport = tor,
-        webRtcTransport = webRtc,
+    val routerConfig = RouterConfig()
+    val ctx = testRoutingContext(
+        identity = identity,
+        tor = tor,
+        webRtc = webRtc,
         clock = clock,
-        routerConfig = MutableStateFlow(RouterConfig()),
-        transportLimits = MutableStateFlow(testTransportLimits()),
+        routerConfig = routerConfig,
+        protections = PassthroughFakeEnvelopeProtectionService(),
     )
 
-    val dispatcher = EnvelopeDispatcher(ctx)
-    val policy = LinkPreferencePolicy(MutableStateFlow(RouterConfig()))
+    val dispatcher = EnvelopeDispatcher(ctx, identity)
+    val policy = LinkPreferencePolicy(MutableStateFlow(routerConfig))
     val outbox = TrackingPacketOutbox()
-    val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePoll = MutableStateFlow(60.seconds))
     val availabilityRegistry =
-        PeerAvailabilityRegistry(clock, MutableStateFlow(RouterConfig()), FakePeerAvailabilityStore())
-    val proactiveSessionOpener = ProactiveSessionOpener(ctx, availabilityRegistry)
+        PeerAvailabilityRegistry(clock, MutableStateFlow(routerConfig), FakePeerAvailabilityStore())
+    val torLinkKeeper = LinkKeeper(
+        name = "Tor-test",
+        sessions = ctx.peerLinks.tor,
+        targets = { emptyList() },
+        ready = flowOf(false),
+        config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
+        clock = clock,
+    )
+    val webRtcLinkKeeper = LinkKeeper(
+        name = "WebRTC-test",
+        sessions = webRtc,
+        targets = { emptyList() },
+        ready = flowOf(false),
+        config = MutableStateFlow(routerConfig.webrtcLinkKeeperConfig),
+        clock = clock,
+    )
+    val outboxProcessor = OutboxProcessor(
+        ctx,
+        dispatcher,
+        policy,
+        outbox,
+        maxIdlePoll = MutableStateFlow(60.seconds),
+        peerAvailabilityRegistry = availabilityRegistry,
+        linkKeeper = torLinkKeeper,
+        relayCopies = { null },
+    )
     val outboundMessenger = OutboundMessenger(
         ctx,
         outboxProcessor = outboxProcessor,
-        sessionOpener = proactiveSessionOpener,
+        webRtcLinks = webRtcLinkKeeper,
     )
-    val systemSender = SystemSender(ctx, policy, dispatcher)
+    val dedup = InMemoryPacketDeduplicator()
+    val systemSender = SystemSender(ctx, policy, dispatcher, dedup)
     return SyncRoutingStack(
         tor = tor,
         webRtc = webRtc,
@@ -262,5 +292,7 @@ internal fun buildSyncRoutingStack(
         outboxProcessor = outboxProcessor,
         outboundMessenger = outboundMessenger,
         systemSender = systemSender,
+        torLinkKeeper = torLinkKeeper,
+        webRtcLinkKeeper = webRtcLinkKeeper,
     )
 }

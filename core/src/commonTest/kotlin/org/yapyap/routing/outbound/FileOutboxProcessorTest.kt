@@ -1,6 +1,5 @@
 package org.yapyap.routing.outbound
 
-import org.yapyap.routing.router.TrackingPacketOutbox
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -11,6 +10,7 @@ import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RetryClass
@@ -24,7 +24,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
- * Step 13 outbox behavior (design §6.2): non-FILE rows are claimed before FILE rows,
+ * Outbox behavior (design §6.2): non-FILE rows are claimed before FILE rows,
  * FILE rows retry at a flat delay outside the message budgets, and a due pass loads
  * blobs only for rows it claims.
  */

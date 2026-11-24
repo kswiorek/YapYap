@@ -2,12 +2,21 @@ package org.yapyap.routing.router
 
 
 import kotlinx.coroutines.runBlocking
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.crypto.store.BootstrapKeySource
+import org.yapyap.protection.PassthroughFileProtection
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.PlaintextMessageProtection
+import org.yapyap.protection.envelope.PlaintextSystemProtection
+import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -56,16 +65,26 @@ class BootstrapSenderTest {
     fun sendBootstrapIntro_protectsAndEnqueuesBootstrapEnvelope() = runBlocking {
         val clock = FakeClock(epochSeconds(10_000L))
         val outbox = TrackingPacketOutbox()
+        val crypto = DefaultCryptoProvider()
+        val secret = ByteArray(32) { 7 }
+        val protections = DefaultEnvelopeProtections(
+            signal = PlaintextWebRtcSignalProtection(crypto),
+            message = PlaintextMessageProtection(crypto),
+            system = PlaintextSystemProtection(crypto),
+            bootstrap = BootstrapProtection(crypto, BootstrapKeySource { secret }),
+            file = PassthroughFileProtection(),
+        )
         val router = defaultRouterUnderTest(
             identity = FakeIdentityResolverForRouter(localDevice = localDeviceRecord()),
             outbox = outbox,
             clock = clock,
             routerConfig = RouterConfig(bootstrapIntroLifetime = 2.hours),
+            envelopeProtections = protections,
         )
         router.start()
 
         val payload = newcomerIntroPayload()
-        router.bootstrap.sendBootstrap(payload, target = newcomerDevice)
+        router.bootstrap.sendBootstrap(payload, target = newcomerDevice, sharedSecret = secret)
 
         assertEquals(1, outbox.enqueued.size)
         val env = outbox.enqueued.single()
@@ -75,9 +94,11 @@ class BootstrapSenderTest {
         assertEquals(newcomerDevice, env.target)
         assertEquals(clock.now() + 2.hours, env.expiresAt, "intro must carry the short bootstrap lifetime")
 
-        // The passthrough protection stores the encoded payload inside the bootstrap envelope.
+        // The intro is AEAD-sealed with the sender's secret: the sponsor recovers it with the same secret.
         val bootstrapEnvelope = BootstrapEnvelope.decode(env.payload)
-        assertTrue(payload.encode().contentEquals(bootstrapEnvelope.payload))
+        assertEquals(BootstrapSecurityScheme.SECRET_AEAD, bootstrapEnvelope.scheme)
+        val opened = protections.bootstrap.open(bootstrapEnvelope) as Intro
+        assertEquals(newcomerDevice, opened.device.deviceId)
         router.stop()
     }
 }

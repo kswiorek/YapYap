@@ -28,12 +28,19 @@ import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.MessageProtection
+import org.yapyap.protection.envelope.PlaintextMessageProtection
+import org.yapyap.protection.envelope.PlaintextSystemProtection
+import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protection.envelope.SystemProtection
+import org.yapyap.protection.envelope.WebRtcSignalProtection
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
@@ -43,12 +50,11 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.WebRtcSignal
@@ -56,11 +62,6 @@ import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.FilePushOps
-import org.yapyap.routing.file.FileRoutingPorts
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestPort
@@ -68,15 +69,19 @@ import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReceiveEnd
-import org.yapyap.routing.file.port.FileReceiveEnds
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.FileRequestSource
-import org.yapyap.routing.file.port.FileServeGate
 import org.yapyap.routing.file.port.PlaintextStream
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.message.port.FrontierSnapshotProvider
+import org.yapyap.routing.message.port.SyncPayloadProvider
+import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.ping.FrontierSnapshotProvider
+import org.yapyap.routing.outbound.RelayCopies
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.store.AdmitResult
 import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.FileIncomingTransfer
@@ -100,8 +105,6 @@ import org.yapyap.routing.store.RelayBackup
 import org.yapyap.routing.store.RetryClass
 import org.yapyap.routing.store.SyncAttempt
 import org.yapyap.routing.store.SyncAttemptStore
-import org.yapyap.routing.sync.SyncPayloadProvider
-import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -113,154 +116,130 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionService {
+internal class PassthroughFakeEnvelopeProtectionService(
+    crypto: CryptoProvider = DefaultCryptoProvider(),
+    fileProtection: FileEnvelopeProtection = PassthroughFileProtection(),
+) : EnvelopeProtections {
+    override val signal: WebRtcSignalProtection = LenientPlaintextWebRtcSignalProtection(crypto)
+    override val message: MessageProtection = LenientPlaintextMessageProtection(crypto)
+    override val system: SystemProtection = LenientPlaintextSystemProtection(crypto)
+    override val bootstrap: BootstrapProtection = BootstrapProtection(crypto, BootstrapKeySource { null })
+    override val file: FileEnvelopeProtection = fileProtection
+}
 
-    override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
-        WebRtcSignalEnvelope(
-            signalEnvelopeId = Uuid.random(),
-            kind = input.kind,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = input.payload,
-        )
+/**
+ * Plaintext sealing that tolerates the production schemes the senders stamp on their
+ * contexts ([SignalSecurityScheme.SIGNED] for system/signal, ENCRYPTED_AND_SIGNED for
+ * messages): the payload rides in the clear either way, so routing tests exercise the real
+ * send/disposition paths without keys. Strict scheme enforcement stays covered by the
+ * protection unit tests, which use the strict plaintext fakes directly.
+ */
+internal class LenientPlaintextMessageProtection(
+    private val crypto: CryptoProvider = DefaultCryptoProvider(),
+) : MessageProtection {
+    private val plaintext = PlaintextMessageProtection(crypto)
 
-    override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
-        WebRtcSignal(
+    override suspend fun protect(
+        input: MessagePayload,
+        context: EnvelopeProtectContext,
+    ): MessageEnvelope =
+        plaintext.protect(input, context.copy(securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY))
+
+    override suspend fun open(envelope: MessageEnvelope): MessagePayload =
+        if (envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) plaintext.open(envelope)
+        else MessagePayload.decode(envelope.payload)
+}
+
+/** [LenientPlaintextMessageProtection] for system envelopes. */
+internal class LenientPlaintextSystemProtection(
+    private val crypto: CryptoProvider = DefaultCryptoProvider(),
+) : SystemProtection {
+    private val plaintext = PlaintextSystemProtection(crypto)
+
+    override suspend fun protect(
+        input: SystemPayload,
+        context: EnvelopeProtectContext,
+    ): SystemEnvelope =
+        plaintext.protect(input, context.copy(securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY))
+
+    override suspend fun open(envelope: SystemEnvelope): SystemPayload =
+        if (envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) plaintext.open(envelope)
+        else SystemPayload.decode(envelope.payload)
+}
+
+/** [LenientPlaintextMessageProtection] for WebRTC signals. */
+internal class LenientPlaintextWebRtcSignalProtection(
+    private val crypto: CryptoProvider = DefaultCryptoProvider(),
+) : WebRtcSignalProtection {
+    private val plaintext = PlaintextWebRtcSignalProtection(crypto)
+
+    override suspend fun protect(
+        input: WebRtcSignal,
+        context: EnvelopeProtectContext,
+    ): WebRtcSignalEnvelope =
+        plaintext.protect(input, context.copy(securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY))
+
+    override suspend fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal =
+        if (envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) plaintext.open(envelope)
+        else WebRtcSignal(
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
             payload = envelope.payload,
         )
-
-    override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
-        val messageId =
-            when (input) {
-                is MessagePayload.Text -> input.messageId
-                is MessagePayload.GlobalEvent -> input.messageId
-                is MessagePayload.RoomEvent -> input.messageId
-            }
-        return MessageEnvelope(
-            messageEnvelopeId = messageId,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = input.encode(),
-        )
-    }
-
-    override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = envelope.decodePayload()
-
-    override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
-        return SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = input.encode(),
-        )
-    }
-
-    override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
-
-    override suspend fun protectBootstrap(
-        input: BootstrapPayload,
-        context: EnvelopeProtectContext,
-        sharedSecret: ByteArray?,
-    ): BootstrapEnvelope =
-        BootstrapEnvelope(
-            // Passthrough plaintext (no AEAD); the scheme is unchecked by this fake.
-            scheme = BootstrapSecurityScheme.ACCOUNT_SIGNED,
-            bootstrapEnvelopeId = Uuid.random(),
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            payload = input.encode(),
-        )
-
-    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
-        BootstrapPayload.decode(envelope.payload)
-
-    override suspend fun isBootstrapSessionActive(): Boolean = false
 }
 
 /**
- * Wraps [delegate] and tracks how many [protectMessage] calls overlap in time.
- * Used to verify multi-peer fan-out runs concurrently rather than sequentially.
+ * Wraps [delegate]'s message protection and tracks how many [MessageProtection.protect] calls
+ * overlap in time. Used to verify multi-peer fan-out runs concurrently rather than sequentially.
  */
 internal class ConcurrencyTrackingEnvelopeProtectionService(
-    private val delegate: EnvelopeProtectionService,
+    private val delegate: EnvelopeProtections,
     private val protectDelayMillis: Long = 200,
-) : EnvelopeProtectionService {
+) : EnvelopeProtections by delegate {
     private val protectStatsMutex = Mutex()
     private var activeProtects = 0
     var maxConcurrentProtects = 0
         private set
 
-    override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
-        delegate.protectSignal(input, context)
-
-    override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
-        delegate.openSignal(envelope)
-
-    override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
-        protectStatsMutex.withLock {
-            activeProtects++
-            if (activeProtects > maxConcurrentProtects) {
-                maxConcurrentProtects = activeProtects
-            }
-        }
-        try {
-            delay(protectDelayMillis.milliseconds)
-            return delegate.protectMessage(input, context)
-        } finally {
+    private inner class TrackingMessageProtection(
+        private val inner: MessageProtection,
+    ) : MessageProtection {
+        override suspend fun protect(
+            input: MessagePayload,
+            context: EnvelopeProtectContext,
+        ): MessageEnvelope {
             protectStatsMutex.withLock {
-                activeProtects--
+                activeProtects++
+                if (activeProtects > maxConcurrentProtects) {
+                    maxConcurrentProtects = activeProtects
+                }
+            }
+            try {
+                delay(protectDelayMillis.milliseconds)
+                return inner.protect(input, context)
+            } finally {
+                protectStatsMutex.withLock {
+                    activeProtects--
+                }
             }
         }
+
+        override suspend fun open(envelope: MessageEnvelope): MessagePayload = inner.open(envelope)
     }
 
-    override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload =
-        delegate.openMessage(envelope)
-
-    override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
-        delegate.protectSystem(input, context)
-
-    override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload =
-        delegate.openSystem(envelope)
-
-    override suspend fun protectBootstrap(
-        input: BootstrapPayload,
-        context: EnvelopeProtectContext,
-        sharedSecret: ByteArray?,
-    ): BootstrapEnvelope =
-        delegate.protectBootstrap(input, context, sharedSecret)
-
-    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
-        delegate.openBootstrap(envelope)
-
-    override suspend fun isBootstrapSessionActive(): Boolean =
-        delegate.isBootstrapSessionActive()
+    override val message: MessageProtection = TrackingMessageProtection(delegate.message)
 }
 
 /** Router transport tests have no pending syncs: nothing to ask for, nothing served. */
 internal class FakeSyncPayloadProvider : SyncPayloadProvider {
-    override suspend fun syncRequest(syncId: Uuid): SystemPayload.SyncRequest? = null
+    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? = null
 
     override suspend fun syncCandidates(syncId: Uuid): List<AccountId> = emptyList()
 
     override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> = emptyList()
 
-    override suspend fun syncMessages(request: SystemPayload.SyncRequest, requester: AccountId): List<MessagePayload> =
+    override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> =
         emptyList()
 }
 
@@ -565,16 +544,7 @@ internal class FakeFilePlaintextSource(
         openImpl(fileId, fromOffset)
 }
 
-/** No-op [FilePushOps]: starting/cancelling pushes is the pusher's covered behavior. */
-internal class NoopFilePushOps : FilePushOps {
-    override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
-    override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
-    override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean = false
-    override suspend fun sendState(fileId: FileId): Map<AccountId, org.yapyap.routing.file.port.FileSendState> =
-        emptyMap()
-}
-
-/** In-memory [FileRequestAttemptStore], mirroring the SQL semantics. */
+/** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */
 internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
     private data class Row(
         var attempts: Int = 0,
@@ -686,12 +656,7 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
 }
 
 /** All three file ports in one test double, so a fake can be passed for each. */
-internal interface FakeFilePorts : FileIngestPort, FileRequestSource, FileServeGate
-
-/** A receive engine that never ends a receive. */
-internal object NoFileReceiveEnds : FileReceiveEnds {
-    override val receiveEnds: kotlinx.coroutines.flow.Flow<FileReceiveEnd> = kotlinx.coroutines.flow.emptyFlow()
-}
+internal interface FakeFilePorts : FileIngestPort, FileRequestSource
 
 /** File ports for tests without a receive engine: declines everything cleanly. */
 internal class RefusingFilePorts : FakeFilePorts {
@@ -1097,6 +1062,8 @@ internal class E2eeIdentityResolverForRouter(
     private val localAccount: AccountId = AccountId("local-account"),
 ) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
 
+    val localDeviceId: PeerId get() = local.device.deviceId
+
     override suspend fun getLocalDeviceIdentity(): DeviceIdentity = local.device
 
     override suspend fun getLocalAccountIdentity(): AccountIdentity =
@@ -1184,7 +1151,7 @@ internal class E2eeIdentityResolverForRouter(
 internal data class E2eeRouterTestStack(
     val peer: TestPeerIdentity,
     val identity: E2eeIdentityResolverForRouter,
-    val protection: DefaultEnvelopeProtectionService,
+    val protection: EnvelopeProtections,
 )
 
 internal fun buildE2eeRouterStack(
@@ -1218,11 +1185,12 @@ internal fun buildE2eeRouterStack(
         )
     )
     val signatureProvider = DefaultSignatureProvider(identity, identity, crypto)
-    val protection = DefaultEnvelopeProtectionService(
-        webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider, crypto),
-        messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
-        systemProtection = SignedSystemProtection(signatureProvider, crypto),
-        bootstrapProtection = BootstrapProtection(crypto, bootstrapKeySource),
+    val protection = DefaultEnvelopeProtections(
+        signal = SignedAndEncryptedWebRtcSignalProtection(signatureProvider, sessionManager, crypto),
+        message = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
+        system = SignedSystemProtection(signatureProvider, crypto),
+        bootstrap = BootstrapProtection(crypto, bootstrapKeySource),
+        file = PassthroughFileProtection(),
     )
     return E2eeRouterTestStack(
         peer = local,
@@ -1233,6 +1201,56 @@ internal fun buildE2eeRouterStack(
 
 internal class FakeFrontierSnapshotProvider : FrontierSnapshotProvider {
     override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<Uuid>>> = emptyList()
+}
+
+internal fun testRoutingContext(
+    identity: FakeIdentityResolverForRouter,
+    tor: TorTransport,
+    webRtc: RecordingWebRtcTransport,
+    clock: Clock,
+    routerConfig: RouterConfig,
+    protections: EnvelopeProtections,
+    fileChunkSize: Int = 220 * 1024,
+): RoutingContext {
+    val peerLinks = PeerLinks(identity, webRtc, tor)
+    return RoutingContext(
+        localIdentity = identity,
+        localDeviceId = identity.localDeviceId,
+        devices = identity,
+        torTransport = tor,
+        webRtcTransport = webRtc,
+        peerLinks = peerLinks,
+        transportLimits = MutableStateFlow(testTransportLimits()),
+        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, fetchFrameBytes = fileChunkSize)),
+        envelopeProtections = protections,
+        clock = clock,
+        routerConfig = MutableStateFlow(routerConfig),
+    )
+}
+
+internal fun testRoutingContext(
+    identity: E2eeIdentityResolverForRouter,
+    tor: TorTransport,
+    webRtc: RecordingWebRtcTransport,
+    clock: Clock,
+    routerConfig: RouterConfig,
+    protections: EnvelopeProtections,
+    fileChunkSize: Int = 220 * 1024,
+): RoutingContext {
+    val peerLinks = PeerLinks(identity, webRtc, tor)
+    return RoutingContext(
+        localIdentity = identity,
+        localDeviceId = identity.localDeviceId,
+        devices = identity,
+        torTransport = tor,
+        webRtcTransport = webRtc,
+        peerLinks = peerLinks,
+        transportLimits = MutableStateFlow(testTransportLimits()),
+        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, fetchFrameBytes = fileChunkSize)),
+        envelopeProtections = protections,
+        clock = clock,
+        routerConfig = MutableStateFlow(routerConfig),
+    )
 }
 
 internal fun e2eeRouterUnderTest(
@@ -1251,39 +1269,34 @@ internal fun e2eeRouterUnderTest(
     fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
-): DefaultRouter =
-    DefaultRouter(
-        torTransport = tor,
-        webRtcTransport = webRtc,
-        localIdentity = stack.identity,
-        localDeviceId = stack.peer.device.deviceId,
-        devices = stack.identity,
+): DefaultRouter {
+    val ctx = testRoutingContext(
+        identity = stack.identity,
+        tor = tor,
+        webRtc = webRtc,
+        clock = clock,
+        routerConfig = routerConfig,
+        protections = stack.protection,
+        fileChunkSize = fileChunkSize.value,
+    )
+    return DefaultRouter(
+        ctx = ctx,
         routes = stack.identity,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
-        envelopeProtectionService = stack.protection,
-        clock = clock,
-        routerConfig = MutableStateFlow(routerConfig),
-        transportLimits = MutableStateFlow(testTransportLimits()),
+        peerAvailabilityStore = FakePeerAvailabilityStore(),
         syncAttemptStore = InMemorySyncAttemptStore(),
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
-        peerAvailabilityStore = FakePeerAvailabilityStore(),
-        filePorts = FileRoutingPorts(
-            ingest = filePorts,
-            requests = filePorts,
-            serveGate = filePorts,
-            plaintext = plaintextSource,
-            receiveEnds = NoFileReceiveEnds,
-            incoming = fileIncomingStore,
-            pushes = filePushStore,
-            relay = fileRelayStore,
-            requestAttempts = fileRequestAttemptStore,
-            protection = PassthroughFileProtection(),
-            chunkSizeBytes = fileChunkSize,
-            fetchFrameBytes = fileChunkSize,
-        ),
+        fileIngest = filePorts,
+        fileRequests = filePorts,
+        filePlaintext = plaintextSource,
+        fileIncomingStore = fileIncomingStore,
+        filePushStore = filePushStore,
+        fileRelayStore = fileRelayStore,
+        fileRequestAttemptStore = fileRequestAttemptStore,
     )
+}
 
 internal fun outboxProcessorUnderTest(
     tor: TorTransport = RecordingTorTransport(),
@@ -1292,32 +1305,38 @@ internal fun outboxProcessorUnderTest(
     outbox: PacketOutbox = TrackingPacketOutbox(),
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
-    isPeerOnline: (PeerId) -> Boolean = { false },
-    onNoLink: suspend (PeerId) -> Unit = {},
-    relayCopies: suspend (BinaryEnvelope) -> Int = { 0 },
+    relayCopies: (OutboxTag.Kind) -> RelayCopies? = { null },
 ): OutboxProcessor {
-    val ctx =
-        RoutingContext(
-            localIdentity = identity,
-            localDeviceId = identity.localDeviceId,
-            devices = identity,
-            routes = identity,
-            packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-            torTransport = tor,
-            webRtcTransport = webRtc,
-            clock = clock,
-            routerConfig = MutableStateFlow(routerConfig),
-            transportLimits = MutableStateFlow(testTransportLimits()),
-        )
+    val ctx = testRoutingContext(
+        identity = identity,
+        tor = tor,
+        webRtc = webRtc,
+        clock = clock,
+        routerConfig = routerConfig,
+        protections = PassthroughFakeEnvelopeProtectionService(),
+        fileChunkSize = 220 * 1024,
+    )
+    val peerAvailabilityRegistry = PeerAvailabilityRegistry(
+        clock = clock,
+        routerConfig = MutableStateFlow(routerConfig),
+        store = FakePeerAvailabilityStore(),
+    )
+    val linkKeeper = LinkKeeper(
+        name = "Tor-test",
+        sessions = ctx.peerLinks.tor,
+        targets = { emptyList() },
+        ready = kotlinx.coroutines.flow.flowOf(false),
+        config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
+        clock = clock,
+    )
     return OutboxProcessor(
         ctx = ctx,
-        dispatcher = EnvelopeDispatcher(ctx),
+        dispatcher = EnvelopeDispatcher(ctx, identity),
         transportPolicy = LinkPreferencePolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
-        isPeerOnline = isPeerOnline,
-        onNoLink = onNoLink,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+        linkKeeper = linkKeeper,
         relayCopies = relayCopies,
     )
 }
@@ -1330,7 +1349,7 @@ internal fun defaultRouterUnderTest(
     outbox: PacketOutbox = TrackingPacketOutbox(),
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
-    envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
+    envelopeProtections: EnvelopeProtections = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
     filePorts: FakeFilePorts = RefusingFilePorts(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
@@ -1339,36 +1358,31 @@ internal fun defaultRouterUnderTest(
     fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
-): DefaultRouter =
-    DefaultRouter(
-        torTransport = tor,
-        webRtcTransport = webRtc,
-        localIdentity = identity,
-        localDeviceId = identity.localDeviceId,
-        devices = identity,
+): DefaultRouter {
+    val ctx = testRoutingContext(
+        identity = identity,
+        tor = tor,
+        webRtc = webRtc,
+        clock = clock,
+        routerConfig = routerConfig,
+        protections = envelopeProtections,
+        fileChunkSize = fileChunkSize.value,
+    )
+    return DefaultRouter(
+        ctx = ctx,
         routes = identity,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
-        envelopeProtectionService = envelopeProtectionService,
-        clock = clock,
-        routerConfig = MutableStateFlow(routerConfig),
-        transportLimits = MutableStateFlow(testTransportLimits()),
+        peerAvailabilityStore = FakePeerAvailabilityStore(),
         syncAttemptStore = InMemorySyncAttemptStore(),
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
-        peerAvailabilityStore = FakePeerAvailabilityStore(),
-        filePorts = FileRoutingPorts(
-            ingest = filePorts,
-            requests = filePorts,
-            serveGate = filePorts,
-            plaintext = plaintextSource,
-            receiveEnds = NoFileReceiveEnds,
-            incoming = fileIncomingStore,
-            pushes = filePushStore,
-            relay = fileRelayStore,
-            requestAttempts = fileRequestAttemptStore,
-            protection = PassthroughFileProtection(),
-            chunkSizeBytes = fileChunkSize,
-            fetchFrameBytes = fileChunkSize,
-        ),
+        fileIngest = filePorts,
+        fileRequests = filePorts,
+        filePlaintext = plaintextSource,
+        fileIncomingStore = fileIncomingStore,
+        filePushStore = filePushStore,
+        fileRelayStore = fileRelayStore,
+        fileRequestAttemptStore = fileRequestAttemptStore,
     )
+}

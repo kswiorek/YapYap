@@ -1,9 +1,5 @@
 package org.yapyap.routing.file
 
-import org.yapyap.routing.store.DefaultFileRequestAttemptStore
-import org.yapyap.routing.store.DefaultFileRelayStore
-import org.yapyap.routing.store.DefaultFilePushStore
-import org.yapyap.routing.store.DefaultFileIncomingTransferStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,7 +54,7 @@ import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.FileFetchFrame
@@ -72,18 +68,25 @@ import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.blockSizeFor
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.E2eeIdentityResolverForRouter
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
 import org.yapyap.routing.router.FakeSyncPayloadProvider
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRelayStore
+import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.routing.store.OutboxTag
-import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -111,7 +114,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
- * Step 22 end-to-end: two routers move a large file over WebRTC fetch channels,
+ * End-to-end: two routers move a large file over WebRTC fetch channels,
  * driven by the real receive engine, serve gate and request coordinator. The Tor
  * mesh only carries signaling-sized traffic; no FILE packet and no FILE outbox
  * row is ever produced on either side.
@@ -209,11 +212,12 @@ class FileLargeFetchTwoRouterTest {
             crypto = crypto,
         )
         val signer = DefaultSignatureProvider(identity, identity, crypto)
-        val protection = DefaultEnvelopeProtectionService(
-            webRtcSignalProtection = SignedAndEncryptedWebRtcSignalProtection(signer, sessionManager(identity), crypto),
-            messageProtection = SignedAndEncryptedMessageProtection(signer, sessionManager(identity), crypto),
-            systemProtection = SignedSystemProtection(signer, crypto),
-            bootstrapProtection = BootstrapProtection(crypto) { null },
+        val protection = DefaultEnvelopeProtections(
+            signal = SignedAndEncryptedWebRtcSignalProtection(signer, sessionManager(identity), crypto),
+            message = SignedAndEncryptedMessageProtection(signer, sessionManager(identity), crypto),
+            system = SignedSystemProtection(signer, crypto),
+            bootstrap = BootstrapProtection(crypto) { null },
+            file = PassthroughFileProtection(),
         )
         val packetOutbox = TrackingPacketOutbox()
         val engine = ReceiveEngine(
@@ -234,38 +238,38 @@ class FileLargeFetchTwoRouterTest {
             localIdentity = identity,
             coverage = engine,
         )
-        val router = DefaultRouter(
-            torTransport = localTor,
-            webRtcTransport = localWebRtc,
+        val peerLinks = PeerLinks(identity, localWebRtc, localTor)
+        val fileLimits = MutableStateFlow(FileLimits(chunkSize.value, chunkSize.value))
+        val ctx = RoutingContext(
             localIdentity = identity,
             localDeviceId = localPeer.device.deviceId,
             devices = identity,
+            torTransport = localTor,
+            webRtcTransport = localWebRtc,
+            peerLinks = peerLinks,
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = fileLimits,
+            envelopeProtections = protection,
+            clock = clock,
+            routerConfig = MutableStateFlow(routerConfig),
+        )
+        val router = DefaultRouter(
+            ctx = ctx,
             routes = identity,
             packetDeduplicator = InMemoryPacketDeduplicator(),
             packetOutbox = packetOutbox,
-            envelopeProtectionService = protection,
-            clock = clock,
-            routerConfig = MutableStateFlow(routerConfig),
-            transportLimits = MutableStateFlow(testTransportLimits()),
+            peerAvailabilityStore = FakePeerAvailabilityStore(),
             syncAttemptStore = InMemorySyncAttemptStore(),
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
-            peerAvailabilityStore = FakePeerAvailabilityStore(),
-            filePorts = FileRoutingPorts(
-                ingest = engine,
-                requests = requestSource,
-                serveGate = requestSource,
-                plaintext = DefaultFilePlaintextSource(descriptors, fileStore, files, crypto),
-                receiveEnds = engine,
-                // The real stores over this node's database, not hand-written fakes.
-                incoming = DefaultFileIncomingTransferStore(db),
-                pushes = DefaultFilePushStore(db),
-                relay = DefaultFileRelayStore(db),
-                requestAttempts = DefaultFileRequestAttemptStore(db),
-                protection = PassthroughFileProtection(),
-                chunkSizeBytes = chunkSize,
-                fetchFrameBytes = chunkSize,
-            ),
+            fileIngest = engine,
+            fileRequests = requestSource,
+            filePlaintext = DefaultFilePlaintextSource(descriptors, fileStore, files, crypto),
+            // The real stores over this node's database, not hand-written fakes.
+            fileIncomingStore = DefaultFileIncomingTransferStore(db),
+            filePushStore = DefaultFilePushStore(db),
+            fileRelayStore = DefaultFileRelayStore(db),
+            fileRequestAttemptStore = DefaultFileRequestAttemptStore(db),
         )
         val pipeline = FakePipeline()
         val coordinator = DefaultFileRequestCoordinator(
@@ -453,7 +457,7 @@ class FileLargeFetchTwoRouterTest {
         jobs.forEach { runCatching { it.cancel() } }
     }
 
-    private suspend fun Mesh.publishLargeFile(): MessagePayload.Text {
+    private suspend fun Mesh.publishLargeFile(): DagPayload.Text {
         val sourceBytes = ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() }
         val sourcePath = Path(alice.work.toString(), "big.bin")
         JvmFileAccess().openAppendWriter(sourcePath, null).use {
@@ -467,7 +471,7 @@ class FileLargeFetchTwoRouterTest {
             keepCopy = true,
         )
         val mid = Uuid.random()
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = mid,
             roomId = roomId,
             senderAccountId = aliceAccount,
@@ -476,7 +480,7 @@ class FileLargeFetchTwoRouterTest {
             createdAt = alice.clock.now(),
             text = "big",
             attachments = listOf(
-                MessagePayload.Attachment(descriptor.fileId, fileName, mimeType, descriptor.totalBytes)
+                DagPayload.Attachment(descriptor.fileId, fileName, mimeType, descriptor.totalBytes)
             ),
         )
         for (node in listOf(alice, bob)) {
@@ -724,7 +728,7 @@ class FileLargeFetchTwoRouterTest {
                 keepCopy = true,
             )
             val mid = Uuid.random()
-            val payload = MessagePayload.Text(
+            val payload = DagPayload.Text(
                 messageId = mid,
                 roomId = roomId,
                 senderAccountId = aliceAccount,
@@ -733,7 +737,7 @@ class FileLargeFetchTwoRouterTest {
                 createdAt = defaultMesh.alice.clock.now(),
                 text = "big64",
                 attachments = listOf(
-                    MessagePayload.Attachment(descriptor.fileId, fileName, mimeType, descriptor.totalBytes)
+                    DagPayload.Attachment(descriptor.fileId, fileName, mimeType, descriptor.totalBytes)
                 ),
             )
             for (node in listOf(defaultMesh.alice, defaultMesh.bob)) {
@@ -824,7 +828,7 @@ class FileLargeFetchTwoRouterTest {
             val descB = mesh.alice.fileStore.importHeld(
                 FileImportSource.PathSource(srcB), "b.bin", mimeType, keepCopy = true,
             )
-            val payloadB = MessagePayload.Text(
+            val payloadB = DagPayload.Text(
                 messageId = Uuid.random(),
                 roomId = roomId,
                 senderAccountId = aliceAccount,
@@ -832,7 +836,7 @@ class FileLargeFetchTwoRouterTest {
                 prevIds = emptyList(),
                 createdAt = mesh.alice.clock.now(),
                 text = "big-b",
-                attachments = listOf(MessagePayload.Attachment(descB.fileId, "b.bin", mimeType, descB.totalBytes)),
+                attachments = listOf(DagPayload.Attachment(descB.fileId, "b.bin", mimeType, descB.totalBytes)),
             )
             for (node in listOf(mesh.alice, mesh.bob)) {
                 node.messages.insert(

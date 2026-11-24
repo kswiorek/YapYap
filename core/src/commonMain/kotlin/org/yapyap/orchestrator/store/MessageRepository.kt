@@ -6,6 +6,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.persistence.Messages
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
@@ -403,7 +404,7 @@ internal class DefaultMessageRepository(
         }
     }
 
-    private fun org.yapyap.persistence.Messages.toRow(): StoredMessage {
+    private fun Messages.toRow(): StoredMessage {
         val payload = runCatching { DagPayload.decode(this.message_payload) }.getOrElse { error ->
             AppLog.error(
                 component = LogComponent.DATABASE,

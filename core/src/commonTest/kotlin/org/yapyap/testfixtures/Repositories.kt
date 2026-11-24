@@ -28,12 +28,12 @@ import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.DeviceRouteStore
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -53,7 +53,7 @@ internal class FakeMessageRepository : MessageRepository {
     var roomRepository: FakeRoomRepository? = null
 
     override suspend fun insert(
-        payload: MessagePayload,
+        payload: DagPayload,
         isOrphaned: Boolean,
         ancestryComplete: Boolean,
         verificationState: VerificationState,
@@ -63,7 +63,7 @@ internal class FakeMessageRepository : MessageRepository {
             return true
         }
         byId[payload.messageId] = StoredMessage(payload, isOrphaned, verificationState, ancestryComplete)
-        (payload as? MessagePayload.Text)?.attachments?.forEach {
+        (payload as? DagPayload.Text)?.attachments?.forEach {
             attachments.getOrPut(payload.messageId) { mutableSetOf() }.add(it.fileId)
         }
         return true
@@ -477,7 +477,7 @@ internal class InMemoryMessageDeliveryRepository(
         messages.findAllInRoom(roomId)
             .map { it.payload }
             .filter { it.senderAccountId == authorAccountId && accountId !in delivered[it.messageId].orEmpty() }
-            .sortedWith(compareByDescending<MessagePayload> { it.createdAt }.thenByDescending { it.messageId })
+            .sortedWith(compareByDescending<DagPayload> { it.createdAt }.thenByDescending { it.messageId })
             .take(limit)
             .map { it.messageId }
 }

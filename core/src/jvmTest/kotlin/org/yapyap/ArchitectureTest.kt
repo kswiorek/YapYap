@@ -35,9 +35,7 @@ class ArchitectureTest {
         // ports the router declares for it (directory, sync content, ping frontiers, `routing/file/port`).
         "orchestrator" to listOf(
             "routing.router",
-            "routing.directory",
-            "routing.sync.SyncPayloadProvider",
-            "routing.ping.FrontierSnapshotProvider",
+            "routing.message.port",
             "routing.file.port",
             "crypto",
             "protocol",

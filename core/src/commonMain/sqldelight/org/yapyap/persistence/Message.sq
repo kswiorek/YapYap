@@ -3,7 +3,7 @@ import kotlin.time.Instant;
 import kotlin.uuid.Uuid;
 import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.RoomId;
-import org.yapyap.protocol.MessagePayloadType;
+import org.yapyap.protocol.DagPayloadType;
 import org.yapyap.orchestrator.dag.VerificationState;
 import org.yapyap.protocol.PeerId;
 import org.yapyap.protocol.FileId;
@@ -24,7 +24,7 @@ CREATE TABLE messages (
     author_device_id TEXT AS PeerId NOT NULL,
     verification_state TEXT AS VerificationState NOT NULL,
     created_at_epoch_seconds INTEGER AS Instant NOT NULL,
-    payload_type TEXT AS MessagePayloadType NOT NULL,
+    payload_type TEXT AS DagPayloadType NOT NULL,
     message_payload BLOB NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
     -- Transitively complete ancestry: every parent present and itself complete.

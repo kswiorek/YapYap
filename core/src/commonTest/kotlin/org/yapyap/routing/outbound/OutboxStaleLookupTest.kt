@@ -1,7 +1,10 @@
 package org.yapyap.routing.outbound
 
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -10,13 +13,22 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
@@ -40,12 +52,15 @@ class OutboxStaleLookupTest {
     private class Setup(
         val tor: RecordingTorTransport,
         val outbox: TrackingPacketOutbox,
-        val processor: OutboxProcessor
+        val processor: OutboxProcessor,
+        val registry: PeerAvailabilityRegistry,
+        val clock: FakeClock,
     )
 
-    private fun setup(peerOnline: () -> Boolean): Setup {
+    private suspend fun setup(peerOnline: () -> Boolean): Setup {
         val tor = RecordingTorTransport()
         val outbox = TrackingPacketOutbox()
+        val clock = FakeClock(now)
         val identity = FakeIdentityResolverForRouter(
             localDevice = DeviceIdentity(
                 deviceId = localPeer,
@@ -55,14 +70,42 @@ class OutboxStaleLookupTest {
             peersByAccount = mapOf(AccountId("stale-lookup-account") to listOf(remotePeer)),
             torByPeer = mutableMapOf(remotePeer to TorEndpoint("peer.onion", 80)),
         )
-        val processor = outboxProcessorUnderTest(
-            tor = tor,
-            identity = identity,
-            outbox = outbox,
-            clock = FakeClock(now),
-            isPeerOnline = { it == remotePeer && peerOnline() },
+        val routerConfig = RouterConfig()
+        val configFlow = MutableStateFlow(routerConfig)
+        val webRtc = RecordingWebRtcTransport()
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = localPeer,
+            devices = identity,
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
+            clock = clock,
+            routerConfig = configFlow,
         )
-        return Setup(tor, outbox, processor)
+        val registry = PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore())
+        if (peerOnline()) registry.markReachable(remotePeer, clock.now())
+        val processor = OutboxProcessor(
+            ctx = ctx,
+            dispatcher = EnvelopeDispatcher(ctx, identity),
+            transportPolicy = LinkPreferencePolicy(configFlow),
+            packetOutbox = outbox,
+            maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
+            peerAvailabilityRegistry = registry,
+            linkKeeper = LinkKeeper(
+                name = "stale-lookup-test",
+                sessions = ctx.peerLinks.tor,
+                targets = { emptyList() },
+                ready = flowOf(false),
+                config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
+                clock = clock,
+            ),
+            relayCopies = { null },
+        )
+        return Setup(tor, outbox, processor, registry, clock)
     }
 
     private suspend fun Setup.enqueueDue() {
@@ -109,6 +152,7 @@ class OutboxStaleLookupTest {
         assertEquals(emptyList(), s.outbox.setDueForTargetCalls)
 
         online = true
+        s.registry.markReachable(remotePeer, s.clock.now())
         s.processor.onPeerOnline(remotePeer)
         assertEquals(1, s.tor.refreshOnionLookupsCalls)
         assertEquals(listOf(remotePeer to now), s.outbox.setDueForTargetCalls)

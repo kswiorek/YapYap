@@ -1,13 +1,8 @@
 @file:OptIn(ExperimentalCoroutinesApi::class)
 package org.yapyap.orchestrator.file
 
-import kotlin.time.Duration
-import kotlin.time.Instant
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.file.io.JvmFileAccess
-import org.yapyap.routing.file.port.FileCarrier
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +15,8 @@ import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.file.receive.ReceiveEngine
 import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
@@ -39,7 +36,8 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeLocalIdentity
@@ -51,13 +49,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 import kotlin.time.TestTimeSource
 import kotlin.uuid.Uuid
 
 /**
- * Step 16, orchestrator side: the REQUEST trigger, the serve gate and candidate order,
+ * Orchestrator side: the REQUEST trigger, the serve gate and candidate order,
  * re-requestable vs refused states, and accounting through [FileEvent]s.
  */
 class FileRequestCoordinatorTest {
@@ -148,10 +148,10 @@ class FileRequestCoordinatorTest {
         messageId: Uuid,
         sender: AccountId,
         room: RoomId = roomId,
-        attachments: List<MessagePayload.Attachment> = listOf(
-            MessagePayload.Attachment(fileId, "img.jpg", "image/jpeg", 1_000L)
+        attachments: List<DagPayload.Attachment> = listOf(
+            DagPayload.Attachment(fileId, "img.jpg", "image/jpeg", 1_000L)
         ),
-    ) = MessagePayload.Text(
+    ) = DagPayload.Text(
         messageId = messageId,
         roomId = room,
         senderAccountId = sender,
@@ -216,7 +216,7 @@ class FileRequestCoordinatorTest {
     fun largeAttachment_belowAutoDownload_triggersImmediately() = runTest {
         val h = harness()
         val mid = Uuid.random()
-        val big = MessagePayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
+        val big = DagPayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(big))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
@@ -238,7 +238,7 @@ class FileRequestCoordinatorTest {
     fun largeAttachment_aboveAutoDownload_landsDeclinedWithoutRequest() = runTest {
         val h = harness()
         val mid = Uuid.random()
-        val huge = MessagePayload.Attachment(fileId, "huge.bin", "application/octet-stream", 300L * 1024 * 1024)
+        val huge = DagPayload.Attachment(fileId, "huge.bin", "application/octet-stream", 300L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(huge))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
@@ -260,7 +260,7 @@ class FileRequestCoordinatorTest {
         val h = harness()
         assertNull(h.source.requestTotalBytes(fileId))
         val mid = Uuid.random()
-        val big = MessagePayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
+        val big = DagPayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(big))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
@@ -723,11 +723,11 @@ class FileRequestCoordinatorTest {
         val parents = mutableMapOf<Uuid, List<Uuid>>()
 
         override suspend fun insert(
-            payload: MessagePayload,
+            payload: DagPayload,
             isOrphaned: Boolean,
             ancestryComplete: Boolean,
             verificationState: VerificationState
-        ) = error("not used")
+        ): Boolean = error("not used")
         override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> = attachments[fileId].orEmpty()
         override suspend fun findById(messageId: Uuid): StoredMessage? = rows[messageId]
         override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> = error("not used")

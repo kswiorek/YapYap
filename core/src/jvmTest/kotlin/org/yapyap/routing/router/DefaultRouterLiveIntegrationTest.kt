@@ -13,17 +13,16 @@ import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.logging.AppLog
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.FileRoutingPorts
-import org.yapyap.sync.FakePeerAvailabilityStore
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
@@ -69,8 +68,8 @@ class DefaultRouterLiveIntegrationTest {
             encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
 
-    private fun sampleText(): MessagePayload.Text =
-        MessagePayload.Text(
+    private fun sampleText(): DagPayload.Text =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = AccountId("alice-acct"),
@@ -127,72 +126,46 @@ class DefaultRouterLiveIntegrationTest {
             )
 
         val clock = FakeClock(epochSeconds(10_000L))
-        val aliceRouter =
-            DefaultRouter(
-                torTransport = aliceTorTransport,
-                webRtcTransport = aliceWebRtc,
-                localIdentity = aliceIdentity,
-                localDeviceId = aliceIdentity.localDeviceId,
-                devices = aliceIdentity,
-                routes = aliceIdentity,
-                packetDeduplicator = InMemoryPacketDeduplicator(),
-                packetOutbox = TrackingPacketOutbox(),
-                envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
+        fun buildRouter(
+            identity: FakeIdentityResolverForRouter,
+            tor: org.yapyap.transport.tor.transport.TorTransport,
+            webRtc: org.yapyap.transport.webrtc.transport.WebRtcTransport,
+        ): DefaultRouter {
+            val peerLinks = PeerLinks(identity, webRtc, tor)
+            val ctx = RoutingContext(
+                localIdentity = identity,
+                localDeviceId = identity.localDeviceId,
+                devices = identity,
+                torTransport = tor,
+                webRtcTransport = webRtc,
+                peerLinks = peerLinks,
+                transportLimits = MutableStateFlow(testTransportLimits()),
+                fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+                envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
                 clock = clock,
                 routerConfig = MutableStateFlow(RouterConfig()),
-                transportLimits = MutableStateFlow(testTransportLimits()),
+            )
+            return DefaultRouter(
+                ctx = ctx,
+                routes = identity,
+                packetDeduplicator = InMemoryPacketDeduplicator(),
+                packetOutbox = TrackingPacketOutbox(),
+                peerAvailabilityStore = FakePeerAvailabilityStore(),
                 syncAttemptStore = InMemorySyncAttemptStore(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
-                peerAvailabilityStore = FakePeerAvailabilityStore(),
-                filePorts = FileRoutingPorts(
-                    ingest = RefusingFilePorts(),
-                    requests = RefusingFilePorts(),
-                    serveGate = RefusingFilePorts(),
-                    plaintext = FakeFilePlaintextSource(),
-                    receiveEnds = NoFileReceiveEnds,
-                    incoming = InMemoryFileIncomingTransferStore(),
-                    pushes = InMemoryFilePushStore(),
-                    relay = InMemoryFileRelayStore(),
-                    requestAttempts = InMemoryFileRequestAttemptStore(),
-                    protection = PassthroughFileProtection(),
-                    chunkSizeBytes = MutableStateFlow(220 * 1024),
-                    fetchFrameBytes = MutableStateFlow(220 * 1024),
-                ),
+                fileIngest = RefusingFilePorts(),
+                fileRequests = RefusingFilePorts(),
+                filePlaintext = FakeFilePlaintextSource(),
+                fileIncomingStore = InMemoryFileIncomingTransferStore(),
+                filePushStore = InMemoryFilePushStore(),
+                fileRelayStore = InMemoryFileRelayStore(),
+                fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
             )
-        val bobRouter =
-            DefaultRouter(
-                torTransport = bobTorTransport,
-                webRtcTransport = bobWebRtc,
-                localIdentity = bobIdentity,
-                localDeviceId = bobIdentity.localDeviceId,
-                devices = bobIdentity,
-                routes = bobIdentity,
-                packetDeduplicator = InMemoryPacketDeduplicator(),
-                packetOutbox = TrackingPacketOutbox(),
-                envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-                clock = clock,
-                routerConfig = MutableStateFlow(RouterConfig()),
-                transportLimits = MutableStateFlow(testTransportLimits()),
-                syncAttemptStore = InMemorySyncAttemptStore(),
-                syncPayloadProvider = FakeSyncPayloadProvider(),
-                frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
-                peerAvailabilityStore = FakePeerAvailabilityStore(),
-                filePorts = FileRoutingPorts(
-                    ingest = RefusingFilePorts(),
-                    requests = RefusingFilePorts(),
-                    serveGate = RefusingFilePorts(),
-                    plaintext = FakeFilePlaintextSource(),
-                    receiveEnds = NoFileReceiveEnds,
-                    incoming = InMemoryFileIncomingTransferStore(),
-                    pushes = InMemoryFilePushStore(),
-                    relay = InMemoryFileRelayStore(),
-                    requestAttempts = InMemoryFileRequestAttemptStore(),
-                    protection = PassthroughFileProtection(),
-                    chunkSizeBytes = MutableStateFlow(220 * 1024),
-                    fetchFrameBytes = MutableStateFlow(220 * 1024),
-                ),
-            )
+        }
+
+        val aliceRouter = buildRouter(aliceIdentity, aliceTorTransport, aliceWebRtc)
+        val bobRouter = buildRouter(bobIdentity, bobTorTransport, bobWebRtc)
 
         try {
             bobRouter.start()
@@ -224,7 +197,7 @@ class DefaultRouterLiveIntegrationTest {
                     }
                 }
 
-            val text = assertIs<MessagePayload.Text>(inbound)
+            val text = assertIs<DagPayload.Text>(inbound)
             assertEquals(outbound.messageId, text.messageId)
             assertEquals(outbound.text, text.text)
             assertEquals(outbound.roomId, text.roomId)

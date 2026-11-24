@@ -1,4 +1,4 @@
-package org.yapyap.routing.inbound.handlers
+package org.yapyap.routing.bootstrap
 
 
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -11,11 +11,13 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
+import org.yapyap.protection.PassthroughFileProtection
+import org.yapyap.protection.envelope.BootstrapProtectContext
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
@@ -32,9 +34,10 @@ import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
@@ -68,25 +71,29 @@ class BootstrapInboundHandlerTest {
         )
 
     private fun routingContext(activeSecret: ByteArray?): RoutingContext {
-        val service = DefaultEnvelopeProtectionService(
-            webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            messageProtection = PlaintextMessageProtection(crypto),
-            systemProtection = PlaintextSystemProtection(crypto),
-            bootstrapProtection = BootstrapProtection(crypto, BootstrapKeySource { activeSecret }),
+        val protections = DefaultEnvelopeProtections(
+            signal = PlaintextWebRtcSignalProtection(crypto),
+            message = PlaintextMessageProtection(crypto),
+            system = PlaintextSystemProtection(crypto),
+            bootstrap = BootstrapProtection(crypto, BootstrapKeySource { activeSecret }),
+            file = PassthroughFileProtection(),
         )
         val local = localDeviceRecord()
+        val identity = FakeIdentityResolverForRouter(localDevice = local)
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
         val ctx = RoutingContext(
-            localIdentity = FakeIdentityResolverForRouter(localDevice = local),
+            localIdentity = identity,
             localDeviceId = local.deviceId,
-            devices = FakeIdentityResolverForRouter(localDevice = local),
-            routes = FakeIdentityResolverForRouter(localDevice = local),
-            packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = service,
-            torTransport = RecordingTorTransport(),
-            webRtcTransport = RecordingWebRtcTransport(),
+            devices = identity,
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = protections,
             clock = FakeClock(now),
             routerConfig = MutableStateFlow(RouterConfig()),
-            transportLimits = MutableStateFlow(testTransportLimits()),
         )
         return ctx
     }
@@ -142,7 +149,15 @@ class BootstrapInboundHandlerTest {
         secret: ByteArray?,
     ): BootstrapEnvelope =
         BootstrapProtection(crypto, BootstrapKeySource { secret })
-            .protect(payload, source, target, createdAt = now, sharedSecret = secret)
+            .protect(
+                payload,
+                BootstrapProtectContext(
+                    sourceDeviceId = source,
+                    targetDeviceId = target,
+                    createdAt = now,
+                    sharedSecret = secret,
+                ),
+            )
 
     private fun binaryEnvelope(bootstrapEnvelope: BootstrapEnvelope, source: PeerId, target: PeerId): BinaryEnvelope =
         BinaryEnvelope(

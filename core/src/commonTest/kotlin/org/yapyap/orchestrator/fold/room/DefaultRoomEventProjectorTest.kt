@@ -29,14 +29,14 @@ import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.Invite
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.routing.message.FakeInboundMessagePipeline
 import org.yapyap.routing.router.AccountPushReport
-import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.InMemoryIdentityStore
 import org.yapyap.testfixtures.NoopMessageCarrier
@@ -137,10 +137,10 @@ private class FakeDagEngine : DagEngine {
         _changes.tryEmit(change)
     }
 
-    override suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload = error("not used")
+    override suspend fun append(roomId: RoomId, draft: MessageDraft): DagPayload = error("not used")
 
-    override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = error("not used")
-    override suspend fun ingest(payload: MessagePayload): IngestResult? = error("not used")
+    override suspend fun createRoom(draft: RoomCreatedDraft): DagPayload.RoomEvent = error("not used")
+    override suspend fun ingest(payload: DagPayload): IngestResult? = error("not used")
 
     override suspend fun reverifyPendingFor(deviceId: PeerId): List<VerificationStateChange> = error("not used")
     override suspend fun reverifyAllPending(): List<VerificationStateChange> = error("not used")
@@ -177,9 +177,9 @@ private class FakeGlobalEventProjector : GlobalEventProjector {
 }
 
 private class FakeRouter : NoopMessageCarrier() {
-    val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
+    val sent = mutableListOf<Pair<AccountId, DagPayload>>()
 
-    override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+    override suspend fun sendMessage(target: AccountId, payload: DagPayload): AccountPushReport {
         sent.add(target to payload)
         return super.sendMessage(target, payload)
     }
@@ -217,7 +217,7 @@ private class Harness {
         author: AccountId,
         prevIds: List<Uuid>,
         event: RoomEventPayload,
-    ): MessagePayload.RoomEvent = MessagePayload.RoomEvent(
+    ): DagPayload.RoomEvent = DagPayload.RoomEvent(
         messageId = Uuid.random(),
         roomId = roomId,
         senderAccountId = author,
@@ -228,8 +228,8 @@ private class Harness {
         authorSignature = byteArrayOf(0x01),
     )
 
-    fun text(roomId: RoomId, author: AccountId, prevIds: List<Uuid>): MessagePayload.Text =
-        MessagePayload.Text(
+    fun text(roomId: RoomId, author: AccountId, prevIds: List<Uuid>): DagPayload.Text =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = author,
@@ -241,7 +241,7 @@ private class Harness {
         )
 
     suspend fun store(
-        payload: MessagePayload,
+        payload: DagPayload,
         complete: Boolean = true,
         state: VerificationState = VerificationState.VERIFIED,
         orphaned: Boolean = false,
@@ -257,7 +257,7 @@ private class Harness {
         }
     }
 
-    fun triggerIngest(payload: MessagePayload) {
+    fun triggerIngest(payload: DagPayload) {
         pipeline.emit(IngestResult.Inserted(payload))
     }
 

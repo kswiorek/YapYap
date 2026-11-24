@@ -4,6 +4,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.crypto.store.BootstrapKeySource
+import org.yapyap.protection.PassthroughFileProtection
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PacketType
@@ -12,8 +17,8 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.Intro
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.AccountIdentity
@@ -45,7 +50,7 @@ class PerCarrierDeliveriesTest {
         encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
     )
 
-    private fun textPayload() = MessagePayload.Text(
+    private fun textPayload() = DagPayload.Text(
         messageId = Uuid.random(),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("sender"),
@@ -99,12 +104,21 @@ class PerCarrierDeliveriesTest {
             peersByAccount = mapOf(remoteAccount to listOf(remote)),
             torByPeer = mutableMapOf(remote to remoteTor),
         )
+        val crypto = DefaultCryptoProvider()
+        val bootstrapSecret = ByteArray(32) { 7 }
         val router = defaultRouterUnderTest(
             tor = tor,
             identity = identity,
             outbox = outbox,
             clock = FakeClock(epochSeconds(now)),
             routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1.seconds),
+            envelopeProtections = DefaultEnvelopeProtections(
+                signal = LenientPlaintextWebRtcSignalProtection(crypto),
+                message = LenientPlaintextMessageProtection(crypto),
+                system = LenientPlaintextSystemProtection(crypto),
+                bootstrap = BootstrapProtection(crypto, BootstrapKeySource { bootstrapSecret }),
+                file = PassthroughFileProtection(),
+            ),
         )
         router.start()
         try {
@@ -128,7 +142,11 @@ class PerCarrierDeliveriesTest {
             assertTrue(bootstrapDeliveries.isEmpty(), "MESSAGE ACK must not appear on bootstrap.deliveries")
 
             // BOOTSTRAP path.
-            val bootstrapPacketId = router.bootstrap.sendBootstrap(introPayload(), target = remote)
+            val bootstrapPacketId = router.bootstrap.sendBootstrap(
+                introPayload(),
+                target = remote,
+                sharedSecret = bootstrapSecret,
+            )
             tor.tryEmitIncoming(ackEnvelope(bootstrapPacketId, PacketType.BOOTSTRAP))
             withTimeout(10.seconds) {
                 while (bootstrapDeliveries.isEmpty()) delay(20.milliseconds)

@@ -21,9 +21,9 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.sync.FakePendingSyncRepository
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.protocol.envelopes.SyncPayload
+import org.yapyap.routing.message.FakePendingSyncRepository
 import org.yapyap.testfixtures.FakeCoverage
 import org.yapyap.testfixtures.FakeDescriptors
 import org.yapyap.testfixtures.FakeLocalIdentity
@@ -51,8 +51,8 @@ class RoomVisibilityTest {
         sender: AccountId,
         tick: Long,
         parents: List<Uuid> = emptyList(),
-        attachments: List<MessagePayload.Attachment> = emptyList(),
-    ): MessagePayload.Text = MessagePayload.Text(
+        attachments: List<DagPayload.Attachment> = emptyList(),
+    ): DagPayload.Text = DagPayload.Text(
         messageId = Uuid.random(),
         roomId = roomId,
         senderAccountId = sender,
@@ -63,7 +63,7 @@ class RoomVisibilityTest {
         attachments = attachments,
     )
 
-    private suspend fun DefaultMessageRepository.seedLinked(msg: MessagePayload.Text) {
+    private suspend fun DefaultMessageRepository.seedLinked(msg: DagPayload.Text) {
         insert(msg, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.VERIFIED)
         for (parent in msg.prevIds) insertParent(msg.messageId, parent)
     }
@@ -226,7 +226,7 @@ class RoomVisibilityTest {
             coverage = FakeCoverage(),
         )
 
-        fun syncReq(missing: List<Uuid>): SystemPayload.SyncRequest = SystemPayload.SyncRequest(
+        fun syncReq(missing: List<Uuid>): SyncPayload.Request = SyncPayload.Request(
             roomId = room,
             syncId = Uuid.random(),
             missingIds = missing,
@@ -237,15 +237,14 @@ class RoomVisibilityTest {
             listOf(m0.messageId to true, m1.messageId to true, removal.messageId to true, after.messageId to false)
         for ((msgId, removedVisible) in cases) {
             // Sync parity: served iff visible.
-            val servedActive = provider.syncMessages(syncReq(listOf(msgId)), active).any { it.messageId == msgId }
+            val servedActive = provider.serveSync(syncReq(listOf(msgId)), active).any { it.messageId == msgId }
             assertTrue(servedActive, "active should be served $msgId")
-            val servedRemoved = provider.syncMessages(syncReq(listOf(msgId)), removed).any { it.messageId == msgId }
-            assertEquals(
-                removedVisible,
-                servedRemoved,
+            val servedRemoved = provider.serveSync(syncReq(listOf(msgId)), removed).any { it.messageId == msgId }
+            assertTrue(
+                servedRemoved == removedVisible,
                 "removed visibility mismatch for $msgId",
             )
-            val servedStranger = provider.syncMessages(syncReq(listOf(msgId)), stranger)
+            val servedStranger = provider.serveSync(syncReq(listOf(msgId)), stranger)
             assertTrue(servedStranger.isEmpty(), "stranger sees nothing")
 
             // Serve-gate parity: one file per message, HELD, referenced only by that message.

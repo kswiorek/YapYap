@@ -1,17 +1,5 @@
 package org.yapyap.orchestrator.file.receive
 
-import org.yapyap.orchestrator.file.FileDescriptorStatus
-import org.yapyap.orchestrator.file.FilePathKind
-import org.yapyap.orchestrator.file.FileStorage
-import org.yapyap.orchestrator.file.FileDescriptor
-import org.yapyap.orchestrator.file.FilePins
-import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.store.DefaultRoomRepository
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
@@ -19,15 +7,27 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileStore
+import org.yapyap.orchestrator.file.FileDescriptor
+import org.yapyap.orchestrator.file.FileDescriptorStatus
+import org.yapyap.orchestrator.file.FilePathKind
+import org.yapyap.orchestrator.file.FilePins
 import org.yapyap.orchestrator.file.FileReceiveRow
 import org.yapyap.orchestrator.file.FileReceiveStatus
+import org.yapyap.orchestrator.file.FileStorage
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
@@ -117,12 +117,12 @@ class FileRetentionTest {
         val rooms = DefaultRoomRepository(db)
         rooms.ensureRoomExists(roomId, RoomType.TEXT_CHANNEL, "t")
         messages.insert(
-            MessagePayload.Text(
+            DagPayload.Text(
                 messageId = msgId, roomId = roomId, senderAccountId = AccountId("a"),
                 authorDeviceId = PeerId("d"), prevIds = emptyList(),
                 createdAt = clock.now(), text = "x",
                 attachments = listOf(
-                    MessagePayload.Attachment(fileId, "f", null, 1000)
+                    DagPayload.Attachment(fileId, "f", null, 1000)
                 ),
             ),
             isOrphaned = false, ancestryComplete = true,

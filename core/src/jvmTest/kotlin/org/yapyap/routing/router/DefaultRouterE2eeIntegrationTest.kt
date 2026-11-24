@@ -13,8 +13,8 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -59,7 +59,7 @@ class DefaultRouterE2eeIntegrationTest {
                 waitInbound.await()
             }
 
-            val text = assertIs<MessagePayload.Text>(received)
+            val text = assertIs<DagPayload.Text>(received)
             assertEquals(outbound.messageId, text.messageId)
             assertEquals(outbound.text, text.text)
             assertEquals(outbound.roomId, text.roomId)
@@ -88,14 +88,14 @@ class DefaultRouterE2eeIntegrationTest {
             val received = withTimeout(5.seconds) {
                 it.bobRouter.messages.incomingMessages.first()
             }
-            val text = assertIs<MessagePayload.Text>(received)
+            val text = assertIs<DagPayload.Text>(received)
             assertEquals(outbound.text, text.text)
         }
     }
 
     private fun assertEncryptedWireEnvelope(
         binaryEnvelope: org.yapyap.protocol.envelopes.BinaryEnvelope,
-        outbound: MessagePayload.Text,
+        outbound: DagPayload.Text,
     ) {
         val messageEnvelope = MessageEnvelope.decode(binaryEnvelope.payload)
         assertEquals(SignalSecurityScheme.ENCRYPTED_AND_SIGNED, messageEnvelope.securityScheme)
@@ -169,8 +169,8 @@ class DefaultRouterE2eeIntegrationTest {
     }
 }
 
-private fun sampleE2eeTextPayload(): MessagePayload.Text =
-    MessagePayload.Text(
+private fun sampleE2eeTextPayload(): DagPayload.Text =
+    DagPayload.Text(
         messageId = Uuid.random(),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("alice-e2ee-account"),

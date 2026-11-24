@@ -7,11 +7,27 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.GlobalEventPayload
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
-import org.yapyap.testfixtures.*
-import kotlin.test.*
+import org.yapyap.testfixtures.FakeCausalHoldRepository
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.FakeIdentityResolver
+import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.FakeRejectingSignatureProvider
+import org.yapyap.testfixtures.FakeRoomRepository
+import org.yapyap.testfixtures.FakeSignatureProvider
+import org.yapyap.testfixtures.FakeUnknownAuthorSignatureProvider
+import org.yapyap.testfixtures.epochSeconds
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -61,7 +77,7 @@ class DefaultDagEngineTest {
         assertEquals(emptyList(), payload.prevIds)
         assertEquals(roomId, payload.roomId)
         assertEquals(testAccount, payload.senderAccountId)
-        assertEquals("first", (payload as MessagePayload.Text).text)
+        assertEquals("first", (payload as DagPayload.Text).text)
         assertEquals(clock.now(), payload.createdAt)
         assertFalse(messageRepo.findById(payload.messageId)!!.isOrphaned)
     }
@@ -87,7 +103,7 @@ class DefaultDagEngineTest {
 
     @Test
     fun append_parkedFrontier_throwsFrontierUnavailable_andWritesNothing() = runTest {
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -110,7 +126,7 @@ class DefaultDagEngineTest {
     @Test
     fun append_rejectedOnlyRoom_throwsFrontierUnavailable() = runTest {
         messageRepo.insert(
-            payload = MessagePayload.Text(
+            payload = DagPayload.Text(
                 messageId = Uuid.random(),
                 roomId = roomId,
                 senderAccountId = remoteAccount,
@@ -152,7 +168,7 @@ class DefaultDagEngineTest {
             ),
         ).withSignature(byteArrayOf(0x01, 0x02, 0x03))
         val genesisRoom = genesis.roomId
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = genesisRoom,
             senderAccountId = remoteAccount,
@@ -177,7 +193,7 @@ class DefaultDagEngineTest {
     fun ingest_newMessageWithExistingPrev_returnsInserted_noGaps() = runTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
 
-        val remotePayload = MessagePayload.Text(
+        val remotePayload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -212,7 +228,7 @@ class DefaultDagEngineTest {
     fun ingest_missingPrev_returnsBecameOrphan_andCreatesGap() = runTest {
         val prevUuid = Uuid.random()
         val msgUuid = Uuid.random()
-        val remotePayload = MessagePayload.Text(
+        val remotePayload = DagPayload.Text(
             messageId = msgUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -241,7 +257,7 @@ class DefaultDagEngineTest {
         val prevUuid = Uuid.random()
         val msgUuid = Uuid.random()
         // 1. Ingest an orphan that references a missing prev.
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = msgUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -256,7 +272,7 @@ class DefaultDagEngineTest {
         assertTrue(messageRepo.findById(orphan.messageId)!!.isOrphaned)
 
         // 2. Ingest the previously-missing message (prevId = null â†’ not orphaned).
-        val missing = MessagePayload.Text(
+        val missing = DagPayload.Text(
             messageId = prevUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -284,7 +300,7 @@ class DefaultDagEngineTest {
         val msg1Uuid = Uuid.random()
         val msg2Uuid = Uuid.random()
         // Two orphans, both waiting for "missing-prev-id".
-        val orphan1 = MessagePayload.Text(
+        val orphan1 = DagPayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -294,7 +310,7 @@ class DefaultDagEngineTest {
             createdAt = epochSeconds(10L),
             text = "a",
         )
-        val orphan2 = MessagePayload.Text(
+        val orphan2 = DagPayload.Text(
             messageId = msg2Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -308,7 +324,7 @@ class DefaultDagEngineTest {
         dagEngine.ingest(orphan2)
         assertEquals(2, causalHoldRepo.findByRoom(roomId).size)
 
-        val missing = MessagePayload.Text(
+        val missing = DagPayload.Text(
             messageId = prevUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -368,7 +384,7 @@ class DefaultDagEngineTest {
         val msg1Uuid = Uuid.random()
         val msg2Uuid = Uuid.random()
         // Orphan in roomId.
-        val orphan1 = MessagePayload.Text(
+        val orphan1 = DagPayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -382,7 +398,7 @@ class DefaultDagEngineTest {
 
         // Orphan in a second room.
         val otherRoom = RoomId(Uuid.random())
-        val orphan2 = MessagePayload.Text(
+        val orphan2 = DagPayload.Text(
             messageId = msg2Uuid,
             roomId = otherRoom,
             senderAccountId = remoteAccount,
@@ -411,7 +427,7 @@ class DefaultDagEngineTest {
         val event = GlobalEventPayload.RemoveDevice(targetDeviceId = remoteDeviceId)
         val payload = dagEngine.append(roomId, MessageDraft.GlobalEvent(event))
 
-        assertTrue(payload is MessagePayload.GlobalEvent)
+        assertTrue(payload is DagPayload.GlobalEvent)
         assertEquals(RoomId.GLOBAL, payload.roomId)
         assertContentEquals(event.encode(), payload.eventBytes)
         assertEquals(event, payload.decodeEvent())
@@ -420,7 +436,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_invalidSignature_storesMessageAsRejected() = runTest {
         val msgUuid = Uuid.random()
-        val remotePayload = MessagePayload.Text(
+        val remotePayload = DagPayload.Text(
             messageId = msgUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -462,7 +478,7 @@ class DefaultDagEngineTest {
         assertContentEquals(byteArrayOf(0x01, 0x02, 0x03), payload.authorSignature)
     }
 
-    private fun textPayload(text: String = "pending") = MessagePayload.Text(
+    private fun textPayload(text: String = "pending") = DagPayload.Text(
         messageId = Uuid.random(),
         roomId = roomId,
         senderAccountId = remoteAccount,
@@ -522,7 +538,7 @@ class DefaultDagEngineTest {
         // Regression (docs/room events.md §9): the reverify hooks cover
         // RoomEvent uniformly with Text — unchanged behavior, and the room
         // projector writes no verdicts (no reverify ping-pong).
-        val payload = MessagePayload.RoomEvent(
+        val payload = DagPayload.RoomEvent(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -555,7 +571,7 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_textWithEmptyPrevIdsInChatRoom_storesAsRejected() = runTest {
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -575,7 +591,7 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_roomEventNonGenesisWithEmptyPrevIds_storesAsRejected() = runTest {
-        val payload = MessagePayload.RoomEvent(
+        val payload = DagPayload.RoomEvent(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -595,7 +611,7 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_roomEventUndecodableBytes_storesAsRejected() = runTest {
-        val payload = MessagePayload.RoomEvent(
+        val payload = DagPayload.RoomEvent(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -697,7 +713,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_unknownRoom_seedsRoomRow() = runTest {
         val freshRoom = RoomId(Uuid.random())
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = freshRoom,
             senderAccountId = remoteAccount,
@@ -714,7 +730,7 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_globalRoom_doesNotSeedRoomRow() = runTest {
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId.GLOBAL,
             senderAccountId = remoteAccount,

@@ -8,8 +8,10 @@ import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.FieldSensitivity
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.envelopes.WebRtcSignalKind
@@ -94,9 +96,10 @@ class BaseProtectionObservabilityTest {
         override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
             require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             val messageId = when (input) {
-                is MessagePayload.Text -> input.messageId
-                is MessagePayload.GlobalEvent -> input.messageId
-                is MessagePayload.RoomEvent -> input.messageId
+                is DagPayload.Text -> input.messageId
+                is DagPayload.GlobalEvent -> input.messageId
+                is DagPayload.RoomEvent -> input.messageId
+                is SyncPayload.Request -> input.contentId
             }
             return MessageEnvelope(
                 messageEnvelopeId = messageId,
@@ -112,7 +115,7 @@ class BaseProtectionObservabilityTest {
 
         override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
             require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            return envelope.decodePayload()
+            return MessagePayload.decode(envelope.payload)
         }
 
         override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
@@ -174,9 +177,10 @@ class BaseProtectionObservabilityTest {
         override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
             require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             val messageId = when (input) {
-                is MessagePayload.Text -> input.messageId
-                is MessagePayload.GlobalEvent -> input.messageId
-                is MessagePayload.RoomEvent -> input.messageId
+                is DagPayload.Text -> input.messageId
+                is DagPayload.GlobalEvent -> input.messageId
+                is DagPayload.RoomEvent -> input.messageId
+                is SyncPayload.Request -> input.contentId
             }
             return MessageEnvelope(
                 messageEnvelopeId = messageId,
@@ -192,7 +196,7 @@ class BaseProtectionObservabilityTest {
 
         override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
             require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            return envelope.decodePayload()
+            return MessagePayload.decode(envelope.payload)
         }
 
         override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =

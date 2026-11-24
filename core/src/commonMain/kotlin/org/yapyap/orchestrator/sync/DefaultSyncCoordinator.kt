@@ -24,7 +24,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.routing.router.MessageCarrier
-import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -59,14 +58,11 @@ internal class DefaultSyncCoordinator(
     /** Last removal re-push per (account, room); see [rePushRemoval]. */
     private val lastRemovalPushAt = HashMap<Pair<AccountId, RoomId>, Instant>()
 
-    @Volatile
-    private var serviceScope: CoroutineScope? = null
     private val jobs = mutableListOf<Job>()
     private val syncMutex = Mutex()
 
     override fun start(scope: CoroutineScope) {
         check(jobs.isEmpty()) { "SyncCoordinator already started" }
-        serviceScope = scope
         // The router asks for every pending sync; hand it the ones from before this run
         // (idempotent: a sync it already tracks keeps its attempt state).
         jobs += scope.launch {
@@ -126,7 +122,6 @@ internal class DefaultSyncCoordinator(
         jobs.forEach { it.cancel() }
         jobs.forEach { it.join() }
         jobs.clear()
-        serviceScope = null
     }
 
     // ------------------------------------------------------------------

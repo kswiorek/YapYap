@@ -1,6 +1,5 @@
-package org.yapyap.sync
+package org.yapyap.routing.presence
 
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -9,9 +8,10 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.ping.FrontierSnapshotProvider
-import org.yapyap.routing.ping.PingProvider
-import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.message.SyncRoutingStack
+import org.yapyap.routing.message.buildSyncRoutingStack
+import org.yapyap.routing.message.port.FrontierSnapshotProvider
+import org.yapyap.routing.message.testDeviceIdentity
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.testfixtures.FakeClock
@@ -37,12 +37,10 @@ class PingProviderTest {
 
     private fun buildProvider(
         stack: SyncRoutingStack,
-        pingFlow: MutableSharedFlow<PingFrontiers>,
         frontiersAskedFor: MutableList<AccountId> = mutableListOf(),
     ): PingProvider = PingProvider(
         ctx = stack.ctx,
         config = MutableStateFlow(RouterConfig()),
-        pingPayloadFlow = pingFlow,
         frontierSnapshotProvider = object : FrontierSnapshotProvider {
             override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<Uuid>>> {
                 frontiersAskedFor += account
@@ -76,10 +74,9 @@ class PingProviderTest {
     @Test
     fun handlePing_reply_emitsResolvedSenderAccount() = runTest {
         val stack = stack()
-        val pingFlow = MutableSharedFlow<PingFrontiers>(replay = 1, extraBufferCapacity = 64)
-        val provider = buildProvider(stack, pingFlow)
+        val provider = buildProvider(stack)
         val received = mutableListOf<PingFrontiers>()
-        val collectJob = launch { pingFlow.collect { received.add(it) } }
+        val collectJob = launch { provider.frontiers.collect { received.add(it) } }
         val tip = Uuid.random()
 
         provider.handlePing(remoteDevice, replyPing(roomId to listOf(tip)))
@@ -95,10 +92,9 @@ class PingProviderTest {
         // unknown-room candidate path does (§6.2), so the ping is forwarded
         // with a null sender instead of being dropped.
         val stack = stack()
-        val pingFlow = MutableSharedFlow<PingFrontiers>(replay = 1, extraBufferCapacity = 64)
-        val provider = buildProvider(stack, pingFlow)
+        val provider = buildProvider(stack)
         val received = mutableListOf<PingFrontiers>()
-        val collectJob = launch { pingFlow.collect { received.add(it) } }
+        val collectJob = launch { provider.frontiers.collect { received.add(it) } }
         val unknownDevice = PeerId("ping-unknown-device")
         val tip = Uuid.random()
 
@@ -113,7 +109,7 @@ class PingProviderTest {
     fun probe_isAnsweredWithFrontiersForTheSendersAccount() = runTest {
         val stack = stack()
         val askedFor = mutableListOf<AccountId>()
-        val provider = buildProvider(stack, MutableSharedFlow(extraBufferCapacity = 64), askedFor)
+        val provider = buildProvider(stack, askedFor)
 
         provider.handlePing(remoteDevice, replyPing().copy(isReply = false))
 

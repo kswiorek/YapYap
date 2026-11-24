@@ -1,6 +1,5 @@
 package org.yapyap.orchestrator.runtime.file
 
-import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +32,7 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.NoopFileCarrier
@@ -43,6 +42,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -137,7 +137,7 @@ class FileTransferServiceTest {
         override fun start(scope: CoroutineScope) = Unit
     }
 
-    private suspend fun Harness.storeMessage(payload: MessagePayload.Text) {
+    private suspend fun Harness.storeMessage(payload: DagPayload.Text) {
         rooms.ensureRoomExists(roomId, RoomType.TEXT_CHANNEL, "t")
         messages.insert(
             payload,
@@ -150,12 +150,12 @@ class FileTransferServiceTest {
     @Test
     fun decline_withoutRow_recordsDeclinedFromAttachment() = runTest {
         val h = harness()
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = h.messageId, roomId = roomId, senderAccountId = senderAccount,
             authorDeviceId = PeerId("facade-author-device"), prevIds = emptyList(),
             createdAt = now, text = "big",
             attachments = listOf(
-                MessagePayload.Attachment(
+                DagPayload.Attachment(
                     fileId,
                     "huge.bin",
                     "application/octet-stream",
@@ -179,11 +179,11 @@ class FileTransferServiceTest {
     @Test
     fun accept_afterDecline_dropsRowAndStartsRequest() = runTest {
         val h = harness()
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = h.messageId, roomId = roomId, senderAccountId = senderAccount,
             authorDeviceId = PeerId("facade-author-device"), prevIds = emptyList(),
             createdAt = now, text = "big",
-            attachments = listOf(MessagePayload.Attachment(fileId, "huge.bin", null, 300L * 1024 * 1024)),
+            attachments = listOf(DagPayload.Attachment(fileId, "huge.bin", null, 300L * 1024 * 1024)),
         )
         h.storeMessage(payload)
         h.service.declineFile(fileId)
@@ -236,11 +236,11 @@ class FileTransferServiceTest {
     @Test
     fun receiveState_reflectsDeclined() = runTest {
         val h = harness()
-        val payload = MessagePayload.Text(
+        val payload = DagPayload.Text(
             messageId = h.messageId, roomId = roomId, senderAccountId = senderAccount,
             authorDeviceId = PeerId("facade-author-device"), prevIds = emptyList(),
             createdAt = now, text = "big",
-            attachments = listOf(MessagePayload.Attachment(fileId, "huge.bin", null, 300L * 1024 * 1024)),
+            attachments = listOf(DagPayload.Attachment(fileId, "huge.bin", null, 300L * 1024 * 1024)),
         )
         h.storeMessage(payload)
         h.service.declineFile(fileId)

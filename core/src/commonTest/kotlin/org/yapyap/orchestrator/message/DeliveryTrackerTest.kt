@@ -12,14 +12,13 @@ import org.yapyap.orchestrator.runtime.message.MessageDelivery
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
 import org.yapyap.testfixtures.NoopMessageCarrier
-import org.yapyap.testfixtures.NoopSyncCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -38,9 +37,7 @@ class DeliveryTrackerTest {
         val pingFlow = MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 16)
         val messages = object : NoopMessageCarrier() {
             override val deliveries: Flow<MessageAck> = deliveryFlow
-        }
-        val syncs = object : NoopSyncCarrier() {
-            override val pingPayloads: Flow<PingFrontiers> = pingFlow
+            override val frontiers: Flow<PingFrontiers> = pingFlow
         }
     }
 
@@ -49,15 +46,14 @@ class DeliveryTrackerTest {
     private val deliveries = InMemoryMessageDeliveryRepository(messages)
     private val tracker = DeliveryTracker(
         router.messages,
-        router.syncs,
         messages,
         deliveries,
         FakeIdentityResolver(localAccount, localDevice),
     )
     private var tick = 0L
 
-    private suspend fun message(sender: AccountId, prevIds: List<Uuid> = emptyList()): MessagePayload.Text {
-        val msg = MessagePayload.Text(
+    private suspend fun message(sender: AccountId, prevIds: List<Uuid> = emptyList()): DagPayload.Text {
+        val msg = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = sender,

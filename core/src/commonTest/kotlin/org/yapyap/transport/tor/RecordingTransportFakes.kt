@@ -25,6 +25,9 @@ internal class RecordingTorTransport(
     private val incomingMutable = MutableSharedFlow<TorIncomingEnvelope>(extraBufferCapacity = 64)
     override val incoming: Flow<TorIncomingEnvelope> = incomingMutable.asSharedFlow()
 
+    override val localTorEndpoint: TorEndpoint?
+        get() = advertisedEndpoint
+
     override val publishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
 
@@ -158,6 +161,9 @@ internal class ConcurrencyTrackingTorTransport(
 
     private val incomingMutable = MutableSharedFlow<TorIncomingEnvelope>(extraBufferCapacity = 64)
     override val incoming: Flow<TorIncomingEnvelope> = incomingMutable.asSharedFlow()
+
+    override val localTorEndpoint: TorEndpoint?
+        get() = advertisedEndpoint
 
     override val publishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()

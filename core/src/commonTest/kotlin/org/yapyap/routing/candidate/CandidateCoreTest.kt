@@ -8,15 +8,27 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
-import org.yapyap.sync.FixedSyncPeerPolicy
-import org.yapyap.sync.buildSyncRoutingStack
-import org.yapyap.sync.testDeviceIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.policy.SyncPeerPolicy
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -111,13 +123,20 @@ class CandidateCoreTest {
         override suspend fun onSuccess(id: Uuid, device: PeerId): SuccessAction = SuccessAction.Done
     }
 
+    private class FixedPeerPolicy(var nextDevice: PeerId? = null) : SyncPeerPolicy {
+        override fun pickNextDevice(
+            candidates: List<PeerId>,
+            declined: Set<PeerId>,
+            unanswered: Set<PeerId>,
+        ): PeerId? = nextDevice
+    }
+
     private data class CoreHarness(
         val scope: CoroutineScope,
         val core: CandidateRequestCore<Uuid>,
         val attempts: InMemoryAttempts,
         val strategy: FakeStrategy,
         val clock: FakeClock,
-        val stack: org.yapyap.sync.SyncRoutingStack,
     ) {
         private var job: Job? = null
 
@@ -136,23 +155,51 @@ class CandidateCoreTest {
         run: suspend (id: Uuid, device: PeerId) -> CallOutcome,
     ): CoreHarness {
         val clock = FakeClock(now)
-        val stack = buildSyncRoutingStack(
-            localDevice = testDeviceIdentity(localDevice),
+        val identity = FakeIdentityResolverForRouter(
+            localDevice = DeviceIdentity(
+                deviceId = localDevice,
+                signingKey = SigningPublicKey(byteArrayOf(1)),
+                encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
+            ),
             peersByAccount = mapOf(holderAccount to listOf(holderDevice)),
-            torByPeer = mutableMapOf(),
+        )
+        val routerConfig = RouterConfig()
+        val configFlow = MutableStateFlow(routerConfig)
+        val tor = RecordingTorTransport()
+        val webRtc = RecordingWebRtcTransport()
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = localDevice,
+            devices = identity,
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            peerLinks = PeerLinks(identity, webRtc, tor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
+            clock = clock,
+            routerConfig = configFlow,
+        )
+        val linkKeeper = LinkKeeper(
+            name = "candidate-test",
+            sessions = ctx.peerLinks.tor,
+            targets = { emptyList() },
+            ready = flowOf(false),
+            config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
             clock = clock,
         )
         val attempts = InMemoryAttempts()
         val strategy = FakeStrategy(holderAccount, attempts)
         val core = CandidateRequestCore(
-            ctx = stack.ctx,
+            ctx = ctx,
             strategy = strategy,
-            peerPolicy = FixedSyncPeerPolicy(nextDevice = holderDevice),
+            peerPolicy = FixedPeerPolicy(nextDevice = holderDevice),
             executor = AttemptExecutor.Call(MutableStateFlow(maxConcurrent), run),
             maxIdlePoll = MutableStateFlow(50.milliseconds),
+            linkKeeper = linkKeeper,
         )
         val scope = CoroutineScope(SupervisorJob())
-        return CoreHarness(scope, core, attempts, strategy, clock, stack)
+        return CoreHarness(scope, core, attempts, strategy, clock)
     }
 
     @Test

@@ -1,4 +1,4 @@
-package org.yapyap.sync
+package org.yapyap.routing.message
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -18,7 +18,6 @@ import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
@@ -42,8 +41,7 @@ class SyncRetryProcessorTest {
         val stack: SyncRoutingStack,
         val pending: FakePendingSyncRepository,
         val attempts: InMemorySyncAttemptStore,
-        val processor: SyncRetryProcessor,
-        val nudged: List<PeerId>,
+        val processor: MessagePullProcessor,
     ) {
         suspend fun runFor(millis: Long = 500) {
             val scope = CoroutineScope(SupervisorJob())
@@ -73,18 +71,17 @@ class SyncRetryProcessorTest {
         }
         val pending = FakePendingSyncRepository()
         val attempts = InMemorySyncAttemptStore()
-        val nudged = mutableListOf<PeerId>()
-        val processor = SyncRetryProcessor(
+        val processor = MessagePullProcessor(
             ctx = stack.ctx,
             attempts = attempts,
             syncs = RecordingSyncPayloadProvider(pending = pending),
-            systemSender = stack.systemSender,
+            envelopes = stack.outboundMessenger,
             outboxProcessor = stack.outboxProcessor,
             peerPolicy = policy ?: DefaultSyncPeerPolicy(stack.ctx),
             maxIdlePoll = MutableStateFlow(1.seconds),
-            onNoLink = { nudged += it },
+            linkKeeper = stack.torLinkKeeper,
         )
-        return Harness(stack, pending, attempts, processor, nudged)
+        return Harness(stack, pending, attempts, processor)
     }
 
     private suspend fun Harness.pendingSync(): Uuid {
@@ -103,7 +100,7 @@ class SyncRetryProcessorTest {
 
         val queued = h.stack.outbox.enqueued.single()
         assertEquals(remoteDevice, queued.target)
-        assertEquals(PacketType.SYSTEM, queued.packetType)
+        assertEquals(PacketType.MESSAGE, queued.packetType)
         assertTrue(queued.dispositionRequested, "the answer (ACK or NACK) is what moves the sync on")
         assertEquals(OutboxTag(OutboxTag.Kind.SYNC, syncId), h.stack.outbox.tagOf(queued.packetId))
         assertEquals(1, h.attempts.attemptsOf(syncId))
@@ -266,14 +263,13 @@ class SyncRetryProcessorTest {
     }
 
     @Test
-    fun noLinkedCandidate_nudgesTheirLinks_andAsksWhenOneComesUp() = runBlocking {
+    fun noLinkedCandidate_parksUntilALinkComesUp() = runBlocking {
         val h = harness(unlinked = setOf(remoteDevice))
         val syncId = h.pendingSync()
         val scope = CoroutineScope(SupervisorJob())
         h.processor.runIn(scope)
         delay(500)
         assertTrue(h.stack.outbox.enqueued.isEmpty(), "nobody is asked without a link")
-        assertEquals(listOf(remoteDevice), h.nudged.distinct())
         assertEquals(now + 30.seconds, h.attempts.nextAttemptAt(syncId))
 
         h.stack.tor.setSessionState(TorEndpoint("${remoteDevice.id}.onion", 80), SessionPhase.CONNECTED)

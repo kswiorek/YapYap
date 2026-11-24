@@ -26,9 +26,9 @@ import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.Invite
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -36,10 +36,10 @@ import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SignedPreKey
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.message.FakeInboundMessagePipeline
 import org.yapyap.routing.router.AccountPushReport
-import org.yapyap.sync.FakeInboundMessagePipeline
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.DeviceRouteStore
 import org.yapyap.testfixtures.FakeCausalHoldRepository
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeMessageRepository
@@ -134,8 +134,8 @@ private suspend fun globalNode(
     createdAt: Instant,
     event: GlobalEventPayload,
     signWith: ByteArray = author.signingPrivate,
-): MessagePayload.GlobalEvent {
-    val unsigned = MessagePayload.GlobalEvent(
+): DagPayload.GlobalEvent {
+    val unsigned = DagPayload.GlobalEvent(
         messageId = Uuid.random(),
         senderAccountId = author.account.accountId,
         authorDeviceId = author.deviceId,
@@ -246,9 +246,9 @@ private class TestIdentities : LocalIdentity, LocalKeys, PeerKeys, DeviceDirecto
 }
 
 private class RecordingProjectorRouter : NoopMessageCarrier() {
-    val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
+    val sent = mutableListOf<Pair<AccountId, DagPayload>>()
 
-    override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+    override suspend fun sendMessage(target: AccountId, payload: DagPayload): AccountPushReport {
         sent.add(target to payload)
         return AccountPushReport(devicesTotal = 0, devicesQueued = 0, devicesDeferred = 0, devicesFailed = 0)
     }
@@ -337,7 +337,7 @@ private class Harness(
         )
     }
 
-    suspend fun store(node: MessagePayload, orphaned: Boolean = false) {
+    suspend fun store(node: DagPayload, orphaned: Boolean = false) {
         messageRepo.insert(
             payload = node,
             isOrphaned = orphaned,
@@ -726,7 +726,7 @@ class DefaultGlobalEventProjectorTest {
         assertEquals(VerificationState.VERIFIED, h.verdictOf(ban1.messageId))
         val tabletAddId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { row ->
-                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
                 event is GlobalEventPayload.AddDevice && event.deviceId == tablet.deviceId
             }.payload.messageId
         assertEquals(VerificationState.VERIFIED, h.verdictOf(tabletAddId))
@@ -770,7 +770,7 @@ class DefaultGlobalEventProjectorTest {
         // The gap closes onto a forged parent (wrong payload type in the control room):
         // the parent is REJECTED and poisons its structural descendants — the parked add
         // stays PENDING (never folds), with no tombstone and no DeviceAdded.
-        val lateParent = MessagePayload.Text(
+        val lateParent = DagPayload.Text(
             messageId = missingParent,
             roomId = RoomId.GLOBAL,
             senderAccountId = h.account.accountId,
@@ -1188,7 +1188,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         h.store(
-            MessagePayload.Text(
+            DagPayload.Text(
                 messageId = Uuid.random(),
                 roomId = RoomId.GLOBAL,
                 senderAccountId = h.account.accountId,
@@ -1212,7 +1212,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         for (row in h.messageRepo.findAllInRoom(RoomId.GLOBAL)) {
-            if (row.payload is MessagePayload.Text) {
+            if (row.payload is DagPayload.Text) {
                 assertEquals(VerificationState.REJECTED, row.verificationState)
             }
         }
@@ -1628,7 +1628,7 @@ class DefaultGlobalEventProjectorTest {
 
     private suspend fun Harness.removeAccountNodes(target: AccountId): List<Uuid> =
         messageRepo.findAllInRoom(RoomId.GLOBAL).mapNotNull { row ->
-            val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+            val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
             if (event is GlobalEventPayload.RemoveAccount && event.targetAccountId == target) {
                 row.payload.messageId
             } else {
@@ -2017,7 +2017,7 @@ class DefaultGlobalEventProjectorTest {
         h.projector.publishRemoveDevice(h.oldPhone.deviceId)
         val banXId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { row ->
-                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
                 event is GlobalEventPayload.RemoveDevice && event.targetDeviceId == h.oldPhone.deviceId
             }.payload.messageId
         runCurrent()
@@ -2086,7 +2086,7 @@ class DefaultGlobalEventProjectorTest {
         // stably with no oscillation to resurrect the grant.
         val gAddId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { row ->
-                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
                 event is GlobalEventPayload.AddDevice && event.deviceId == siblingG.deviceId
             }.payload.messageId
         val retaliation = globalNode(
@@ -2153,7 +2153,7 @@ class DefaultGlobalEventProjectorTest {
         h.projector.publishRemoveDevice(deviceA.deviceId)
         val banXId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { row ->
-                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
                 event is GlobalEventPayload.RemoveDevice && event.targetDeviceId == deviceA.deviceId
             }.payload.messageId
         runCurrent()
@@ -2164,7 +2164,7 @@ class DefaultGlobalEventProjectorTest {
         // the oscillation tie-break keeps the maximal-revocation one.
         val gAddId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { row ->
-                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
                 event is GlobalEventPayload.AddDevice && event.deviceId == deviceG.deviceId
             }.payload.messageId
         val forged = globalNode(

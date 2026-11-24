@@ -14,7 +14,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -40,8 +40,8 @@ class RoomFoldQueriesJvmTest {
         connection = null
     }
 
-    private fun textIn(roomId: RoomId, tick: Long): MessagePayload.Text =
-        MessagePayload.Text(
+    private fun textIn(roomId: RoomId, tick: Long): DagPayload.Text =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = FixtureAccountId,

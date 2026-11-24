@@ -30,9 +30,9 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.TransferKey
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -41,8 +41,8 @@ import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.DeviceRouteStore
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.time.Instant
@@ -67,8 +67,8 @@ internal fun sampleEnvelopeContext(
     securityScheme = scheme,
 )
 
-internal fun sampleTextPayload(): MessagePayload.Text =
-    MessagePayload.Text(
+internal fun sampleTextPayload(): DagPayload.Text =
+    DagPayload.Text(
         messageId = Uuid.random(),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-1"),

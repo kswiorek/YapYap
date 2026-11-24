@@ -1,9 +1,11 @@
-package org.yapyap.sync
+package org.yapyap.routing.policy
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.routing.policy.DefaultSyncPeerPolicy
+import org.yapyap.routing.message.SyncRoutingStack
+import org.yapyap.routing.message.buildSyncRoutingStack
+import org.yapyap.routing.message.testDeviceIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

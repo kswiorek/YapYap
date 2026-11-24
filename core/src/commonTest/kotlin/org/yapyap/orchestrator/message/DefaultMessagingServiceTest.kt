@@ -55,23 +55,21 @@ import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.DeviceRouteStore
 import org.yapyap.routing.router.MessageCarrier
-import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
 import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.NoopMessageCarrier
-import org.yapyap.testfixtures.NoopSyncCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -145,7 +143,6 @@ class DefaultMessagingServiceTest {
         return DefaultMessagingService(
             dagEngine = dagEngine,
             messageCarrier = router.messages,
-            syncCarrier = router.syncs,
             pipeline = pipeline,
             roomRepository = roomMembershipRepo,
             messageRepository = messageRepo,
@@ -177,7 +174,7 @@ class DefaultMessagingServiceTest {
         // DAG contains the message.
         val messages = messageRepo.findAllInRoom(roomId).map { it.payload }
         assertEquals(1, messages.size)
-        assertEquals("hello from local", (messages[0] as MessagePayload.Text).text)
+        assertEquals("hello from local", (messages[0] as DagPayload.Text).text)
         assertEquals(localAccount, messages[0].senderAccountId)
     }
 
@@ -187,7 +184,7 @@ class DefaultMessagingServiceTest {
         val fileSendService = FakeFileSendService(
             prepareResult = { files ->
                 PrepareResult.Ready(files.map { f ->
-                    MessagePayload.Attachment(
+                    DagPayload.Attachment(
                         FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                         f.fileName, f.mimeType, 1024L,
                     )
@@ -212,7 +209,7 @@ class DefaultMessagingServiceTest {
         assertTrue(service.preparingSends.value.isEmpty(), "preparing cleared after land")
         // The message carries the imported attachment.
         val stored = messageRepo.findAllInRoom(roomId).map { it.payload }.single()
-        val attachments = (stored as MessagePayload.Text).attachments
+        val attachments = (stored as DagPayload.Text).attachments
         assertEquals(1, attachments.size)
         assertEquals("photo.jpg", attachments.single().fileName)
         assertEquals(1024L, attachments.single().totalBytes)
@@ -229,7 +226,7 @@ class DefaultMessagingServiceTest {
         val fileSendService = FakeFileSendService(
             prepareResult = { files ->
                 PrepareResult.Ready(files.map { f ->
-                    MessagePayload.Attachment(
+                    DagPayload.Attachment(
                         FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                         f.fileName, f.mimeType, 100L * 1024 * 1024,
                     )
@@ -272,7 +269,7 @@ class DefaultMessagingServiceTest {
         val service = newService(pipeline, fileSendService = fileSendService)
         startStack(this, pipeline, service)
 
-        val tooMany = List(MessagePayload.Attachment.MAX_ATTACHMENTS + 1) {
+        val tooMany = List(DagPayload.Attachment.MAX_ATTACHMENTS + 1) {
             PickedFile("f$it.bin", null, PickedFileSource.FilePath("/tmp/f$it.bin"))
         }
         val result = service.sendMessage(roomId, Message("too many", pickedFiles = tooMany))
@@ -285,7 +282,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun sendMessage_failedAppend_releasesOrphanCopy() = runTest(UnconfinedTestDispatcher()) {
         dagEngine.ingest(
-            MessagePayload.Text(
+            DagPayload.Text(
                 messageId = Uuid.random(),
                 roomId = roomId,
                 senderAccountId = remoteAccount,
@@ -300,7 +297,7 @@ class DefaultMessagingServiceTest {
         val fileSendService = FakeFileSendService(
             prepareResult = { files ->
                 PrepareResult.Ready(files.map { f ->
-                    MessagePayload.Attachment(
+                    DagPayload.Attachment(
                         FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                         f.fileName, f.mimeType, 1024L,
                     )
@@ -357,7 +354,7 @@ class DefaultMessagingServiceTest {
                 kotlinx.coroutines.suspendCancellableCoroutine { cont ->
                     releaseHash = {
                         cont.resume(PrepareResult.Ready(files.map { f ->
-                            MessagePayload.Attachment(
+                            DagPayload.Attachment(
                                 FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                                 f.fileName, f.mimeType, 1024L,
                             )
@@ -414,7 +411,7 @@ class DefaultMessagingServiceTest {
     fun sendTextMessage_parkedFrontier_returnsHistoryIncomplete_andSendsNothing() =
         runTest(UnconfinedTestDispatcher()) {
             dagEngine.ingest(
-                MessagePayload.Text(
+                DagPayload.Text(
                     messageId = Uuid.random(),
                     roomId = roomId,
                     senderAccountId = remoteAccount,
@@ -529,7 +526,7 @@ class DefaultMessagingServiceTest {
         // Seed a local base so the remote message has a resolvable parent.
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         val remoteTimestamp = epochSeconds(1_000_500L)
-        val incoming = MessagePayload.Text(
+        val incoming = DagPayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -563,7 +560,7 @@ class DefaultMessagingServiceTest {
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -599,7 +596,7 @@ class DefaultMessagingServiceTest {
         // Structural genesis rule: the missing parent itself needs a parent.
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         // Orphan arrives.
-        val orphan = MessagePayload.Text(
+        val orphan = DagPayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -616,7 +613,7 @@ class DefaultMessagingServiceTest {
         assertTrue(window.displayItems.value.any { it is MessageDisplayItem.Gap })
 
         // The previously-missing message arrives.
-        val missing = MessagePayload.Text(
+        val missing = DagPayload.Text(
             messageId = prevUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -656,7 +653,7 @@ class DefaultMessagingServiceTest {
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         // From remote → emits a content-free signal (no preview: the GUI re-pulls
         // roomPreview, so hidden messages never leak through notification).
-        val remoteIncoming = MessagePayload.Text(
+        val remoteIncoming = DagPayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -679,7 +676,7 @@ class DefaultMessagingServiceTest {
 
         // From self → no event.
         received.clear()
-        val selfIncoming = MessagePayload.Text(
+        val selfIncoming = DagPayload.Text(
             messageId = msg2Uuid,
             roomId = roomId,
             senderAccountId = localAccount,
@@ -713,7 +710,7 @@ class DefaultMessagingServiceTest {
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         val stranger = AccountId("msg-stranger")
         router.emitIncoming(
-            MessagePayload.Text(
+            DagPayload.Text(
                 messageId = Uuid.random(),
                 roomId = roomId,
                 senderAccountId = stranger,
@@ -745,7 +742,7 @@ class DefaultMessagingServiceTest {
         val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
         advanceUntilIdle()
 
-        val globalEvent = MessagePayload.GlobalEvent(
+        val globalEvent = DagPayload.GlobalEvent(
             messageId = Uuid.random(),
             senderAccountId = remoteAccount,
             prevIds = emptyList(),
@@ -778,7 +775,7 @@ class DefaultMessagingServiceTest {
         advanceUntilIdle()
 
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
-        val roomEvent = MessagePayload.RoomEvent(
+        val roomEvent = DagPayload.RoomEvent(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -839,8 +836,8 @@ class DefaultMessagingServiceTest {
         text: String,
         tick: Long,
         state: VerificationState = VerificationState.VERIFIED,
-    ): MessagePayload.Text {
-        val msg = MessagePayload.Text(
+    ): DagPayload.Text {
+        val msg = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = sender,
@@ -956,7 +953,7 @@ class DefaultMessagingServiceTest {
             // Orphan from the removed author with a fabricated missing parent:
             // hidden from the live window (no text, no gap indicator).
             val fabricated = Uuid.random()
-            val orphan = MessagePayload.Text(
+            val orphan = DagPayload.Text(
                 messageId = Uuid.random(),
                 roomId = roomId,
                 senderAccountId = remoteAccount,
@@ -976,7 +973,7 @@ class DefaultMessagingServiceTest {
             // The missing parent arrives and the orphan chains — still outside the
             // removal closure (the closure is frozen at the removal node), so still
             // hidden.
-            val lateParent = MessagePayload.Text(
+            val lateParent = DagPayload.Text(
                 messageId = fabricated,
                 roomId = roomId,
                 senderAccountId = remoteAccount,
@@ -1021,7 +1018,7 @@ class DefaultMessagingServiceTest {
         text: String,
         tick: Long,
         parents: List<Uuid>,
-    ): MessagePayload.Text {
+    ): DagPayload.Text {
         val msg = seedText(sender, text, tick)
         for (parent in parents) messageRepo.insertParent(msg.messageId, parent)
         return msg
@@ -1035,8 +1032,8 @@ class DefaultMessagingServiceTest {
         target: AccountId,
         parents: List<Uuid>,
         tick: Long,
-    ): MessagePayload.RoomEvent {
-        val removal = MessagePayload.RoomEvent(
+    ): DagPayload.RoomEvent {
+        val removal = DagPayload.RoomEvent(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = localAccount,
@@ -1251,7 +1248,7 @@ private class FakeMessageRepository : MessageRepository {
     var roomRepository: FakeRoomRepository? = null
 
     override suspend fun insert(
-        payload: MessagePayload,
+        payload: DagPayload,
         isOrphaned: Boolean,
         ancestryComplete: Boolean,
         verificationState: VerificationState,
@@ -1518,7 +1515,7 @@ private class RecordingFileCarrier : NoopFileCarrier() {
 private class FakeFileSendService(
     var prepareResult: suspend (List<PickedFile>) -> PrepareResult = { files ->
         PrepareResult.Ready(files.mapIndexed { i, f ->
-            MessagePayload.Attachment(
+            DagPayload.Attachment(
                 FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                 f.fileName, f.mimeType, 1024L,
             )
@@ -1526,7 +1523,7 @@ private class FakeFileSendService(
     },
 ) : FileSendService {
     val pushed = mutableListOf<Pair<FileId, AccountId>>()
-    val released = mutableListOf<List<MessagePayload.Attachment>>()
+    val released = mutableListOf<List<DagPayload.Attachment>>()
 
     override suspend fun prepare(
         files: List<PickedFile>,
@@ -1536,12 +1533,12 @@ private class FakeFileSendService(
         return prepareResult(files)
     }
 
-    override suspend fun release(attachments: List<MessagePayload.Attachment>) {
+    override suspend fun release(attachments: List<DagPayload.Attachment>) {
         released += attachments
     }
 
     override suspend fun startPushes(
-        attachments: List<MessagePayload.Attachment>,
+        attachments: List<DagPayload.Attachment>,
         members: Collection<AccountId>,
     ) {
         for (a in attachments) {
@@ -1552,27 +1549,26 @@ private class FakeFileSendService(
 
     override suspend fun cleanTmp() = Unit
 
-    override suspend fun confirm(attachments: List<MessagePayload.Attachment>) = Unit
+    override suspend fun confirm(attachments: List<DagPayload.Attachment>) = Unit
 }
 
 private class RecordingRouter {
-    private val _incomingMessages = MutableSharedFlow<MessagePayload>(extraBufferCapacity = 64)
+    private val _incomingMessages = MutableSharedFlow<DagPayload>(extraBufferCapacity = 64)
     private val _typingIndicators = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
     val sentTargets = mutableListOf<AccountId>()
 
     val messages: MessageCarrier = object : NoopMessageCarrier() {
-        override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
+        override val incomingMessages: Flow<DagPayload> = _incomingMessages.asSharedFlow()
         override val typingIndicators: Flow<TypingIndicatorEvent> = _typingIndicators.asSharedFlow()
 
-        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+        override suspend fun sendMessage(target: AccountId, payload: DagPayload): AccountPushReport {
             sentTargets.add(target)
             return super.sendMessage(target, payload)
         }
     }
-    val syncs: SyncCarrier = NoopSyncCarrier()
     var files: FileCarrier = NoopFileCarrier()
 
-    suspend fun emitIncoming(payload: MessagePayload) {
+    suspend fun emitIncoming(payload: DagPayload) {
         _incomingMessages.emit(payload)
     }
 

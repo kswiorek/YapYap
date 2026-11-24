@@ -1,8 +1,6 @@
 package org.yapyap.orchestrator.file
 
-import org.yapyap.protocol.blockSizeFor
 import kotlinx.coroutines.Job
-import org.yapyap.persistence.YapYapDatabase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -23,14 +21,14 @@ import org.yapyap.orchestrator.file.receive.FileRetention
 import org.yapyap.orchestrator.file.receive.ReceiveEngine
 import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.FileCancelReason
+import org.yapyap.protocol.blockSizeFor
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
-import org.yapyap.routing.file.port.FileReceiveEnd
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.TestFileIds
@@ -52,10 +50,10 @@ import kotlin.uuid.Uuid
 
 /** The receives the engine ended, as routing would collect them. */
 private class RecordedEnds {
-    val all = mutableListOf<FileReceiveEnd>()
-    val readyCalls: List<FileId> get() = all.filterIsInstance<FileReceiveEnd.Ready>().map { it.fileId }
-    val cancels: List<Pair<FileId, FileCancelReason>>
-        get() = all.filterIsInstance<FileReceiveEnd.Cancelled>().map { it.fileId to it.reason }
+    val all = mutableListOf<FileReceiveEvent>()
+    val readyCalls: List<FileId> get() = all.filterIsInstance<FileReceiveEvent.Ready>().map { it.fileId }
+    val cancels: List<Pair<FileId, org.yapyap.routing.file.port.FileFailureReason>>
+        get() = all.filterIsInstance<FileReceiveEvent.Failed>().map { it.fileId to it.reason }
 }
 
 private class FailingWriteAccess(
@@ -178,7 +176,7 @@ class FileReceiveEngineJvmTest {
             fileStore = wrapFileStore(DefaultFileStore(descriptors, crypto, files, b.storeDir, configFlow, clock)),
             clock = clock,
         )
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { engine.receiveEnds.collect { ends.all += it } }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { engine.receiveEvents.collect { ends.all += it } }
         engine.recoverNow(clock.now())
         return Harness(engine, receives, descriptors, ends, files, clock, paths, b)
     }
@@ -446,7 +444,7 @@ class FileReceiveEngineJvmTest {
         assertEquals(FileReceiveStatus.STALLED, stalled.status)
         assertEquals(2L * 1024 * 1024, stalled.contiguousBytes)
         assertEquals(1, stalled.hashMismatches)
-        assertEquals(1, h.ends.cancels.size)
+        assertTrue(h.ends.cancels.isEmpty(), "STALLED emits no Failed; authors are answered by the coordinator")
         val prefix = h.files.openPositionedReader(h.paths.part(fileId)).use { reader ->
             val out = ByteArray(2 * 1024 * 1024)
             var got = 0
@@ -1013,7 +1011,7 @@ class FileReceiveEngineJvmTest {
         )
         assertEquals(FileReceiveStatus.DECLINED, h.receives.find(fileId)?.status)
         assertNull(h.files.fileSize(h.paths.part(fileId)))
-        assertEquals(listOf(fileId to FileCancelReason.DECLINED), h.ends.cancels)
+        assertEquals(listOf(fileId to org.yapyap.routing.file.port.FileFailureReason.DECLINED), h.ends.cancels)
     }
 
     @Test

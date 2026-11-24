@@ -11,8 +11,8 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -169,7 +169,7 @@ class DefaultRouterContractTest {
             defaultRouterUnderTest(
                 tor = tor,
                 identity = identity,
-                envelopeProtectionService = tracking,
+                envelopeProtections = tracking,
             )
 
         router.start()
@@ -451,7 +451,7 @@ class DefaultRouterContractTest {
     private fun inboundTorMessage(
         packetId: Uuid,
         remoteTor: TorEndpoint,
-        text: MessagePayload.Text = sampleTextPayload(),
+        text: DagPayload.Text = sampleTextPayload(),
         expiresAt: Long = 11_000L,
         target: PeerId = localPeer,
     ): TorIncomingEnvelope {
@@ -505,8 +505,8 @@ class DefaultRouterContractTest {
     }
 }
 
-private fun sampleTextPayload(): MessagePayload.Text =
-    MessagePayload.Text(
+private fun sampleTextPayload(): DagPayload.Text =
+    DagPayload.Text(
         messageId = Uuid.random(),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-sender"),

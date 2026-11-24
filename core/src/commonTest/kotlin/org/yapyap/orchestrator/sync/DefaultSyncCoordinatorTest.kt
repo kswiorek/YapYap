@@ -1,4 +1,4 @@
-package org.yapyap.sync
+package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -6,13 +6,15 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.routing.message.FakeInboundMessagePipeline
+import org.yapyap.routing.message.FakePendingSyncRepository
+import org.yapyap.routing.message.RecordingSyncRouter
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
@@ -50,7 +52,6 @@ class DefaultSyncCoordinatorTest {
             messageRepository = messageRepo,
             pendingSyncRepository = pendingRepo,
             messageCarrier = router.messages,
-            syncCarrier = router.syncs,
             roomChanges = emptyFlow(),
             identityChanges = emptyFlow(),
             clock = clock,
@@ -62,8 +63,8 @@ class DefaultSyncCoordinatorTest {
         roomId: RoomId,
         prevIds: List<Uuid>,
         sender: AccountId = remoteAccount,
-    ): MessagePayload.Text =
-        MessagePayload.Text(
+    ): DagPayload.Text =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = sender,
@@ -549,7 +550,7 @@ class DefaultSyncCoordinatorTest {
         coordinator.requestFrontierSync(roomId, emptyList(), remoteAccount)
         coordinator.requestFrontierSync(roomId, emptyList(), remoteAccount)
 
-        assertEquals(listOf(remoteAccount to (removal as MessagePayload)), router.sent, "once per backoff window")
+        assertEquals(listOf(remoteAccount to (removal as DagPayload)), router.sent, "once per backoff window")
     }
 
     @Test

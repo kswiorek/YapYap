@@ -1,9 +1,5 @@
 package org.yapyap.routing.file
 
-import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.routing.file.port.FileIngestResult
-import org.yapyap.routing.router.FakeFilePorts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -14,30 +10,41 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
-import org.yapyap.routing.outbound.ProactiveSessionOpener
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.FakeFilePorts
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
-import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.sync.FakePeerAvailabilityStore
-import org.yapyap.sync.buildSyncRoutingStack
-import org.yapyap.sync.testDeviceIdentity
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
@@ -57,7 +64,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * Large request path, routing side: the fetch strategy opens a WebRTC
- * session ([ProactiveSessionOpener.awaitSession]) and then runs a fetch. FETCH_OK and
+ * session ([LinkKeeper.await]) and then runs a fetch. FETCH_OK and
  * FETCH_DECLINED are the attempt's outcomes with no WAITING state; unreachable
  * candidates stay PENDING; online-but-unconnectable reports "no direct
  * connection". Nothing large touches the outbox or Tor.
@@ -188,46 +195,88 @@ class FileFetchStrategyTest {
         dataBytes: ByteArray = ByteArray(largeTotal.toInt()) { (it * 7).toByte() },
     ): Fixture {
         val clock = FakeClock(now)
-        val stack = buildSyncRoutingStack(
-            localDevice = testDeviceIdentity(localDevice),
+        val configFlow = MutableStateFlow(routerConfig)
+        val local = DeviceIdentity(
+            localDevice,
+            SigningPublicKey(byteArrayOf(1)),
+            EncryptionPublicKey(byteArrayOf(2)),
+        )
+        val identity = FakeIdentityResolverForRouter(
+            localDevice = local,
             peersByAccount = mapOf(holderAccount to holderDevices),
             torByPeer = holderDevices.associateWith { TorEndpoint("${it.id}.onion", 80) }.toMutableMap(),
+        )
+        val requesterTor = RecordingTorTransport()
+        val requesterWebRtc = RecordingWebRtcTransport()
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = localDevice,
+            devices = identity,
+            torTransport = requesterTor,
+            webRtcTransport = requesterWebRtc,
+            peerLinks = PeerLinks(identity, requesterWebRtc, requesterTor),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+            fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024)),
+            envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
             clock = clock,
+            routerConfig = configFlow,
         )
         for (device in holderDevices) {
-            stack.ctx.peerLinks.bindTorEndpoint(device, TorEndpoint("${device.id}.onion", 80))
+            ctx.peerLinks.bindTorEndpoint(device, TorEndpoint("${device.id}.onion", 80))
         }
-        (stack.ctx.routerConfig as MutableStateFlow).value = routerConfig
-        val configFlow = MutableStateFlow(routerConfig)
+        val outbox = TrackingPacketOutbox()
+        val outboxProcessor = outboxProcessorUnderTest(
+            tor = requesterTor,
+            webRtc = requesterWebRtc,
+            identity = identity,
+            outbox = outbox,
+            clock = clock,
+            routerConfig = routerConfig,
+        )
+        val torLinkKeeper = LinkKeeper(
+            name = "fetch-test-tor",
+            sessions = ctx.peerLinks.tor,
+            targets = { emptyList() },
+            ready = kotlinx.coroutines.flow.flowOf(false),
+            config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
+            clock = clock,
+        )
+        val webRtcLinkKeeper = LinkKeeper(
+            name = "fetch-test-webrtc",
+            sessions = requesterWebRtc,
+            targets = { emptyList() },
+            ready = kotlinx.coroutines.flow.flowOf(false),
+            config = MutableStateFlow(routerConfig.webrtcLinkKeeperConfig),
+            clock = clock,
+        )
         val scope = CoroutineScope(SupervisorJob())
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val holderEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val attempts = InMemoryFileRequestAttemptStore()
         val requesterGate = CompletingSource(candidates = listOf(holderAccount), defaultTotalBytes = largeTotal)
+        val fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024))
         val requesterManager = FileFetchService(
-            devices = stack.ctx.devices,
-            transport = stack.webRtc,
+            devices = ctx.devices,
+            transport = requesterWebRtc,
             plaintext = BytePlaintext(ByteArray(0)),
             ingest = requesterGate,
-            serveGate = requesterGate,
+            requests = requesterGate,
             routerConfig = configFlow,
-            frameBytes = MutableStateFlow(32 * 1024),
+            fileLimits = fileLimits,
             events = events,
             clock = clock,
         )
-        val registry = PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore())
-        val sessionOpener = ProactiveSessionOpener(stack.ctx, registry)
         val processor = FileRequestProcessor(
-            ctx = stack.ctx,
+            ctx = ctx,
             protection = PassthroughFileProtection(),
             attempts = attempts,
             requests = requesterGate,
-            outboxProcessor = stack.outboxProcessor,
-            peerPolicy = DefaultSyncPeerPolicy(stack.ctx),
+            outboxProcessor = outboxProcessor,
+            peerPolicy = DefaultSyncPeerPolicy(ctx),
             maxIdlePoll = MutableStateFlow(50.milliseconds),
             events = events,
-            onNoLink = {},
-            sessionOpener = sessionOpener,
+            linkKeeper = torLinkKeeper,
+            webRtcLinks = webRtcLinkKeeper,
             fetchService = requesterManager,
         )
         val holderTransports = holderDevices.associateWith { RecordingWebRtcTransport() }
@@ -238,9 +287,9 @@ class FileFetchStrategyTest {
                 transport = holderTransports.getValue(device),
                 plaintext = BytePlaintext(dataBytes),
                 ingest = holderGate,
-                serveGate = holderGate,
+                requests = holderGate,
                 routerConfig = configFlow,
-                frameBytes = MutableStateFlow(32 * 1024),
+                fileLimits = fileLimits,
                 events = holderEvents,
                 clock = clock,
             )
@@ -259,7 +308,7 @@ class FileFetchStrategyTest {
             val holderClosed = mutableMapOf<PeerId, Int>()
             while (true) {
                 delay(10)
-                val reqSends = stack.webRtc.sendFileFrameCalls.toList()
+                val reqSends = requesterWebRtc.sendFileFrameCalls.toList()
                 while (requesterSent < reqSends.size) {
                     val (channel, payload) = reqSends[requesterSent++]
                     val holderTransport = holderTransports[channel.peer] ?: continue
@@ -278,14 +327,14 @@ class FileFetchStrategyTest {
                             FileChannelId(peer = device, label = channel.label),
                             payload,
                         )
-                        while (!stack.webRtc.tryEmitFileFrame(forRequester)) delay(5)
+                        while (!requesterWebRtc.tryEmitFileFrame(forRequester)) delay(5)
                     }
                     holderSent[device] = done
                     val closes = transport.closeFileChannelCalls.toList()
                     var closedDone = holderClosed.getOrDefault(device, 0)
                     while (closedDone < closes.size) {
                         val channel = closes[closedDone++]
-                        stack.webRtc.tryEmitFileChannelEvent(
+                        requesterWebRtc.tryEmitFileChannelEvent(
                             WebRtcFileChannelEvent.Removed(
                                 FileChannelId(peer = device, label = channel.label)
                             )
@@ -293,7 +342,7 @@ class FileFetchStrategyTest {
                     }
                     holderClosed[device] = closedDone
                 }
-                val reqCloses = stack.webRtc.closeFileChannelCalls.toList()
+                val reqCloses = requesterWebRtc.closeFileChannelCalls.toList()
                 while (requesterClosed < reqCloses.size) {
                     val channel = reqCloses[requesterClosed++]
                     holderTransports[channel.peer]?.tryEmitFileChannelEvent(
@@ -310,10 +359,10 @@ class FileFetchStrategyTest {
                 val simulated = mutableSetOf<PeerId>()
                 while (true) {
                     delay(10)
-                    for (peer in stack.webRtc.openSessionCalls.toList()) {
+                    for (peer in requesterWebRtc.openSessionCalls.toList()) {
                         if (simulated.add(peer)) {
-                            stack.webRtc.setSessionState(WebRtcSessionState(peer, SessionPhase.CONNECTED))
-                            stack.webRtc.simulateEnvelopeChannelOpen(peer)
+                            requesterWebRtc.setSessionState(WebRtcSessionState(peer, SessionPhase.CONNECTED))
+                            requesterWebRtc.simulateEnvelopeChannelOpen(peer)
                         }
                     }
                 }
@@ -335,8 +384,8 @@ class FileFetchStrategyTest {
             attempts,
             events,
             holderEvents,
-            stack.webRtc,
-            stack.tor,
+            requesterWebRtc,
+            requesterTor,
             holderTransports,
             requesterGate,
             dataBytes,

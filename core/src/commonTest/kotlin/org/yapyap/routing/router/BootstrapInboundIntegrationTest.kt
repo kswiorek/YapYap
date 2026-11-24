@@ -66,7 +66,15 @@ class BootstrapInboundIntegrationTest {
                 dagHeadTipIds = emptyList(),
             )
             val bootstrapEnvelope = BootstrapProtection(crypto) { secret.copyOf() }
-                .protect(payload, sponsor.device.deviceId, newcomer.device.deviceId, clock.now(), secret.copyOf())
+                .protect(
+                    payload,
+                    org.yapyap.protection.envelope.BootstrapProtectContext(
+                        sourceDeviceId = sponsor.device.deviceId,
+                        targetDeviceId = newcomer.device.deviceId,
+                        createdAt = clock.now(),
+                        sharedSecret = secret.copyOf(),
+                    ),
+                )
             val binary = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.BOOTSTRAP,

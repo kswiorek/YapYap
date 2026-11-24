@@ -9,7 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.uuid.Uuid
 
 /**
- * Step 7 (JVM): chunk-shaped I/O boundary over `FileChannel`.
+ * (JVM): chunk-shaped I/O boundary over `FileChannel`.
  */
 class JvmFileAccessTest {
     private val access = JvmFileAccess()

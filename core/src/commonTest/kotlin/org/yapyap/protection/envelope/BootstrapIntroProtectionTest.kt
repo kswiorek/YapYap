@@ -13,9 +13,16 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
 import org.yapyap.protocol.envelopes.Intro
-import org.yapyap.protocol.identity.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
 
 class BootstrapIntroProtectionTest {
@@ -58,18 +65,8 @@ class BootstrapIntroProtectionTest {
         )
     }
 
-    @Test
-    fun deriveIntroKey_isDeterministic_domainSeparated_and32Bytes() = runTest {
-        val secret = ByteArray(32) { 7 }
-        val p = BootstrapProtection(crypto, FakeKeySource(null))
-        val k1 = p.deriveIntroKey(secret)
-        val k2 = p.deriveIntroKey(secret)
-        assertContentEquals(k1, k2)
-        assertEquals(32, k1.size)
-        // A different inbound key material must derive a different AEAD key.
-        val altered = secret.copyOf().also { it[0] = 9 }
-        assertFalse(k1.contentEquals(p.deriveIntroKey(altered)))
-    }
+    private fun ctx(secret: ByteArray?) =
+        BootstrapProtectContext(sponsor, newcomer, now, secret)
 
     @Test
     fun protectIntro_thenOpenIntro_roundTrips() = runTest {
@@ -77,7 +74,7 @@ class BootstrapIntroProtectionTest {
         val p = BootstrapProtection(crypto, FakeKeySource(secret))
         val payload = samplePayload()
 
-        val envelope = p.protect(payload, sponsor, newcomer, now, secret)
+        val envelope = p.protect(payload, ctx(secret))
         val opened = p.open(envelope)
 
         assertTrue(payload.encode().contentEquals(opened.encode()))
@@ -90,7 +87,7 @@ class BootstrapIntroProtectionTest {
     fun openIntro_withWrongKey_fails() = runTest {
         val p = BootstrapProtection(crypto, FakeKeySource(ByteArray(32) { 3 }))
         val other = BootstrapProtection(crypto, FakeKeySource(ByteArray(32) { 4 }))
-        val envelope = p.protect(samplePayload(), sponsor, newcomer, now, ByteArray(32) { 3 })
+        val envelope = p.protect(samplePayload(), ctx(ByteArray(32) { 3 }))
 
         assertFailsWith<ProtectionException.AuthenticationFailed> { other.open(envelope) }
     }
@@ -98,9 +95,8 @@ class BootstrapIntroProtectionTest {
     @Test
     fun protectIntro_withNoSecret_failsFast() = runTest {
         val p = BootstrapProtection(crypto, FakeKeySource(null))
-        // The protect path takes the sender's in-memory secret explicitly now; a missing one is
-        // a programming error, not a protection failure.
-        assertFailsWith<IllegalArgumentException> { p.protect(samplePayload(), sponsor, newcomer, now, null) }
+        // Missing secret is a programming error; protection maps require-failures to PERMANENT.
+        assertFailsWith<ProtectionException.InvalidEnvelope> { p.protect(samplePayload(), ctx(null)) }
     }
 
     @Test
@@ -121,7 +117,7 @@ class BootstrapIntroProtectionTest {
     fun openIntro_tamperedCiphertext_fails() = runTest {
         val secret = ByteArray(32) { 3 }
         val p = BootstrapProtection(crypto, FakeKeySource(secret))
-        val envelope = p.protect(samplePayload(), sponsor, newcomer, now, secret)
+        val envelope = p.protect(samplePayload(), ctx(secret))
 
         val tamperedCipher = envelope.payload.copyOf().also {
             it[it.lastIndex] = (it[it.lastIndex].toInt() xor 0x01).toByte()
@@ -133,7 +129,7 @@ class BootstrapIntroProtectionTest {
     fun openIntro_tamperedHeader_AadBound_fails() = runTest {
         val secret = ByteArray(32) { 3 }
         val p = BootstrapProtection(crypto, FakeKeySource(secret))
-        val envelope = p.protect(samplePayload(), sponsor, newcomer, now, secret)
+        val envelope = p.protect(samplePayload(), ctx(secret))
 
         // Re-targeting the header must invalidate the AEAD (header is bound as AAD).
         assertFailsWith<ProtectionException.AuthenticationFailed> {

@@ -1,19 +1,18 @@
-package org.yapyap.sync
+package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.sync.DefaultRoomVisibility
-import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.SyncPayload
+import org.yapyap.routing.message.FakePendingSyncRepository
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -43,8 +42,8 @@ class DefaultSyncPayloadProviderTest {
     private fun textMsg(
         prevIds: List<Uuid>,
         createdAt: Instant = epochSeconds(tick++),
-    ): MessagePayload.Text =
-        MessagePayload.Text(
+    ): DagPayload.Text =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
@@ -55,7 +54,7 @@ class DefaultSyncPayloadProviderTest {
             text = "m",
         )
 
-    private suspend fun seed(msg: MessagePayload.Text) {
+    private suspend fun seed(msg: DagPayload.Text) {
         messageRepo.insert(
             msg,
             isOrphaned = false,
@@ -64,8 +63,8 @@ class DefaultSyncPayloadProviderTest {
         )
     }
 
-    private fun syncRequest(missingIds: List<Uuid>, knownIds: List<Uuid>): SystemPayload.SyncRequest =
-        SystemPayload.SyncRequest(
+    private fun syncRequest(missingIds: List<Uuid>, knownIds: List<Uuid>): SyncPayload.Request =
+        SyncPayload.Request(
             roomId = roomId,
             syncId = Uuid.random(),
             missingIds = missingIds,
@@ -80,7 +79,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.syncMessages(
+            provider.serveSync(
                 syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)),
                 remoteAccount
             )
@@ -96,7 +95,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.syncMessages(
+            provider.serveSync(
                 syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m1.messageId)),
                 remoteAccount
             )
@@ -112,7 +111,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.syncMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()), remoteAccount)
+            provider.serveSync(syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()), remoteAccount)
 
         assertEquals(listOf(m0.messageId, m1.messageId, m2.messageId), result.map { it.messageId })
     }
@@ -126,7 +125,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2); seed(m3)
 
         val result =
-            provider.syncMessages(
+            provider.serveSync(
                 syncRequest(missingIds = listOf(m3.messageId), knownIds = listOf(m0.messageId)),
                 remoteAccount
             )
@@ -140,7 +139,7 @@ class DefaultSyncPayloadProviderTest {
     @Test
     fun unknownTarget_returnsEmptyList() = runTest {
         val result =
-            provider.syncMessages(
+            provider.serveSync(
                 syncRequest(missingIds = listOf(Uuid.random()), knownIds = emptyList()),
                 remoteAccount
             )
@@ -154,7 +153,7 @@ class DefaultSyncPayloadProviderTest {
         val foreign = textMsg(prevIds = emptyList()).copy(roomId = otherRoom)
         seed(foreign)
 
-        val result = provider.syncMessages(
+        val result = provider.serveSync(
             syncRequest(missingIds = listOf(foreign.messageId), knownIds = emptyList()),
             remoteAccount
         )
@@ -171,7 +170,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m2)
 
         val result =
-            provider.syncMessages(
+            provider.serveSync(
                 syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)),
                 remoteAccount
             )
@@ -193,7 +192,7 @@ class DefaultSyncPayloadProviderTest {
             MutableStateFlow(OrchestratorConfig(syncMaxMessages = 2)),
             visibility,
         )
-        val result = limitedProvider.syncMessages(
+        val result = limitedProvider.serveSync(
             syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()),
             remoteAccount
         )
@@ -207,7 +206,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0)
         val outsider = AccountId("outsider-account")
 
-        val result = provider.syncMessages(
+        val result = provider.serveSync(
             syncRequest(missingIds = listOf(m0.messageId), knownIds = emptyList()),
             outsider
         )
@@ -238,7 +237,7 @@ class DefaultSyncPayloadProviderTest {
             removal.messageId,
         )
 
-        val result = provider.syncMessages(
+        val result = provider.serveSync(
             syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()),
             remoteAccount,
         )
@@ -250,8 +249,8 @@ class DefaultSyncPayloadProviderTest {
         )
     }
 
-    private fun removalMsg(prevIds: List<Uuid>): MessagePayload.RoomEvent =
-        MessagePayload.RoomEvent(
+    private fun removalMsg(prevIds: List<Uuid>): DagPayload.RoomEvent =
+        DagPayload.RoomEvent(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,

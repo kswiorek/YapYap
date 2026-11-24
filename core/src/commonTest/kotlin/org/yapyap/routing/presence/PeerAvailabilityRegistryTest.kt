@@ -1,18 +1,21 @@
-package org.yapyap.sync
+package org.yapyap.routing.presence
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
