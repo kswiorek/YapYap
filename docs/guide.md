@@ -12,6 +12,10 @@ design; built, with the refactor's notes in [`file/refactor.md`](file/refactor.m
 devices, admin chain), [`room events.md`](room%20events.md) (rooms and membership), [`gui-api.md`](gui-api.md)
 (what the GUI may use).
 
+**Agreed, not built yet:** [`envelope-redesign.md`](envelope-redesign.md) changes the envelope layering for every
+family (signed hops, public routing header, end-to-end content) and the small-file path (seal once, transfers are
+hops). Where it disagrees with this guide or the file design, it is the newer decision.
+
 ## 1. What YapYap is
 
 - A messenger for a small trusted network (about 10–20 users). Correctness, resilience and maintainability win

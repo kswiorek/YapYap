@@ -12,7 +12,10 @@ chunks (§6.2). **Both paths are the base for implementation.**
 [`../sprints.mmd`](../sprints.mmd) stays authoritative for sprint sequencing at its coarser grain and is not
 modified by this design.
 
-Implementation order: [`plan.md`](plan.md).
+**Being replaced for the small path:** [`../envelope-redesign.md`](../envelope-redesign.md) (agreed 24 November
+
+2026) seals a file once per target device and makes every transfer a single hop; it supersedes the per-transfer
+      key and per-deposit sealed OFFER here (§3.3, §4, §6.4, §7, invariants 5, 6 and 19). The large path is unchanged.
 
 Related: [`../guide.md`](../guide.md) (layer model, dependency rules, the delivery model in §6),
 [`../transport.md`](../transport.md) (links, channels, frame limits), [`../router.md`](../router.md) (outbox and
