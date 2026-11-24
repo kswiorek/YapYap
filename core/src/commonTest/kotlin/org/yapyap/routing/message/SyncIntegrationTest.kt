@@ -27,11 +27,9 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
-import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.MessageAck
@@ -166,7 +164,6 @@ class SyncIntegrationTest {
             lifecycle = lifecycle,
             outboxProcessor = stack.outboxProcessor,
             systemSender = stack.systemSender,
-            relaySelection = NoRelaySelection,
             syncAttemptStore = InMemorySyncAttemptStore(),
             syncProvider = provider,
             peerPolicy = DefaultSyncPeerPolicy(stack.ctx),
@@ -270,7 +267,7 @@ class SyncIntegrationTest {
             val sent = localStack.tor.sends.single().second
             assertEquals(PacketType.MESSAGE, sent.packetType)
             val syncRequest =
-                MessagePayload.decode(MessageEnvelope.decode(sent.payload).payload) as SyncPayload.Request
+                MessagePayload.decode(sent.content) as SyncPayload.Request
             assertEquals(roomId, syncRequest.roomId)
             assertEquals(sync.syncId, syncRequest.syncId)
             assertEquals(listOf(m1.messageId), syncRequest.missingIds)
@@ -283,7 +280,7 @@ class SyncIntegrationTest {
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(1) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
-                MessagePayload.decode(MessageEnvelope.decode(bin.payload).payload) as DagPayload
+                MessagePayload.decode(bin.content) as DagPayload
             }
             assertTrue(returned.any { it.messageId == m1.messageId }, "missing message m1 not returned")
 
@@ -391,8 +388,7 @@ class SyncIntegrationTest {
 
             localStack.tor.awaitSendCount(1)
             val syncRequest =
-                MessagePayload.decode(MessageEnvelope.decode(localStack.tor.sends.single().second.payload).payload)
-                        as SyncPayload.Request
+                MessagePayload.decode(localStack.tor.sends.single().second.content) as SyncPayload.Request
             assertEquals(listOf(m4.messageId), syncRequest.missingIds)
             assertEquals(listOf(m1.messageId), syncRequest.knownIds)
 
@@ -400,7 +396,7 @@ class SyncIntegrationTest {
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(3) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
-                MessagePayload.decode(MessageEnvelope.decode(bin.payload).payload) as DagPayload
+                MessagePayload.decode(bin.content) as DagPayload
             }
             assertTrue(returned.any { it.messageId == m2.messageId })
             assertTrue(returned.any { it.messageId == m3.messageId })

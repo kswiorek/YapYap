@@ -35,19 +35,4 @@ class DeviceModelsAndPacketTypeTest {
             PacketType.fromWireValue(99)
         }
     }
-
-    @Test
-    fun signalSecurityScheme_fromWireValue_coversAll() {
-        SignalSecurityScheme.entries.forEach { s ->
-            assertEquals(s, SignalSecurityScheme.fromWireValue(s.wireValue))
-            assertEquals(24, s.nonceSize)
-        }
-    }
-
-    @Test
-    fun signalSecurityScheme_fromWireValue_rejectsUnknown() {
-        assertFailsWith<IllegalStateException> {
-            SignalSecurityScheme.fromWireValue(9)
-        }
-    }
 }

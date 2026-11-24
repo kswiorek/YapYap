@@ -14,6 +14,7 @@ class BinaryEnvelopeCodecTest {
     private val sampleId = Uuid.random()
     private val source = PeerId("devsourceaaaaaaaaaaaaaaaaaaaaaaaaaa.onion")
     private val target = PeerId("devtargetbbbbbbbbbbbbbbbbbbbbbbbbbb.onion")
+    private val signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES) { it.toByte() }
 
     @Test
     fun encode_decode_roundTrip_emptyPayload() {
@@ -25,7 +26,9 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(200L),
             source = source,
             target = target,
-            payload = byteArrayOf(),
+            routingHeader = byteArrayOf(),
+            content = byteArrayOf(),
+            signature = signature,
         )
         val decoded = BinaryEnvelope.decode(original.encode())
         assertEquals(original.packetType, decoded.packetType)
@@ -35,7 +38,9 @@ class BinaryEnvelopeCodecTest {
         assertEquals(original.source, decoded.source)
         assertEquals(original.target, decoded.target)
         assertEquals(original.packetId, decoded.packetId)
-        assertContentEquals(original.payload, decoded.payload)
+        assertContentEquals(original.routingHeader, decoded.routingHeader)
+        assertContentEquals(original.content, decoded.content)
+        assertContentEquals(original.signature, decoded.signature)
     }
 
     @Test
@@ -48,7 +53,9 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(200L),
             source = source,
             target = target,
-            payload = byteArrayOf(),
+            routingHeader = byteArrayOf(1, 2),
+            content = byteArrayOf(),
+            signature = signature,
         )
         val decoded = BinaryEnvelope.decode(original.encode())
         assertEquals(false, decoded.dispositionRequested)
@@ -56,7 +63,8 @@ class BinaryEnvelopeCodecTest {
 
     @Test
     fun encode_decode_roundTrip_nonEmptyPayload() {
-        val payload = byteArrayOf(0x00, 0x7f, 0xff.toByte())
+        val routingHeader = byteArrayOf(0x00, 0x7f)
+        val content = byteArrayOf(0x00, 0x7f, 0xff.toByte())
         val original = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.FILE,
@@ -65,10 +73,13 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(0L),
             source = source,
             target = target,
-            payload = payload,
+            routingHeader = routingHeader,
+            content = content,
+            signature = signature,
         )
         val decoded = BinaryEnvelope.decode(original.encode())
-        assertContentEquals(payload, decoded.payload)
+        assertContentEquals(routingHeader, decoded.routingHeader)
+        assertContentEquals(content, decoded.content)
         assertEquals(PacketType.FILE, decoded.packetType)
     }
 
@@ -83,7 +94,9 @@ class BinaryEnvelopeCodecTest {
                 expiresAt = epochSeconds(9L),
                 source = source,
                 target = target,
-                payload = byteArrayOf(),
+                routingHeader = byteArrayOf(),
+                content = byteArrayOf(),
+                signature = signature,
             )
         }
     }
@@ -98,7 +111,9 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(2L),
             source = source,
             target = target,
-            payload = byteArrayOf(1),
+            routingHeader = byteArrayOf(1),
+            content = byteArrayOf(1),
+            signature = signature,
         ).encode()
         val bad = good.copyOf()
         bad[0] = 0x00
@@ -117,7 +132,9 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(1L),
             source = source,
             target = target,
-            payload = byteArrayOf(),
+            routingHeader = byteArrayOf(),
+            content = byteArrayOf(),
+            signature = signature,
         ).encode()
         val tampered = good.copyOf()
         tampered[4] = 2
@@ -136,7 +153,9 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(2L),
             source = source,
             target = target,
-            payload = byteArrayOf(1, 2, 3),
+            routingHeader = byteArrayOf(1, 2, 3),
+            content = byteArrayOf(1, 2, 3),
+            signature = signature,
         ).encode()
         assertFailsWith<IllegalArgumentException> {
             BinaryEnvelope.decode(good.copyOfRange(0, good.size - 1))
@@ -153,7 +172,9 @@ class BinaryEnvelopeCodecTest {
             expiresAt = epochSeconds(2L),
             source = source,
             target = target,
-            payload = byteArrayOf(),
+            routingHeader = byteArrayOf(),
+            content = byteArrayOf(),
+            signature = signature,
         ).encode()
         val withTrail = good + byteArrayOf(0x00)
         assertFailsWith<IllegalArgumentException> {

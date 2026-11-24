@@ -4,13 +4,11 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DagPayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.uuid.Uuid
@@ -21,7 +19,6 @@ class MessageEnvelopeCodecTest {
     private val target = PeerId("dst-device")
     private val authorDeviceId = PeerId("author-device")
     private val authorAccountId = AccountId("author-account")
-    private val nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 }
     private val testSignature = byteArrayOf(0x01, 0x02, 0x03)
 
     @Test
@@ -76,109 +73,29 @@ class MessageEnvelopeCodecTest {
     }
 
     @Test
-    fun messageEnvelope_full_encodeDecode_globalEvent_roundTrip() {
-        val payload = DagPayload.GlobalEvent(
-            messageId = Uuid.random(),
-            senderAccountId = authorAccountId,
-            authorDeviceId = authorDeviceId,
-            prevIds = listOf(Uuid.random()),
-            createdAt = epochSeconds(1_700_000_099L),
-            eventBytes = byteArrayOf(0xab.toByte()),
-            authorSignature = testSignature,
-        )
-        val env = MessageEnvelope(
-            messageEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(5L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            signature = byteArrayOf(1, 2, 3),
-            payload = payload.encode(),
-        )
-        val round = MessageEnvelope.decode(env.encode())
-        assertMessageEnvelopeEquals(env, round)
+    fun messageHeader_encodeDecode_roundTrip() {
+        val original = MessageHeader(origin = source, finalTarget = target)
+        val decoded = MessageHeader.decode(original.encode())
+        assertEquals(original, decoded)
+        assertEquals(source, decoded.origin)
+        assertEquals(target, decoded.finalTarget)
     }
 
     @Test
-    fun messageEnvelope_full_encodeDecode_text_roundTrip() {
-        val payload = DagPayload.Text(
-            messageId = Uuid.random(),
-            roomId = RoomId(Uuid.random()),
-            senderAccountId = authorAccountId,
-            authorDeviceId = authorDeviceId,
-            prevIds = emptyList(),
-            createdAt = epochSeconds(1_700_000_001L),
-            text = "",
-            authorSignature = testSignature,
-        )
-        val env = MessageEnvelope(
-            messageEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(1_700_000_000L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = payload.encode(),
-        )
-        val round = MessageEnvelope.decode(env.encode())
-        assertMessageEnvelopeEquals(env, round)
+    fun messageHeader_observableValues_coverOriginAndTarget() {
+        val header = MessageHeader(origin = source, finalTarget = target)
+        val values = header.observableValues()
+        assertEquals(source, values[MessageHeader.Companion.Fields.ORIGIN])
+        assertEquals(target, values[MessageHeader.Companion.Fields.FINAL_TARGET])
     }
 
     @Test
-    fun messageEnvelope_encodeForSigning_omitsSignatureBytes() {
-        val payload = DagPayload.Text(
-            messageId = Uuid.random(),
-            roomId = RoomId(Uuid.random()),
-            senderAccountId = authorAccountId,
-            authorDeviceId = authorDeviceId,
-            prevIds = emptyList(),
-            createdAt = epochSeconds(0L),
-            text = "\u0009",
-            authorSignature = testSignature,
-        )
-        val sig = ByteArray(64) { it.toByte() }
-        val signed = MessageEnvelope(
-            messageEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(0L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = sig,
-            payload = payload.encode(),
-        )
-        val unsigned = signed.copy(signature = null)
-        assertContentEquals(unsigned.encode(), signed.encodeForSigning())
-        assertMessageEnvelopeEquals(unsigned, MessageEnvelope.decode(signed.encodeForSigning()))
-    }
-
-    @Test
-    fun messageEnvelope_full_encodeDecode_signedSignatureBytes_roundTrip() {
-        val payload = DagPayload.Text(
-            messageId = Uuid.random(),
-            roomId = RoomId(Uuid.random()),
-            senderAccountId = authorAccountId,
-            authorDeviceId = authorDeviceId,
-            prevIds = emptyList(),
-            createdAt = epochSeconds(0L),
-            text = "\u0009",
-            authorSignature = testSignature,
-        )
-        val sig = ByteArray(64) { it.toByte() }
-        val env = MessageEnvelope(
-            messageEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(0L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = sig,
-            payload = payload.encode(),
-        )
-        val round = MessageEnvelope.decode(env.encode())
-        assertMessageEnvelopeEquals(env, round)
+    fun messageHeader_directAndRelayed_shareOneShape() {
+        // Direct sends write origin == source and finalTarget == target, so direct and
+        // relayed packets have one shape; a relay reads the same fields to admit and forward.
+        val direct = MessageHeader(origin = source, finalTarget = target)
+        val decoded = MessageHeader.decode(direct.encode())
+        assertEquals(direct, decoded)
     }
 
     @Test
@@ -213,24 +130,10 @@ class MessageEnvelopeCodecTest {
         assertEquals(DagPayloadType.GLOBAL_EVENT, ge.payloadType)
     }
 
-    private fun assertMessageEnvelopeEquals(expected: MessageEnvelope, actual: MessageEnvelope) {
-        assertEquals(expected.messageEnvelopeId, actual.messageEnvelopeId)
-        assertEquals(expected.source, actual.source)
-        assertEquals(expected.target, actual.target)
-        assertEquals(expected.createdAt, actual.createdAt)
-        assertContentEquals(expected.nonce, actual.nonce)
-        assertEquals(expected.securityScheme, actual.securityScheme)
-        when {
-            expected.signature == null -> assertNull(actual.signature)
-            else -> assertContentEquals(expected.signature, actual.signature!!)
-        }
-        assertMessagePayloadEquals(MessagePayload.decode(expected.payload), MessagePayload.decode(actual.payload))
-    }
-
     private fun assertMessagePayloadEquals(expected: MessagePayload, actual: MessagePayload) {
         when {
             expected is DagPayload.Text && actual is DagPayload.Text ->
-                assertTextPayloadEquals(expected, actual)       // ← replace plain assertEquals
+                assertTextPayloadEquals(expected, actual)
             expected is DagPayload.GlobalEvent && actual is DagPayload.GlobalEvent ->
                 assertGlobalEventPayloadEquals(expected, actual)
 

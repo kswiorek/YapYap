@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
@@ -268,7 +267,6 @@ class FileFetchStrategyTest {
         )
         val processor = FileRequestProcessor(
             ctx = ctx,
-            protection = PassthroughFileProtection(),
             attempts = attempts,
             requests = requesterGate,
             outboxProcessor = outboxProcessor,

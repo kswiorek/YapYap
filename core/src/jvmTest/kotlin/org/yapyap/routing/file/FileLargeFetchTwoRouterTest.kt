@@ -49,12 +49,13 @@ import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
+import org.yapyap.protection.envelope.RatchetFileProtection
+import org.yapyap.protection.envelope.RatchetMessageProtection
+import org.yapyap.protection.envelope.RatchetSealer
+import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedHopProtection
+import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.FileFetchFrame
@@ -82,10 +83,11 @@ import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.store.DefaultFileIncomingTransferStore
-import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileRequestAttemptStore
+import org.yapyap.routing.store.DefaultFileSealStore
+import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -212,12 +214,13 @@ class FileLargeFetchTwoRouterTest {
             crypto = crypto,
         )
         val signer = DefaultSignatureProvider(identity, identity, crypto)
-        val protection = DefaultEnvelopeProtections(
-            signal = SignedAndEncryptedWebRtcSignalProtection(signer, sessionManager(identity), crypto),
-            message = SignedAndEncryptedMessageProtection(signer, sessionManager(identity), crypto),
-            system = SignedSystemProtection(signer, crypto),
+        val ratchet = RatchetSealer(sessionManager(identity))
+        val protection = EnvelopeProtections(
+            hop = SignedHopProtection(signer, crypto),
+            signal = RatchetWebRtcSignalProtection(ratchet),
+            message = RatchetMessageProtection(ratchet),
             bootstrap = BootstrapProtection(crypto) { null },
-            file = PassthroughFileProtection(),
+            file = RatchetFileProtection(ratchet, crypto),
         )
         val packetOutbox = TrackingPacketOutbox()
         val engine = ReceiveEngine(
@@ -266,8 +269,9 @@ class FileLargeFetchTwoRouterTest {
             fileRequests = requestSource,
             filePlaintext = DefaultFilePlaintextSource(descriptors, fileStore, files, crypto),
             // The real stores over this node's database, not hand-written fakes.
-            fileIncomingStore = DefaultFileIncomingTransferStore(db),
-            filePushStore = DefaultFilePushStore(db),
+            fileSealStore = DefaultFileSealStore(db),
+            fileTransferStore = DefaultFileTransferStore(db),
+            fileIncomingStore = DefaultFileIncomingStore(db),
             fileRelayStore = DefaultFileRelayStore(db),
             fileRequestAttemptStore = DefaultFileRequestAttemptStore(db),
         )

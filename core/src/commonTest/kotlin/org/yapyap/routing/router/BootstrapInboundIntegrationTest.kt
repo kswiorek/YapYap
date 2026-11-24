@@ -68,12 +68,9 @@ class BootstrapInboundIntegrationTest {
             val bootstrapEnvelope = BootstrapProtection(crypto) { secret.copyOf() }
                 .protect(
                     payload,
-                    org.yapyap.protection.envelope.BootstrapProtectContext(
-                        sourceDeviceId = sponsor.device.deviceId,
-                        targetDeviceId = newcomer.device.deviceId,
-                        createdAt = clock.now(),
-                        sharedSecret = secret.copyOf(),
-                    ),
+                    source = sponsor.device.deviceId,
+                    target = newcomer.device.deviceId,
+                    sharedSecret = secret.copyOf(),
                 )
             val binary = BinaryEnvelope(
                 packetId = Uuid.random(),
@@ -83,7 +80,9 @@ class BootstrapInboundIntegrationTest {
                 expiresAt = clock.now() + 1.minutes,
                 source = sponsor.device.deviceId,
                 target = newcomer.device.deviceId,
-                payload = bootstrapEnvelope.encode(),
+                routingHeader = bootstrapEnvelope.header.encode(),
+                content = bootstrapEnvelope.content,
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
 
             // Subscribe before emitting: bootstrapPackets has no replay, so an early

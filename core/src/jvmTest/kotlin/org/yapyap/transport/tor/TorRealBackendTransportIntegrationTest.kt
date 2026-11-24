@@ -13,6 +13,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
@@ -20,7 +21,12 @@ import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.DefaultTorTransport
-import kotlin.test.*
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -63,7 +69,9 @@ class TorRealBackendTransportIntegrationTest {
             expiresAt = t0 + 1.hours,
             source = local,
             target = remote,
-            payload = byteArrayOf(0x0a, 0x0b, 0x0c),
+            routingHeader = MessageHeader(origin = local, finalTarget = remote).encode(),
+            content = byteArrayOf(0x0a, 0x0b, 0x0c),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
         try {
             val localEndpoint = transport.start()
@@ -89,7 +97,7 @@ class TorRealBackendTransportIntegrationTest {
             assertEquals(out.expiresAt, received.envelope.expiresAt)
             assertEquals(out.source, received.envelope.source)
             assertEquals(out.target, received.envelope.target)
-            assertContentEquals(out.payload, received.envelope.payload)
+            assertContentEquals(out.content, received.envelope.content)
             // A completed round trip means Tor bootstrapped; health must have
             // seen it through the STATUS_CLIENT events (parser vs real Tor lines).
             withTimeout(30_000L.milliseconds) { backend.health.first { it == TorHealth.Ready } }
@@ -116,7 +124,10 @@ class TorRealBackendTransportIntegrationTest {
         val local = PeerId("0".repeat(64))
         val remote = PeerId("1".repeat(64))
         val t0 = epochSeconds(1_700_000_000L)
-        val payload = ByteArray(TorBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_HEADER_BYTES)
+        val routingHeader = MessageHeader(origin = local, finalTarget = remote).encode()
+        val payload = ByteArray(
+            TorBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_OVERHEAD_BYTES - routingHeader.size
+        )
         val out = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
@@ -125,7 +136,9 @@ class TorRealBackendTransportIntegrationTest {
             expiresAt = t0 + 1.hours,
             source = local,
             target = remote,
-            payload = payload,
+            routingHeader = routingHeader,
+            content = payload,
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
         try {
             val localEndpoint = transport.start()
@@ -151,7 +164,7 @@ class TorRealBackendTransportIntegrationTest {
             assertEquals(out.expiresAt, received.envelope.expiresAt)
             assertEquals(out.source, received.envelope.source)
             assertEquals(out.target, received.envelope.target)
-            assertEquals(out.payload.size, received.envelope.payload.size)
+            assertEquals(out.content.size, received.envelope.content.size)
         } finally {
             runCatching { transport.stop() }
             runCatching { deleteRecursively(tempDir) }

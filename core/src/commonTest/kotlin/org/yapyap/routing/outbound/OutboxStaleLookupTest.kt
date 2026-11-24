@@ -16,6 +16,7 @@ import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
@@ -103,7 +104,7 @@ class OutboxStaleLookupTest {
                 config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
                 clock = clock,
             ),
-            relayCopies = { null },
+            relaySelection = NoRelaySelection,
         )
         return Setup(tor, outbox, processor, registry, clock)
     }
@@ -118,7 +119,9 @@ class OutboxStaleLookupTest {
                 expiresAt = epochSeconds(nowSeconds + 3_600),
                 source = localPeer,
                 target = remotePeer,
-                payload = byteArrayOf(1, 2, 3),
+                routingHeader = byteArrayOf(1, 2, 3),
+                content = ByteArray(0),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
             nextRetryAt = now,
         )

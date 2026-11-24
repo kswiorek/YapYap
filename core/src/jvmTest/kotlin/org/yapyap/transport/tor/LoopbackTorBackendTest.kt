@@ -3,18 +3,33 @@ package org.yapyap.transport.tor
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.TransportException
-import org.yapyap.transport.tor.backend.*
+import org.yapyap.transport.tor.backend.LoopbackTorBackend
+import org.yapyap.transport.tor.backend.TOR_PROBE_NONCE_SIZE
+import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.tor.backend.readExact
+import org.yapyap.transport.tor.backend.writeTorProbe
+import org.yapyap.transport.tor.backend.writeTorTransportFrame
 import org.yapyap.transport.tor.transport.DefaultTorTransport
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -122,14 +137,19 @@ class LoopbackTorBackendTest {
                 expiresAt = epochSeconds(1_700_000_000L) + 1.hours,
                 source = PeerId("0".repeat(64)),
                 target = PeerId("1".repeat(64)),
-                payload = byteArrayOf(0x01, 0x02),
+                routingHeader = MessageHeader(
+                    origin = PeerId("0".repeat(64)),
+                    finalTarget = PeerId("1".repeat(64)),
+                ).encode(),
+                content = byteArrayOf(0x01, 0x02),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
             val received = withTimeout(10.seconds) {
                 transportA.send(endpointB, out)
                 transportB.incoming.first()
             }
             assertEquals(out.packetId, received.envelope.packetId)
-            assertContentEquals(out.payload, received.envelope.payload)
+            assertContentEquals(out.content, received.envelope.content)
         } finally {
             runCatching { transportA.stop() }
             runCatching { transportB.stop() }
@@ -192,7 +212,12 @@ class LoopbackTorBackendTest {
                 expiresAt = epochSeconds(1_700_000_000L) + 1.hours,
                 source = PeerId("0".repeat(64)),
                 target = PeerId("1".repeat(64)),
-                payload = ByteArray(TorBackendConfig().maxPayloadBytes + 1),
+                routingHeader = MessageHeader(
+                    origin = PeerId("0".repeat(64)),
+                    finalTarget = PeerId("1".repeat(64)),
+                ).encode(),
+                content = ByteArray(TorBackendConfig().maxPayloadBytes + 1),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
             assertFailsWith<TransportException.PayloadTooLarge> {
                 transport.send(TorEndpoint("loopback-1.onion", 1), tooBig)

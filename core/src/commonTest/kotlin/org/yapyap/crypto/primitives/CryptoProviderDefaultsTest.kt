@@ -5,7 +5,6 @@ import org.yapyap.crypto.keys.EncryptionKeyPair
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningKeyPair
 import org.yapyap.crypto.keys.SigningPrivateKey
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.test.Test
@@ -77,9 +76,6 @@ class CryptoProviderDefaultsTest {
             signature: ByteArray
         ): Boolean =
             error("not stubbed: verifyDetached")
-
-        override fun generateNonce(scheme: SignalSecurityScheme): ByteArray =
-            error("not stubbed: generateNonce")
 
         override suspend fun deriveSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray =
             error("not stubbed: deriveSharedSecret")

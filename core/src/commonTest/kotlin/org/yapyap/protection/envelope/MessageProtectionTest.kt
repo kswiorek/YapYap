@@ -1,258 +1,73 @@
 package org.yapyap.protection.envelope
 
-
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.protection.FakeIdentityResolverForProtection
-import org.yapyap.protection.FixturePeerIds
+import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.deviceRecordFor
-import org.yapyap.protection.nonce24
-import org.yapyap.protection.sampleEnvelopeContext
-import org.yapyap.protection.samplePeerTriplet
-import org.yapyap.protection.sampleSignedAndEncryptedProtectionPair
+import org.yapyap.protection.ProtectionReason
+import org.yapyap.protection.sampleMessageProtectionPair
 import org.yapyap.protection.sampleTextPayload
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.identity.AccountIdentity
-import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.testfixtures.InMemoryIdentityStore
-import org.yapyap.testfixtures.InMemoryKeyStore
-import org.yapyap.testfixtures.TestIdentityStack
-import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class MessageProtectionTest {
 
     private val crypto = DefaultCryptoProvider()
 
     @Test
-    fun plaintext_protectThenOpen_roundTrip() = runTest {
-        val protection = PlaintextMessageProtection(crypto)
+    fun seal_open_roundTrip() = runTest {
+        val pair = sampleMessageProtectionPair(crypto)
         val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
-        )
-        val envelope = protection.protect(payload, ctx)
-        val opened = protection.open(envelope)
-        assertEquals(payload.messageId, (opened as DagPayload.Text).messageId)
+        val content = pair.sender.seal(payload, pair.targetPeer)
+        val opened = pair.receiver.open(content, pair.sourcePeer)
         assertEquals(payload, opened)
     }
 
     @Test
-    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() = runTest {
-        val protection = PlaintextMessageProtection(crypto)
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.SIGNED,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
-        )
+    fun open_tamperedContent_failsAuthentication() = runTest {
+        val pair = sampleMessageProtectionPair(crypto)
+        val content = pair.sender.seal(sampleTextPayload(), pair.targetPeer)
+        val tampered = content.copyOf().also {
+            it[it.lastIndex] = (it[it.lastIndex].toInt() xor 0x01).toByte()
+        }
         assertFailsWith<ProtectionException> {
-            protection.protect(payload, ctx)
+            pair.receiver.open(tampered, pair.sourcePeer)
         }
     }
 
     @Test
-    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() = runTest {
-        val protection = PlaintextMessageProtection(crypto)
+    fun open_sameContentTwice_secondIsDuplicate() = runTest {
+        val pair = sampleMessageProtectionPair(crypto)
         val payload = sampleTextPayload()
-        val envelope = MessageEnvelope(
-            messageEnvelopeId = payload.messageId,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
-            createdAt = epochSeconds(1L),
-            nonce = nonce24(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = ByteArray(64), // invalid but scheme check runs first
-            payload = payload.encode(),
-        )
+        val content = pair.sender.seal(payload, pair.targetPeer)
+        assertEquals(payload, pair.receiver.open(content, pair.sourcePeer))
+        val duplicate = assertFailsWith<ProtectionException.Duplicate> {
+            pair.receiver.open(content, pair.sourcePeer)
+        }
+        assertEquals(ProtectionDisposition.PERMANENT, duplicate.disposition)
+        assertEquals(ProtectionReason.DUPLICATE, duplicate.reason)
+    }
+
+    @Test
+    fun open_garbageContent_fails() = runTest {
+        val pair = sampleMessageProtectionPair(crypto)
         assertFailsWith<ProtectionException> {
-            protection.open(envelope)
+            pair.receiver.open(byteArrayOf(1, 2, 3, 4), pair.sourcePeer)
         }
     }
 
     @Test
-    fun signed_protectThenOpen_roundTrip() = runTest {
-        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
-        val encryptionKeys = crypto.generateEncryptionKeyPair()
-        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
-        val resolver = FakeIdentityResolverForProtection(
-            localSigningPrivateKey = signingKeys.privateKey,
-            peerRecords = mapOf(sourcePeer to record),
-        )
-        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
-        val protection = SignedMessageProtection(signatureProvider, crypto)
-
+    fun sealedBytes_carryNoPlaintext() = runTest {
+        val pair = sampleMessageProtectionPair(crypto)
         val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.SIGNED,
-            source = sourcePeer,
-            target = targetPeer,
-        )
-        val envelope = protection.protect(payload, ctx)
-        val opened = protection.open(envelope)
-        assertEquals(payload, opened)
-    }
-
-    @Test
-    fun signed_protect_throwsWhenContextSchemeNotSigned() = runTest {
-        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
-        val encryptionKeys = crypto.generateEncryptionKeyPair()
-        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
-        val resolver = FakeIdentityResolverForProtection(signingKeys.privateKey, mapOf(sourcePeer to record))
-        val protection = SignedMessageProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
-
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            source = sourcePeer,
-            target = targetPeer,
-        )
-        assertFailsWith<ProtectionException> {
-            protection.protect(sampleTextPayload(), ctx)
+        val content = pair.sender.seal(payload, pair.targetPeer)
+        assertContentEquals(payload.encode(), pair.receiver.open(content, pair.sourcePeer).encode())
+        // The ratchet frame must not contain the cleartext message.
+        val textBytes = payload.text.encodeToByteArray()
+        assert(!content.toList().windowed(textBytes.size).any { it == textBytes.toList() }) {
+            "sealed content must not contain the plaintext"
         }
-    }
-
-    @Test
-    fun signed_open_throwsWhenSignatureInvalid() = runTest {
-        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
-        val encryptionKeys = crypto.generateEncryptionKeyPair()
-        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
-        val resolver = FakeIdentityResolverForProtection(
-            localSigningPrivateKey = signingKeys.privateKey,
-            peerRecords = mapOf(sourcePeer to record),
-        )
-        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
-        val protection = SignedMessageProtection(signatureProvider, crypto)
-
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.SIGNED,
-            source = sourcePeer,
-            target = targetPeer,
-        )
-        val envelope = protection.protect(payload, ctx)
-        val corruptSignature = envelope.signature!!.copyOf().also {
-            it[0] = (it[0].toInt() xor 0xff).toByte()
-        }
-        val tamperedEnvelope = envelope.copy(signature = corruptSignature)
-
-        val ex = assertFailsWith<ProtectionException.AuthenticationFailed> {
-            protection.open(tamperedEnvelope)
-        }
-        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
-    }
-
-    @Test
-    fun signedAndEncrypted_protectThenOpen_roundTrip() = runTest {
-        val pair = sampleSignedAndEncryptedProtectionPair(crypto)
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            source = pair.sourcePeer,
-            target = pair.targetPeer,
-        )
-        val envelope = pair.sender.protect(payload, ctx)
-        val opened = pair.receiver.open(envelope)
-        assertEquals(payload, opened)
-    }
-
-    @Test
-    fun signedAndEncrypted_protect_throwsWhenContextSchemeNotEncryptedAndSigned() = runTest {
-        val pair = sampleSignedAndEncryptedProtectionPair(crypto)
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.SIGNED,
-            source = pair.sourcePeer,
-            target = pair.targetPeer,
-        )
-        assertFailsWith<ProtectionException> {
-            pair.sender.protect(sampleTextPayload(), ctx)
-        }
-    }
-
-    @Test
-    fun signedAndEncrypted_open_throwsWhenSignatureInvalid() = runTest {
-        val pair = sampleSignedAndEncryptedProtectionPair(crypto)
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            source = pair.sourcePeer,
-            target = pair.targetPeer,
-        )
-        val envelope = pair.sender.protect(payload, ctx)
-        val corruptSignature = envelope.signature!!.copyOf().also {
-            it[0] = (it[0].toInt() xor 0xff).toByte()
-        }
-        val tamperedEnvelope = envelope.copy(signature = corruptSignature)
-
-        val ex = assertFailsWith<ProtectionException.AuthenticationFailed> {
-            pair.receiver.open(tamperedEnvelope)
-        }
-        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
-    }
-
-    @Test
-    fun signed_open_succeedsWithoutPeerKeyAttestation() = runTest {
-        val crypto = DefaultCryptoProvider()
-        val repo = InMemoryIdentityStore()
-        val store = InMemoryKeyStore()
-        val resolver = TestIdentityStack(crypto, repo, store)
-
-        val senderSigning = crypto.generateSigningKeyPair()
-        val senderEncryption = crypto.generateEncryptionKeyPair()
-        val senderPeer = crypto.peerIdFromPublicKey(senderSigning.publicKey)
-
-        val accountId = AccountId("protection-attest-account")
-        repo.insertLocalAccount(
-            identity = AccountIdentity(
-                accountId = accountId,
-                displayName = "Protection Attest",
-                signingKey = SigningPublicKey(byteArrayOf(0x01)),
-            ),
-        )
-        repo.insertPeerDevice(
-            accountId = accountId,
-            deviceType = DeviceType.DESKTOP,
-            identity = DeviceIdentity(
-                deviceId = senderPeer,
-                signingKey = senderSigning.publicKey,
-                encryptionKey = senderEncryption.publicKey,
-            ),
-            torEndpoint = TorEndpoint(onionAddress = "sender-attest.onion", port = 443),
-        )
-
-        val senderProtection = SignedMessageProtection(
-            FakeIdentityResolverForProtection(
-                    localSigningPrivateKey = senderSigning.privateKey,
-                    peerRecords = emptyMap(),
-            ).let { DefaultSignatureProvider(it, it, crypto) },
-            crypto,
-        )
-        val receiverProtection = SignedMessageProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
-
-        val payload = sampleTextPayload()
-        val envelope = senderProtection.protect(
-            payload,
-            sampleEnvelopeContext(
-                scheme = SignalSecurityScheme.SIGNED,
-                source = senderPeer,
-                target = FixturePeerIds.B,
-            ),
-        )
-
-        // Peer records carry raw keys only — chain/fold authenticity, not per-record
-        // device attestation, is what the resolver trusts.
-        assertEquals(payload, receiverProtection.open(envelope))
     }
 }

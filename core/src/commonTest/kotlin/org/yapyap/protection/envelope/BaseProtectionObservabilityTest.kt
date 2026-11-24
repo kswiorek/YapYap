@@ -2,215 +2,138 @@ package org.yapyap.protection.envelope
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protection.FixturePeerIds
-import org.yapyap.protection.sampleEnvelopeContext
-import org.yapyap.protection.sampleTextPayload
-import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.FieldSensitivity
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SyncPayload
-import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapHeader
+import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
+import org.yapyap.protocol.envelopes.FileCancelReason
+import org.yapyap.protocol.envelopes.FileHeader
+import org.yapyap.protocol.envelopes.MessageHeader
+import org.yapyap.protocol.envelopes.SignalHeader
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.TransferShape
 import org.yapyap.protocol.envelopes.WebRtcSignalKind
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
-import kotlin.test.assertFailsWith
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
 
 /**
- * If [org.yapyap.protection.envelope.BaseProtection.assertObservabilityContract] regresses and allows cleartext "protected" fields,
- * these tests fail — unless PROTECTED markers are removed from [EnvelopeObservability], which would itself be a bug.
+ * The observability contract after the envelope redesign: every routing header's
+ * [observableValues] must stay inside its [EnvelopeObservability] profile, and no PROTECTED
+ * file field may appear in a routing header. SYSTEM content sensitivity is gone — SYSTEM is
+ * header-only and hop-signed.
  */
 class BaseProtectionObservabilityTest {
 
+    private fun shape() = TransferShape(chunkSizeBytes = 64 * 1024, byteFrom = 0L, byteTo = 1000L)
+
     @Test
-    fun protect_rejectsHeaderMapThatExposesMessagePayloadUnderProtectedPolicyKey() = runTest {
-        val protection = LeakyPlaintextMessageProtection()
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
+    fun messageHeader_observableValues_matchPolicy() = runTest {
+        val header = MessageHeader(origin = FixturePeerIds.A, finalTarget = FixturePeerIds.B)
+        assertEquals(
+            EnvelopeObservability.messageHeader.fields.keys,
+            header.observableValues().keys,
         )
-        assertFailsWith<IllegalArgumentException> {
-            protection.protect(payload, ctx)
-        }
+        assertTrue(EnvelopeObservability.messageHeader.fields.values.all { it == FieldSensitivity.ROUTING_VISIBLE })
     }
 
     @Test
-    fun open_rejectsSameLeakBeforeCryptographicWork() = runTest {
-        val protection = LeakyPlaintextMessageProtection()
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
+    fun signalHeader_observableValues_matchPolicy() = runTest {
+        val header = SignalHeader(kind = WebRtcSignalKind.ICE)
+        assertEquals(
+            EnvelopeObservability.signalHeader.fields.keys,
+            header.observableValues().keys,
         )
-        val envelope = protection.bypassProtectForTest(payload, ctx)
-        assertFailsWith<IllegalArgumentException> {
-            protection.open(envelope)
+    }
+
+    @Test
+    fun bootstrapHeader_observableValues_matchPolicy() = runTest {
+        val header = BootstrapHeader(BootstrapSecurityScheme.SECRET_AEAD, Uuid.random())
+        assertEquals(
+            EnvelopeObservability.bootstrapHeader.fields.keys,
+            header.observableValues().keys,
+        )
+        assertTrue(EnvelopeObservability.bootstrapHeader.fields.values.all { it == FieldSensitivity.ROUTING_VISIBLE })
+    }
+
+    @Test
+    fun fileHeaders_observableValues_stayInsidePolicy() = runTest {
+        val transfer = org.yapyap.protocol.TransferId(Uuid.random())
+        val headers: List<FileHeader> = listOf(
+            FileHeader.Offer(transfer, FixturePeerIds.A, FixturePeerIds.B, shape()),
+            FileHeader.Chunk(transfer, 0),
+            FileHeader.Ack(transfer, 0, emptyList()),
+            FileHeader.Cancel(transfer, FileCancelReason.DECLINED),
+            FileHeader.Complete(ContentId(ByteArray(32) { 9 })),
+            FileHeader.Request,
+        )
+        val policyKeys = EnvelopeObservability.fileHeader.fields.keys
+        for (header in headers) {
+            assertTrue(policyKeys.containsAll(header.observableValues().keys), "leak in $header")
         }
     }
 
     @Test
-    fun protect_rejectsHeaderMapThatExposesWebRtcProtectedPayloadUnderProtectedPolicyKey() = runTest {
-        val protection = LeakyPlaintextWebRtcSignalProtection()
-        val input = WebRtcSignal(
-            kind = WebRtcSignalKind.ICE,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
-            payload = byteArrayOf(4, 5),
+    fun fileHeaders_neverExposeProtectedFields() = runTest {
+        val transfer = org.yapyap.protocol.TransferId(Uuid.random())
+        val headers: List<FileHeader> = listOf(
+            FileHeader.Offer(transfer, FixturePeerIds.A, FixturePeerIds.B, shape()),
+            FileHeader.Chunk(transfer, 0),
+            FileHeader.Ack(transfer, 0, emptyList()),
+            FileHeader.Cancel(transfer, FileCancelReason.DECLINED),
+            FileHeader.Complete(ContentId(ByteArray(32) { 9 })),
+            FileHeader.Request,
         )
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            source = FixturePeerIds.A,
-            target = FixturePeerIds.B,
-        )
-        assertFailsWith<IllegalArgumentException> {
-            protection.protect(input, ctx)
+        val protectedKeys = EnvelopeObservability.fileHeader.fields
+            .filterValues { it == FieldSensitivity.PROTECTED }.keys
+        assertTrue(protectedKeys.isNotEmpty(), "the file profile must keep PROTECTED content fields")
+        for (header in headers) {
+            assertTrue(header.observableValues().keys.none { it in protectedKeys })
         }
     }
 
     @Test
-    fun protect_rejectsPayloadMapThatExposesProtectedField() = runTest {
-        val protection = LeakyPayloadMessageProtection()
-        val payload = sampleTextPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+    fun binaryEnvelope_observableHeaderValues_matchPolicy() = runTest {
+        val now = epochSeconds(1_700_000_000L)
+        val envelope = BinaryEnvelope(
+            packetId = Uuid.random(),
+            packetType = PacketType.MESSAGE,
+            dispositionRequested = false,
+            createdAt = now,
+            expiresAt = now,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
+            routingHeader = byteArrayOf(),
+            content = byteArrayOf(),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
-        assertFailsWith<IllegalArgumentException> {
-            protection.protect(payload, ctx)
-        }
-    }
-
-    /**
-     * Adds [MessageEnvelope.Companion.Fields.PAYLOAD] into the observable map while it remains PROTECTED in policy.
-     */
-    private class LeakyPlaintextMessageProtection :
-        BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>() {
-
-        override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
-            require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            val messageId = when (input) {
-                is DagPayload.Text -> input.messageId
-                is DagPayload.GlobalEvent -> input.messageId
-                is DagPayload.RoomEvent -> input.messageId
-                is SyncPayload.Request -> input.contentId
-            }
-            return MessageEnvelope(
-                messageEnvelopeId = messageId,
-                source = context.sourceDeviceId,
-                target = context.targetDeviceId,
-                createdAt = context.createdAt,
-                nonce = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = input.encode(),
-            )
-        }
-
-        override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
-            require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            return MessagePayload.decode(envelope.payload)
-        }
-
-        override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
-            envelope.observableHeaderValues() +
-                    (MessageEnvelope.Companion.Fields.PAYLOAD to envelope.payload)
-
-        override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
-
-        override fun envelopeLabel(): String = "leaky message envelope (test)"
-
-        suspend fun bypassProtectForTest(
-            input: MessagePayload,
-            context: EnvelopeProtectContext,
-        ): MessageEnvelope = doProtect(input, context)
-    }
-
-    private class LeakyPlaintextWebRtcSignalProtection :
-        BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>() {
-        override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
-            require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            return WebRtcSignalEnvelope(
-                signalEnvelopeId = Uuid.random(),
-                kind = input.kind,
-                source = context.sourceDeviceId,
-                target = context.targetDeviceId,
-                createdAt = context.createdAt,
-                nonce = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = input.payload,
-            )
-        }
-
-        override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
-            require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            return WebRtcSignal(
-                kind = envelope.kind,
-                source = envelope.source,
-                target = envelope.target,
-                payload = envelope.payload,
-            )
-        }
-
-        override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
-            envelope.observableHeaderValues() +
-                    (WebRtcSignalEnvelope.Companion.Fields.PROTECTED_PAYLOAD to envelope.payload)
-
-        override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
-
-        override fun envelopeLabel(): String = "leaky WebRTC signal envelope (test)"
-    }
-
-    /**
-     * Leaks a PROTECTED payload key through the payload map while the header stays clean,
-     * proving the payload contract (not just the header contract) is checked.
-     */
-    private class LeakyPayloadMessageProtection :
-        BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>() {
-        override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
-            require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            val messageId = when (input) {
-                is DagPayload.Text -> input.messageId
-                is DagPayload.GlobalEvent -> input.messageId
-                is DagPayload.RoomEvent -> input.messageId
-                is SyncPayload.Request -> input.contentId
-            }
-            return MessageEnvelope(
-                messageEnvelopeId = messageId,
-                source = context.sourceDeviceId,
-                target = context.targetDeviceId,
-                createdAt = context.createdAt,
-                nonce = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = input.encode(),
-            )
-        }
-
-        override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
-            require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
-            return MessagePayload.decode(envelope.payload)
-        }
-
-        override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
-            envelope.observableHeaderValues()
-
-        override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
-
-        override fun payloadObservabilityPolicy() = mapOf(
-            "fileId" to FieldSensitivity.PROTECTED,
+        assertEquals(
+            EnvelopeObservability.binaryEnvelope.fields.keys,
+            envelope.observableHeaderValues().keys,
         )
+    }
 
-        override fun observablePayloadValuesForProtect(input: MessagePayload): Map<String, Any?> =
-            mapOf("fileId" to "leaked")
+    @Test
+    fun contentSensitivities_ratchetFamiliesProtected_systemAbsent() = runTest {
+        assertEquals(FieldSensitivity.PROTECTED, EnvelopeObservability.content[PacketType.MESSAGE])
+        assertEquals(FieldSensitivity.PROTECTED, EnvelopeObservability.content[PacketType.SIGNAL])
+        assertEquals(FieldSensitivity.PROTECTED, EnvelopeObservability.content[PacketType.FILE])
+        assertEquals(FieldSensitivity.ENDPOINT_VISIBLE, EnvelopeObservability.content[PacketType.BOOTSTRAP])
+        // SYSTEM has no content entry: it is header-only.
+        assertTrue(!EnvelopeObservability.content.containsKey(PacketType.SYSTEM))
+    }
 
-        override fun envelopeLabel(): String = "leaky payload (test)"
+    @Test
+    fun systemHeader_profile_isRoutingVisible() = runTest {
+        assertTrue(EnvelopeObservability.systemHeader.fields.isNotEmpty())
+        assertTrue(EnvelopeObservability.systemHeader.fields.values.all { it == FieldSensitivity.ROUTING_VISIBLE })
+        // Every SYSTEM payload kind encodes with its kind byte first.
+        val ack = SystemPayload.PacketAck(Uuid.random(), PacketType.MESSAGE)
+        assertEquals(ack, SystemPayload.decode(ack.encode()))
     }
 }

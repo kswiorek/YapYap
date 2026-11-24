@@ -21,6 +21,7 @@ import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
@@ -139,7 +140,7 @@ class OutboxConcurrencyTest {
                 config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
                 clock = clock,
             ),
-            relayCopies = { null },
+            relaySelection = NoRelaySelection,
         )
         if (startLoop) processor.runIn(backgroundScope)
         runCurrent()
@@ -154,7 +155,9 @@ class OutboxConcurrencyTest {
         expiresAt = epochSeconds(nowSeconds + 3_600),
         source = local,
         target = target,
-        payload = byteArrayOf(1, 2, 3),
+        routingHeader = byteArrayOf(1, 2, 3),
+        content = ByteArray(0),
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
     private suspend fun Harness.enqueue(target: PeerId, targetEndpoint: TorEndpoint? = null) =

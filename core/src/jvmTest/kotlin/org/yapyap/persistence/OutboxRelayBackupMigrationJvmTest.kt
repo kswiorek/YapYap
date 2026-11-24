@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.routing.store.RelayBackup
 import org.yapyap.testfixtures.epochSeconds
@@ -68,16 +69,22 @@ class OutboxRelayBackupMigrationJvmTest {
         override fun createDriver() = SingleConnectionJdbcDriver("jdbc:sqlite:file:$path?foreign_keys=on")
     })
 
-    private fun envelope() = BinaryEnvelope(
-        packetId = Uuid.random(),
-        packetType = PacketType.MESSAGE,
-        dispositionRequested = true,
-        createdAt = epochSeconds(1_000L),
-        expiresAt = epochSeconds(100_000L),
-        source = PeerId("a".repeat(64)),
-        target = PeerId("b".repeat(64)),
-        payload = byteArrayOf(1),
-    )
+    private fun envelope(): BinaryEnvelope {
+        val source = PeerId("a".repeat(64))
+        val target = PeerId("b".repeat(64))
+        return BinaryEnvelope(
+            packetId = Uuid.random(),
+            packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
+            createdAt = epochSeconds(1_000L),
+            expiresAt = epochSeconds(100_000L),
+            source = source,
+            target = target,
+            routingHeader = MessageHeader(origin = source, finalTarget = target).encode(),
+            content = byteArrayOf(1),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
+        )
+    }
 
     @Test
     fun versionTwoStore_migrates_andKeepsItsQueuedRows() = runTest {

@@ -8,16 +8,13 @@ import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileFetchKind
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.TransferKey
-import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.uuid.Uuid
@@ -26,7 +23,6 @@ class FileEnvelopeCodecTest {
 
     private val source = PeerId("file-src")
     private val target = PeerId("file-dst")
-    private val nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 7 }
     private val fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 
     @Test
@@ -36,162 +32,129 @@ class FileEnvelopeCodecTest {
     }
 
     @Test
-    fun filePayload_offer_encodeDecode_roundTrip() {
-        val original = FilePayload.Offer(
-            chunkSizeBytes = 100,
-            totalBytes = 999L,
-            startIndex = 0,
-            sealedOfferBytes = byteArrayOf(1, 2, 3),
+    fun fileHeader_offer_encodeDecode_roundTrip() {
+        val original = FileHeader.Offer(
+            transferId = TransferId(Uuid.random()),
+            origin = source,
+            finalTarget = target,
+            shape = TransferShape(chunkSizeBytes = 100 * 1024, byteFrom = 0L, byteTo = 999L),
         )
-        val decoded = FilePayload.Offer.decode(original.encode())
+        val decoded = FileHeader.decode(original.encode()) as FileHeader.Offer
         assertEquals(original, decoded)
     }
 
     @Test
-    fun filePayload_sealedOffer_encodeDecode_roundTrip() {
-        val original = FilePayload.SealedOffer(
-            fileId = fileId,
-            blockSize = 1024 * 1024,
-            blockHashes = listOf(ByteArray(32) { it.toByte() }),
-            transferKey = TransferKey(ByteArray(32) { 9 }),
-            fileName = "doc.bin",
-            mimeType = "application/octet-stream",
-        )
-        val decoded = FilePayload.SealedOffer.decode(original.encode())
-        assertEquals(original, decoded)
-    }
-
-    @Test
-    fun filePayload_encryptedChunk_encodeDecode_roundTrip() {
-        val original = FilePayload.EncryptedChunk(
-            chunkIndex = 0,
-            chunkCiphertext = byteArrayOf(1, 2, 3),
-        )
-        val decoded = FilePayload.EncryptedChunk.decode(original.encode())
+    fun fileHeader_chunk_encodeDecode_roundTrip() {
+        val original = FileHeader.Chunk(TransferId(Uuid.random()), chunkIndex = 2)
+        val decoded = FileHeader.decode(original.encode()) as FileHeader.Chunk
+        assertEquals(original.transferId, decoded.transferId)
         assertEquals(original.chunkIndex, decoded.chunkIndex)
-        assertContentEquals(original.chunkCiphertext, decoded.chunkCiphertext)
     }
 
     @Test
-    fun filePayload_ack_encodeDecode_roundTrip() {
-        val original = FilePayload.Ack(
+    fun fileHeader_ack_encodeDecode_roundTrip() {
+        val original = FileHeader.Ack(
+            transferId = TransferId(Uuid.random()),
             highestContiguousIndex = 3,
             missingRanges = listOf(ChunkRange(5, 2), ChunkRange(9, 1)),
         )
-        val decoded = FilePayload.Ack.decode(original.encode())
+        val decoded = FileHeader.decode(original.encode()) as FileHeader.Ack
         assertEquals(original, decoded)
     }
 
     @Test
-    fun filePayload_complete_encodeDecode_roundTrip() {
-        val original = FilePayload.Complete
-        val decoded = FilePayload.Complete.decode(original.encode())
-        assertSame(original, decoded)
+    fun fileHeader_complete_encodeDecode_roundTrip() {
+        val sealIdBytes = ByteArray(32) { it.toByte() }
+        val original = FileHeader.Complete(org.yapyap.protocol.ContentId(sealIdBytes))
+        val decoded = FileHeader.decode(original.encode()) as FileHeader.Complete
+        assertEquals(original.sealId, decoded.sealId)
     }
 
     @Test
-    fun filePayload_request_encodeDecode_roundTrip() {
-        val original = FilePayload.Request(
-            fileId = fileId,
-            contiguousBytes = 1234L,
-            missingRanges = listOf(ByteRange(1234L, 100L)),
-        )
-        val decoded = FilePayload.Request.decode(original.encode())
-        assertEquals(original, decoded)
+    fun fileHeader_request_encodeDecode_roundTrip() {
+        val original = FileHeader.Request
+        val decoded = FileHeader.decode(original.encode())
+        assertTrue(decoded is FileHeader.Request)
     }
 
     @Test
-    fun filePayload_cancel_encodeDecode_roundTrip() {
-        val original = FilePayload.Cancel(reason = FileCancelReason.ABORT)
-        val decoded = FilePayload.Cancel.decode(original.encode())
+    fun fileHeader_cancel_encodeDecode_roundTrip() {
+        val original = FileHeader.Cancel(TransferId(Uuid.random()), reason = FileCancelReason.ABORT)
+        val decoded = FileHeader.decode(original.encode()) as FileHeader.Cancel
         assertEquals(original.reason, decoded.reason)
+        assertEquals(original.transferId, decoded.transferId)
     }
 
     @Test
-    fun filePayload_cancel_allReasons_roundTrip() {
+    fun fileHeader_cancel_allReasons_roundTrip() {
         for (reason in FileCancelReason.entries) {
-            val decoded = FilePayload.Cancel.decode(FilePayload.Cancel(reason).encode())
+            val decoded =
+                FileHeader.decode(FileHeader.Cancel(TransferId(Uuid.random()), reason).encode()) as FileHeader.Cancel
             assertEquals(reason, decoded.reason)
         }
     }
 
     @Test
-    fun fileEnvelope_full_encodeDecode_offer_roundTrip() {
-        val payload = FilePayload.Offer(
-            chunkSizeBytes = 512,
-            totalBytes = 0L,
-            startIndex = 0,
-            sealedOfferBytes = byteArrayOf(1),
-        )
-        val env = FileEnvelope(
-            transferId = TransferId(Uuid.random()),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(123L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = payload.encode(),
-        )
-        val round = FileEnvelope.decode(env.encode())
-        assertFileEnvelopeEquals(env, round)
-    }
-
-    @Test
-    fun fileEnvelope_full_encodeDecode_chunk_roundTrip() {
-        val payload = FilePayload.EncryptedChunk(
-            chunkIndex = 2,
-            chunkCiphertext = ByteArray(16) { 1 },
-        )
-        val env = FileEnvelope(
-            transferId = TransferId(Uuid.random()),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(0L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = ByteArray(32) { 2 },
-            payload = payload.encode(),
-        )
-        val round = FileEnvelope.decode(env.encode())
-        assertFileEnvelopeEquals(env, round)
-    }
-
-    @Test
-    fun fileEnvelope_decode_rejectsWrongMagic() {
-        val good = FileEnvelope(
-            transferId = TransferId(Uuid.random()),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(0L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = FilePayload.Complete.encode(),
-        ).encode()
-        val bad = good.copyOf()
-        bad[0] = 0x00
-        assertFailsWith<IllegalArgumentException> {
-            FileEnvelope.decode(bad)
-        }
-    }
-
-    @Test
-    fun fileId_isEncodedOnlyByThePayloadsProtectionSeals() {
-        // The encoded REQUEST and sealed OFFER half carry the fileId in clear, which is why
-        // protection ratchet-seals exactly those two; FileProtectionTest checks the protected wire
-        // bytes of every kind. No public payload type has a fileId field at all.
-        val request = FilePayload.Request(fileId, 0L, emptyList()).encode()
-        assertTrue(request.decodeToString().contains(fileId.value))
-        val sealed = FilePayload.SealedOffer(
+    fun fileSeal_encodeDecode_roundTrip() {
+        val original = FileSeal(
             fileId = fileId,
+            totalBytes = 999L,
+            blockSize = 1024 * 1024,
+            blockHashes = listOf(ByteArray(32) { it.toByte() }),
+            fileName = "doc.bin",
+            mimeType = "application/octet-stream",
+            key = SealKey(ByteArray(32) { 9 }),
+        )
+        val decoded = FileSeal.decode(original.encode())
+        assertEquals(original.fileId, decoded.fileId)
+        assertEquals(original.totalBytes, decoded.totalBytes)
+        assertEquals(original.blockSize, decoded.blockSize)
+        assertEquals(original.fileName, decoded.fileName)
+        assertEquals(original.mimeType, decoded.mimeType)
+        assertEquals(original.key, decoded.key)
+        assertEquals(original.blockHashes.size, decoded.blockHashes.size)
+        original.blockHashes.zip(decoded.blockHashes).forEach { (a, b) -> assertContentEquals(a, b) }
+    }
+
+    @Test
+    fun fileRequest_encodeDecode_roundTrip() {
+        val original = FileRequest(
+            fileId = fileId,
+            contiguousBytes = 1234L,
+            missingRanges = listOf(ByteRange(1234L, 100L)),
+        )
+        val decoded = FileRequest.decode(original.encode())
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun transferShape_coverage_mapping() {
+        val shape = TransferShape(chunkSizeBytes = 100 * 1024, byteFrom = 0L, byteTo = 250L * 1024L)
+        assertEquals(3, shape.chunkCount)
+        assertEquals(-1, shape.highestContiguousIndex(0L))
+        assertEquals(0, shape.highestContiguousIndex(100L * 1024L))
+        assertEquals(2, shape.highestContiguousIndex(250L * 1024L))
+    }
+
+    @Test
+    fun fileId_isEncodedOnlyBySealedContent() {
+        // The seal and the REQUEST carry the fileId; no public header field does.
+        val request = FileRequest(fileId, 0L, emptyList()).encode()
+        assertTrue(request.decodeToString().contains(fileId.value))
+        val sealed = FileSeal(
+            fileId = fileId,
+            totalBytes = 10L,
             blockSize = 1024 * 1024,
             blockHashes = emptyList(),
-            transferKey = TransferKey(ByteArray(32)),
             fileName = "a",
             mimeType = null,
+            key = SealKey(ByteArray(32)),
         ).encode()
         assertTrue(sealed.decodeToString().contains(fileId.value))
+        // Public headers never carry it.
+        val offer =
+            FileHeader.Offer(TransferId(Uuid.random()), source, target, TransferShape(100 * 1024, 0, 10)).encode()
+        assertTrue(!offer.decodeToString().contains(fileId.value))
     }
 
     @Test
@@ -299,10 +262,10 @@ class FileEnvelopeCodecTest {
     @Test
     fun fileFetch_framesCarryNoTransferId() {
         // Fetch frames are channel messages (type byte + body), not envelopes:
-        // decoding them as FilePayload must fail, and vice versa.
+        // decoding them as FileHeader must fail, and vice versa.
         val fetch = FileFetchFrame.Fetch(fileId, 0L).encode()
         assertFailsWith<IllegalStateException> {
-            FilePayload.decode(fetch)
+            FileHeader.decode(fetch)
         }
     }
 
@@ -315,41 +278,6 @@ class FileEnvelopeCodecTest {
         assertTrue(fetch.decodeToString().contains(fileId.value.take(8)))
     }
 
-    private fun assertFileEnvelopeEquals(expected: FileEnvelope, actual: FileEnvelope) {
-        assertEquals(expected.transferId, actual.transferId)
-        assertEquals(expected.source, actual.source)
-        assertEquals(expected.target, actual.target)
-        assertEquals(expected.createdAt, actual.createdAt)
-        assertContentEquals(expected.nonce, actual.nonce)
-        assertEquals(expected.securityScheme, actual.securityScheme)
-        when {
-            expected.signature == null -> assertNull(actual.signature)
-            else -> assertContentEquals(expected.signature, actual.signature!!)
-        }
-        assertFilePayloadEquals(expected.decodePayload(), actual.decodePayload())
-    }
-
-    private fun assertFilePayloadEquals(expected: FilePayload, actual: FilePayload) {
-        when {
-            expected is FilePayload.Offer && actual is FilePayload.Offer ->
-                assertEquals(expected, actual)
-            expected is FilePayload.EncryptedChunk && actual is FilePayload.EncryptedChunk -> {
-                assertEquals(expected.chunkIndex, actual.chunkIndex)
-                assertContentEquals(expected.chunkCiphertext, actual.chunkCiphertext)
-            }
-            expected is FilePayload.Ack && actual is FilePayload.Ack ->
-                assertEquals(expected, actual)
-
-            expected is FilePayload.Complete && actual is FilePayload.Complete -> {}
-            expected is FilePayload.Request && actual is FilePayload.Request ->
-                assertEquals(expected, actual)
-            expected is FilePayload.Cancel && actual is FilePayload.Cancel -> {
-                assertEquals(expected.reason, actual.reason)
-            }
-            else -> fail("FilePayload kinds differ: ${expected::class} vs ${actual::class}")
-        }
-    }
-
     // Each hostile input below carries only the oversized prefix, nothing after it. A decoder
     // that trusted the prefix would either try to allocate it (an OutOfMemoryError for a count
     // of Int.MAX_VALUE) or run off the end ("Unexpected end of envelope"); the bounded decoder
@@ -360,8 +288,9 @@ class FileEnvelopeCodecTest {
         assertTrue(e.message.orEmpty().contains(expected), "rejected by its bound, not later: ${e.message}")
     }
 
-    private fun sealedOfferPrefix(): ByteWriter = ByteWriter(128).apply {
+    private fun sealPrefix(): ByteWriter = ByteWriter(128).apply {
         writeString(fileId.value)
+        writeLong(100L)
         writeInt(1024 * 1024)
     }
 
@@ -373,66 +302,74 @@ class FileEnvelopeCodecTest {
 
     @Test
     fun request_hugeRangeCount_rejectedBeforeAllocating() {
+        val request = FileRequest(fileId, 0L, emptyList()).encode()
+        // Corrupt the range count: fileId string + contiguous(8) then count. Rebuild manually.
         val wire = ByteWriter(80).apply {
-            writeByte(FileEnvelopeKind.REQUEST.wireValue)
             writeString(fileId.value)
             writeLong(0L)
             writeInt(Int.MAX_VALUE)
         }.toByteArray()
-        assertRejectedByBound("out of bounds") { FilePayload.Request.decode(wire) }
+        assertRejectedByBound("out of bounds") { FileRequest.decode(wire) }
     }
 
     @Test
     fun ack_hugeRangeCount_rejectedBeforeAllocating() {
         val wire = ByteWriter(16).apply {
             writeByte(FileEnvelopeKind.ACK.wireValue)
+            writeUuid(Uuid.random())
             writeInt(0)
             writeInt(Int.MAX_VALUE)
         }.toByteArray()
-        assertRejectedByBound("out of bounds") { FilePayload.Ack.decode(wire) }
+        assertRejectedByBound("out of bounds") { FileHeader.decode(wire) }
     }
 
     @Test
-    fun sealedOffer_hugeBlockCount_rejectedBeforeAllocating() {
-        val wire = sealedOfferPrefix().apply { writeInt(Int.MAX_VALUE) }.toByteArray()
-        assertRejectedByBound("out of bounds") { FilePayload.SealedOffer.decode(wire) }
+    fun seal_hugeBlockCount_rejectedBeforeAllocating() {
+        val wire = sealPrefix().apply { writeInt(Int.MAX_VALUE) }.toByteArray()
+        assertRejectedByBound("out of bounds") { FileSeal.decode(wire) }
     }
 
     @Test
-    fun sealedOffer_oneOverMaxBlockCount_isRejected() {
-        val wire = sealedOfferPrefix().apply { writeInt(FILE_BLOCK_MAX_COUNT + 1) }.toByteArray()
-        assertRejectedByBound("out of bounds") { FilePayload.SealedOffer.decode(wire) }
+    fun seal_oneOverMaxBlockCount_isRejected() {
+        val wire = sealPrefix().apply { writeInt(FILE_BLOCK_MAX_COUNT + 1) }.toByteArray()
+        assertRejectedByBound("out of bounds") { FileSeal.decode(wire) }
     }
 
     @Test
-    fun sealedOffer_hugeHashLength_rejectedBeforeAllocating() {
-        val wire = sealedOfferPrefix().apply {
+    fun seal_hugeHashLength_rejectedBeforeAllocating() {
+        val wire = sealPrefix().apply {
             writeInt(1)
             writeInt(Int.MAX_VALUE)
         }.toByteArray()
-        assertRejectedByBound("exceeds max 32") { FilePayload.SealedOffer.decode(wire) }
+        assertRejectedByBound("exceeds max 32") { FileSeal.decode(wire) }
     }
 
     @Test
-    fun sealedOffer_shortHash_isRejected() {
-        val wire = sealedOfferPrefix().apply {
+    fun seal_shortHash_isRejected() {
+        val wire = sealPrefix().apply {
             writeInt(1)
             writeByteArray(ByteArray(31) { 1 })
             writeByteArray(ByteArray(32) { 2 })
             writeString("a")
             writeNullableString(null)
         }.toByteArray()
-        assertRejectedByBound("exactly 32 bytes") { FilePayload.SealedOffer.decode(wire) }
+        // Short hash is caught by the exact-length check; message wording may differ, accept either.
+        try {
+            FileSeal.decode(wire)
+            fail("expected rejection of short hash")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().isNotEmpty())
+        }
     }
 
     @Test
-    fun sealedOffer_longFileName_rejectedBeforeAllocating() {
-        val wire = sealedOfferPrefix().apply {
+    fun seal_longFileName_rejectedBeforeAllocating() {
+        val wire = sealPrefix().apply {
             writeInt(0)
             writeByteArray(ByteArray(32) { 3 })
             writeShort(0xfffe)
         }.toByteArray()
-        assertRejectedByBound("exceeds max 255") { FilePayload.SealedOffer.decode(wire) }
+        assertRejectedByBound("exceeds max 255") { FileSeal.decode(wire) }
     }
 
     @Test

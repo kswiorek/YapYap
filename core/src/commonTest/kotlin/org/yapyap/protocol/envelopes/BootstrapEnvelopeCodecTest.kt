@@ -4,9 +4,15 @@ package org.yapyap.protocol.envelopes
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.protocol.*
-import org.yapyap.protocol.identity.*
-import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -15,12 +21,7 @@ import kotlin.uuid.Uuid
 
 class BootstrapEnvelopeCodecTest {
 
-    private val sponsorDevice = PeerId("sponsor-device")
-    private val newcomerDevice = PeerId("newcomer-device")
-    private val payloadBytes = byteArrayOf(0x01, 0x02, 0x03, 0x04)
-
     private val crypto: CryptoProvider = DefaultCryptoProvider()
-    private val now = epochSeconds(1_700_000_000L)
 
     private suspend fun sampleIntroPayload(): Intro {
         val signing = crypto.generateSigningKeyPair()
@@ -51,16 +52,6 @@ class BootstrapEnvelopeCodecTest {
         )
     }
 
-    private fun sampleEnvelope(payload: ByteArray = payloadBytes): BootstrapEnvelope =
-        BootstrapEnvelope(
-            scheme = BootstrapSecurityScheme.SECRET_AEAD,
-            bootstrapEnvelopeId = Uuid.random(),
-            source = sponsorDevice,
-            target = newcomerDevice,
-            createdAt = now,
-            payload = payload,
-        )
-
     @Test
     fun packetType_bootstrap_wireValueRoundTrip() {
         assertEquals(PacketType.BOOTSTRAP, PacketType.fromWireValue(5))
@@ -68,34 +59,30 @@ class BootstrapEnvelopeCodecTest {
     }
 
     @Test
-    fun bootstrapEnvelope_encodeDecode_roundTrip() {
-        val original = sampleEnvelope()
-        val decoded = BootstrapEnvelope.decode(original.encode())
+    fun bootstrapHeader_encodeDecode_roundTrip() {
+        val original = BootstrapHeader(
+            scheme = BootstrapSecurityScheme.SECRET_AEAD,
+            bootstrapEnvelopeId = Uuid.random(),
+        )
+        val decoded = BootstrapHeader.decode(original.encode())
         assertEquals(original, decoded)
-        assertTrue(original.payload.contentEquals(decoded.payload))
+        assertTrue(original.encode().contentEquals(decoded.encode()))
     }
 
     @Test
-    fun bootstrapEnvelope_aadBytes_isEncodedEnvelopeWithoutPayload() {
-        // encoded = aadBytes || int32(payload.size) || payload
-        val env = sampleEnvelope()
-        val encoded = env.encode()
-        val aad = env.aadBytes()
-        assertEquals(encoded.size - (4 + env.payload.size), aad.size)
+    fun bootstrapHeader_accountSigned_roundTrip() {
+        val original = BootstrapHeader(
+            scheme = BootstrapSecurityScheme.ACCOUNT_SIGNED,
+            bootstrapEnvelopeId = Uuid.random(),
+        )
+        val decoded = BootstrapHeader.decode(original.encode())
+        assertEquals(original, decoded)
     }
 
     @Test
-    fun bootstrapEnvelope_decode_rejectsBadMagic() {
-        val encoded = sampleEnvelope().encode()
-        val corrupted = encoded.copyOf().also { it[0] = 0x00 }
-        assertFailsWith<IllegalArgumentException> { BootstrapEnvelope.decode(corrupted) }
-    }
-
-    @Test
-    fun bootstrapEnvelope_decode_rejectsTrailingBytes() {
-        val encoded = sampleEnvelope().encode()
-        val padded = encoded + byteArrayOf(0x00)
-        assertFailsWith<IllegalArgumentException> { BootstrapEnvelope.decode(padded) }
+    fun bootstrapSecurityScheme_wireValuesDistinct() {
+        val wires = BootstrapSecurityScheme.entries.map { it.wireValue }.toSet()
+        assertEquals(BootstrapSecurityScheme.entries.size, wires.size)
     }
 
     @Test
@@ -105,7 +92,7 @@ class BootstrapEnvelopeCodecTest {
         // Re-encoding after decode must be byte-identical (stronger than field equality for
         // records whose ByteArray fields compare by reference).
         assertTrue(original.encode().contentEquals(decoded.encode()))
-        assertTrue(original.device.signedPreKey!!.signature.contentEquals(decoded.device.signedPreKey!!.signature))
+        assertTrue(original.device.signedPreKey!!.signature.contentEquals((decoded as Intro).device.signedPreKey!!.signature))
     }
 
     @Test

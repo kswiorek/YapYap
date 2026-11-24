@@ -28,12 +28,13 @@ class ProtectionExceptionTest {
     }
 
     @Test
-    fun mapCryptoSessionException_replayIsPermanentViolation() {
+    fun mapCryptoSessionException_replayIsDuplicate() {
         val mapped = ProtectionException.mapCryptoSessionException(
             CryptoSessionException.Replay(messageNumber = 3),
         )
-        assertIs<ProtectionException.SessionViolation>(mapped)
+        assertIs<ProtectionException.Duplicate>(mapped)
         assertEquals(ProtectionDisposition.PERMANENT, mapped.disposition)
+        assertEquals(ProtectionReason.DUPLICATE, mapped.reason)
     }
 
     @Test

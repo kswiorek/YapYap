@@ -10,13 +10,11 @@ import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -67,7 +65,8 @@ class UnknownDevicePolicyTest {
     private fun binaryEnvelope(
         packetType: PacketType,
         source: PeerId,
-        payload: ByteArray,
+        routingHeader: ByteArray,
+        content: ByteArray = byteArrayOf(),
     ): TorIncomingEnvelope =
         TorIncomingEnvelope(
             TorEndpoint("sender.onion", 80),
@@ -79,12 +78,14 @@ class UnknownDevicePolicyTest {
                 expiresAt = epochSeconds(11_000L),
                 source = source,
                 target = localPeer,
-                payload = payload,
+                routingHeader = routingHeader,
+                content = content,
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
         )
 
-    private fun plaintextMessagePayload(): ByteArray {
-        val text = DagPayload.Text(
+    private fun plaintextMessagePayload(): ByteArray =
+        DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
             senderAccountId = account,
@@ -92,18 +93,12 @@ class UnknownDevicePolicyTest {
             createdAt = epochSeconds(0L),
             text = "hello-unknown-policy",
             authorDeviceId = knownPeer,
-        )
-        return MessageEnvelope(
-            messageEnvelopeId = text.messageId,
-            source = knownPeer,
-            target = localPeer,
-            createdAt = epochSeconds(10_000L),
-            nonce = ByteArray(24) { 3 },
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = text.encode(),
         ).encode()
-    }
+
+    private fun messageRoutingHeader(
+        origin: PeerId = knownPeer,
+        finalTarget: PeerId = localPeer,
+    ): ByteArray = MessageHeader(origin, finalTarget).encode()
 
     @Test
     fun messageFromUnknownDevice_droppedSilently_noDisposition_noDedup() = runBlocking {
@@ -119,7 +114,8 @@ class UnknownDevicePolicyTest {
         val incoming = binaryEnvelope(
             packetType = PacketType.MESSAGE,
             source = unknownPeer,
-            payload = plaintextMessagePayload(),
+            routingHeader = messageRoutingHeader(),
+            content = plaintextMessagePayload(),
         )
         tor.tryEmitIncoming(incoming)
         delay(400.milliseconds)
@@ -165,8 +161,9 @@ class UnknownDevicePolicyTest {
             fileIngest = RefusingFilePorts(),
             fileRequests = RefusingFilePorts(),
             filePlaintext = FakeFilePlaintextSource(),
-            fileIncomingStore = InMemoryFileIncomingTransferStore(),
-            filePushStore = InMemoryFilePushStore(),
+            fileIncomingStore = InMemoryFileIncomingStore(),
+            fileSealStore = InMemoryFileSealStore(),
+            fileTransferStore = InMemoryFileTransferStore(),
             fileRelayStore = InMemoryFileRelayStore(),
             fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
         )
@@ -176,7 +173,8 @@ class UnknownDevicePolicyTest {
             binaryEnvelope(
                 packetType = PacketType.MESSAGE,
                 source = unknownPeer,
-                payload = plaintextMessagePayload(),
+                routingHeader = messageRoutingHeader(),
+                content = plaintextMessagePayload(),
             ),
         )
         delay(400.milliseconds)
@@ -190,7 +188,8 @@ class UnknownDevicePolicyTest {
             binaryEnvelope(
                 packetType = PacketType.MESSAGE,
                 source = knownPeer,
-                payload = plaintextMessagePayload(),
+                routingHeader = messageRoutingHeader(),
+                content = plaintextMessagePayload(),
             ),
         )
         delay(400.milliseconds)
@@ -221,9 +220,11 @@ class UnknownDevicePolicyTest {
                 expiresAt = epochSeconds(11_000L),
                 source = unknownPeer,
                 target = localPeer,
-                // Not a valid bootstrap envelope: the packet must pass the
+                // Not a valid bootstrap header: the packet must pass the
                 // unknown-device gate and be rejected by the handler itself.
-                payload = byteArrayOf(0x00, 0x01, 0x02),
+                routingHeader = byteArrayOf(0x00, 0x01, 0x02),
+                content = byteArrayOf(),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
         )
         tor.tryEmitIncoming(incoming)
@@ -253,7 +254,7 @@ class UnknownDevicePolicyTest {
             binaryEnvelope(
                 packetType = PacketType.BOOTSTRAP,
                 source = bannedPeer,
-                payload = byteArrayOf(0x00, 0x01, 0x02),
+                routingHeader = byteArrayOf(0x00, 0x01, 0x02),
             ),
         )
         delay(400.milliseconds)
@@ -290,7 +291,9 @@ class UnknownDevicePolicyTest {
                     expiresAt = epochSeconds(11_000L),
                     source = knownPeer,
                     target = localPeer,
-                    payload = plaintextMessagePayload(),
+                    routingHeader = messageRoutingHeader(),
+                    content = plaintextMessagePayload(),
+                    signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
                 ),
             ),
         )
@@ -333,7 +336,9 @@ class UnknownDevicePolicyTest {
                     expiresAt = epochSeconds(11_000L),
                     source = knownPeer,
                     target = localPeer,
-                    payload = byteArrayOf(0x00, 0x01, 0x02),
+                    routingHeader = byteArrayOf(0x00, 0x01, 0x02),
+                    content = byteArrayOf(),
+                    signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
                 ),
             ),
         )
@@ -373,16 +378,6 @@ class UnknownDevicePolicyTest {
             text = "relay-me",
             authorDeviceId = knownPeer,
         )
-        val inner = MessageEnvelope(
-            messageEnvelopeId = innerText.messageId,
-            source = knownPeer,
-            target = knownPeer2,
-            createdAt = epochSeconds(10_000L),
-            nonce = ByteArray(24) { 3 },
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = innerText.encode(),
-        )
         tor.tryEmitIncoming(
             TorIncomingEnvelope(
                 transitTor,
@@ -394,7 +389,9 @@ class UnknownDevicePolicyTest {
                     expiresAt = epochSeconds(11_000L),
                     source = knownPeer,
                     target = localPeer,
-                    payload = inner.encode(),
+                    routingHeader = messageRoutingHeader(origin = knownPeer, finalTarget = knownPeer2),
+                    content = innerText.encode(),
+                    signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
                 ),
             ),
         )
@@ -411,7 +408,7 @@ class UnknownDevicePolicyTest {
         expectedReason: PacketNackReason,
     ) {
         assertEquals(PacketType.SYSTEM, envelope.packetType)
-        val payload = SystemEnvelope.decode(envelope.payload).decodePayload()
+        val payload = SystemPayload.decode(envelope.routingHeader)
         assertTrue(payload is SystemPayload.PacketNack, "expected PacketNack but was ${payload::class.simpleName}")
         assertEquals(expectedPacketId, payload.packetId)
         assertEquals(expectedReason, payload.reason)

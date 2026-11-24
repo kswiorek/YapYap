@@ -2,13 +2,23 @@ package org.yapyap.transport.tor
 
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.session.SessionStatus
@@ -17,7 +27,13 @@ import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.backend.TorStreamRecordType
 import org.yapyap.transport.tor.backend.writeTorStreamRecord
 import org.yapyap.transport.tor.transport.DefaultTorTransport
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -35,16 +51,22 @@ class TorSessionLoopbackTest {
     private fun transport(cfg: MutableStateFlow<TorBackendConfig> = config) =
         DefaultTorTransport(LoopbackTorBackend(cfg), cfg)
 
-    private fun envelope(payload: Byte = 1) = BinaryEnvelope(
-        packetId = Uuid.random(),
-        packetType = PacketType.MESSAGE,
-        dispositionRequested = true,
-        createdAt = epochSeconds(1_700_000_000L),
-        expiresAt = epochSeconds(1_700_000_000L) + 1.hours,
-        source = PeerId("0".repeat(64)),
-        target = PeerId("1".repeat(64)),
-        payload = byteArrayOf(payload),
-    )
+    private fun envelope(payload: Byte = 1): BinaryEnvelope {
+        val source = PeerId("0".repeat(64))
+        val target = PeerId("1".repeat(64))
+        return BinaryEnvelope(
+            packetId = Uuid.random(),
+            packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
+            createdAt = epochSeconds(1_700_000_000L),
+            expiresAt = epochSeconds(1_700_000_000L) + 1.hours,
+            source = source,
+            target = target,
+            routingHeader = MessageHeader(origin = source, finalTarget = target).encode(),
+            content = byteArrayOf(payload),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
+        )
+    }
 
     private suspend fun DefaultTorTransport.awaitPhase(endpoint: TorEndpoint, phase: SessionPhase): SessionStatus =
         withTimeoutOrNull(10.seconds) { sessionStatesOf(endpoint).first { it.phase == phase } }

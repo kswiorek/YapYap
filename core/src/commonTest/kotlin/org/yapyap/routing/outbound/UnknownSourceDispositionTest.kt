@@ -7,11 +7,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -85,7 +83,9 @@ class UnknownSourceDispositionTest {
                 expiresAt = epochSeconds(now + 3_600),
                 source = local,
                 target = target,
-                payload = byteArrayOf(1),
+                routingHeader = byteArrayOf(1),
+                content = ByteArray(0),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
             nextRetryAt = epochSeconds(now + 3_000),
             targetEndpoint = sponsorTor,
@@ -97,18 +97,8 @@ class UnknownSourceDispositionTest {
     private fun disposition(
         payload: SystemPayload,
         from: PeerId = sponsor,
-        headerFrom: PeerId = from,
+        target: PeerId = local,
     ): TorIncomingEnvelope {
-        val system = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = headerFrom,
-            target = local,
-            createdAt = epochSeconds(now),
-            nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 },
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = ByteArray(64) { 9 }, // unverifiable by design: we don't know the sender's key
-            payload = payload.encode(),
-        )
         return TorIncomingEnvelope(
             sponsorTor,
             BinaryEnvelope(
@@ -118,8 +108,12 @@ class UnknownSourceDispositionTest {
                 createdAt = epochSeconds(now),
                 expiresAt = epochSeconds(now + 1_000),
                 source = from,
-                target = local,
-                payload = system.encode(),
+                target = target,
+                routingHeader = payload.encode(),
+                content = ByteArray(0),
+                // Unverifiable by design: we don't know the sender's key, and unknown
+                // sources are never hop-verified (only their bootstrap packet id counts).
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
         )
     }
@@ -166,9 +160,9 @@ class UnknownSourceDispositionTest {
     }
 
     @Test
-    fun ackWhoseHeaderDisagreesWithTheEnvelope_isDropped() = runBlocking {
+    fun ackTargetedAtSomeoneElse_isDropped() = runBlocking {
         val (s, packetId) = setup()
-        s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.BOOTSTRAP), headerFrom = stranger))
+        s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.BOOTSTRAP), target = stranger))
         assertEquals(emptyList(), s.outbox.removeCalls)
     }
 

@@ -9,19 +9,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.protection.PassthroughFileProtection
-import org.yapyap.protection.envelope.FileEnvelopeProtection
-import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.FileRequest
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -50,7 +44,6 @@ import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -184,7 +177,6 @@ class FileRequestProcessorTest {
         val policy = FixedPeerPolicy(nextDevice = devices.firstOrNull())
         val processor = FileRequestProcessor(
             ctx = ctx,
-            protection = SealingFakeProtection(PassthroughFileProtection()),
             attempts = attempts,
             requests = gate,
             outboxProcessor = outboxProcessor,
@@ -198,11 +190,11 @@ class FileRequestProcessorTest {
         return Harness(ctx, outbox, outboxProcessor, attempts, events, processor, policy, gate)
     }
 
-    private suspend fun Harness.request(): TransferId {
+    private suspend fun Harness.request(): Uuid {
         processor.start(fileId, now)
         runFor()
         val row = attempts.findById(fileId)
-        return assertNotNull(row?.requestTransferId, "attempt must record its REQUEST transfer")
+        return assertNotNull(row?.attemptId, "attempt must record its REQUEST attempt")
     }
 
     private fun Harness.queuedRequest(): Pair<BinaryEnvelope, OutboxTag> {
@@ -219,11 +211,10 @@ class FileRequestProcessorTest {
     @Test
     fun dueRequest_enqueuesSealedTaggedRequest() = kotlinx.coroutines.runBlocking {
         val h = harness()
-        val transferId = h.request()
+        val attemptId = h.request()
         val (envelope, tag) = h.queuedRequest()
-        assertEquals(transferId.value, tag.id)
-        val opened = FileEnvelope.decode(envelope.payload).decodePayload()
-        val request = assertIs<FilePayload.Request>(opened)
+        assertEquals(attemptId, tag.id)
+        val request = FileRequest.decode(envelope.content)
         assertEquals(fileId, request.fileId)
         assertEquals(0L, request.contiguousBytes)
     }
@@ -329,8 +320,7 @@ class FileRequestProcessorTest {
 
         val queued = h.outbox.enqueued
         assertEquals(1, queued.size, "only the SMALL REQUEST is enqueued in the first pass")
-        val opened = FileEnvelope.decode(queued.single().payload).decodePayload()
-        assertEquals(smallId, assertIs<FilePayload.Request>(opened).fileId)
+        assertEquals(smallId, FileRequest.decode(queued.single().content).fileId)
         assertTrue(
             largeIds.all { h.attempts.findById(it) != null },
             "LARGE rows stay pending on the fetch path",
@@ -342,23 +332,5 @@ class FileRequestProcessorTest {
     private companion object {
         /** 64 lowercase hex chars, like a real content hash. */
         fun hexFileId(n: Int): FileId = FileId(n.toString(16).padStart(64, '0'))
-    }
-
-    private class SealingFakeProtection(
-        private val pass: FileEnvelopeProtection,
-    ) : FileEnvelopeProtection by pass {
-        override suspend fun protect(
-            input: FilePayload,
-            context: FileProtectContext,
-        ): FileEnvelope = FileEnvelope(
-            transferId = context.transferId,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = ByteArray(12),
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            signature = null,
-            payload = input.encode(),
-        )
     }
 }

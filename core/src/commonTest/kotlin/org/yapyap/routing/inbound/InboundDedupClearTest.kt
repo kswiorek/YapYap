@@ -8,7 +8,6 @@ import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -124,7 +123,9 @@ class InboundDedupClearTest {
             expiresAt = now + 1.hours,
             source = remoteDevice,
             target = localDevice,
-            payload = byteArrayOf(1, 2, 3),
+            routingHeader = byteArrayOf(1, 2, 3),
+            content = ByteArray(0),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
 
         assertFailsWith<IllegalStateException> { processor.handle(inbound, RouterTransport.TOR) }
@@ -133,7 +134,7 @@ class InboundDedupClearTest {
 
         val acks = tor.sendsExcludingHeartbeat().filter { it.second.packetType == PacketType.SYSTEM }
         assertEquals(1, acks.size, "only the successful handling is ACKed")
-        val ack = assertIs<SystemPayload.PacketAck>(SystemEnvelope.decode(acks.single().second.payload).decodePayload())
+        val ack = assertIs<SystemPayload.PacketAck>(SystemPayload.decode(acks.single().second.routingHeader))
         assertEquals(packetId, ack.packetId)
         assertEquals(PacketType.MESSAGE, ack.packetType)
     }

@@ -57,10 +57,12 @@ class FileOutboxProcessorTest {
         expiresAt = epochSeconds(now + 3_600),
         source = localPeer,
         target = remotePeer,
-        payload = payload,
+        routingHeader = payload,
+        content = ByteArray(0),
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
-    private fun fileTag(transfer: Uuid = Uuid.random()) = OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer)
+    private fun fileTag(transfer: Uuid = Uuid.random()) = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer)
 
     @Test
     fun processDue_messagesGoOutBeforeFileChunks() = runTest {
@@ -74,7 +76,7 @@ class FileOutboxProcessorTest {
             outbox.enqueue(
                 envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
                 nextRetryAt = epochSeconds(now),
-                tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, chunkId),
+                tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, chunkId),
                 retryClass = RetryClass.FLAT,
             )
         }
@@ -107,7 +109,7 @@ class FileOutboxProcessorTest {
         outbox.enqueue(
             envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, chunkId),
+            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, chunkId),
             retryClass = RetryClass.FLAT,
         )
         // Burn past the message fast-retry budget: FILE rows must not fall back to standby.
@@ -138,7 +140,7 @@ class FileOutboxProcessorTest {
             outbox.enqueue(
                 envelope = envelope(id, PacketType.FILE, fileTag(), now),
                 nextRetryAt = epochSeconds(now),
-                tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, id),
+                tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, id),
                 retryClass = RetryClass.FLAT,
             )
         }
@@ -165,7 +167,7 @@ class FileOutboxProcessorTest {
         outbox.enqueue(
             envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, chunkId),
+            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, chunkId),
             retryClass = RetryClass.FLAT,
         )
         val processor = outboxProcessorUnderTest(

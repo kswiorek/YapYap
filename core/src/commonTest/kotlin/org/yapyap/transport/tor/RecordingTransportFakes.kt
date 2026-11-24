@@ -8,7 +8,6 @@ import kotlinx.coroutines.yield
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.session.SessionPhase
@@ -128,7 +127,7 @@ internal class RecordingTorTransport(
 
     private fun BinaryEnvelope.isHeartbeat(): Boolean {
         if (packetType != PacketType.SYSTEM) return false
-        val payload = runCatching { SystemEnvelope.decode(payload).decodePayload() }.getOrNull()
+        val payload = runCatching { SystemPayload.decode(routingHeader) }.getOrNull()
             ?: return false
         return payload is SystemPayload.Ping || payload is SystemPayload.LogOff
     }

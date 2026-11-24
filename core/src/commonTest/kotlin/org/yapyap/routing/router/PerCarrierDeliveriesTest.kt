@@ -6,20 +6,15 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.protection.PassthroughFileProtection
-import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.Intro
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -69,18 +64,8 @@ class PerCarrierDeliveriesTest {
         dagHeadTipIds = emptyList(),
     )
 
-    private fun ackEnvelope(packetId: Uuid, packetType: PacketType): TorIncomingEnvelope {
-        val system = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = remote,
-            target = local,
-            createdAt = epochSeconds(now),
-            nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 },
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = ByteArray(64) { 9 },
-            payload = SystemPayload.PacketAck(packetId, packetType).encode(),
-        )
-        return TorIncomingEnvelope(
+    private fun ackEnvelope(packetId: Uuid, packetType: PacketType): TorIncomingEnvelope =
+        TorIncomingEnvelope(
             remoteTor,
             BinaryEnvelope(
                 packetId = Uuid.random(),
@@ -90,10 +75,11 @@ class PerCarrierDeliveriesTest {
                 expiresAt = epochSeconds(now + 1_000),
                 source = remote,
                 target = local,
-                payload = system.encode(),
+                routingHeader = SystemPayload.PacketAck(packetId, packetType).encode(),
+                content = byteArrayOf(),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
         )
-    }
 
     @Test
     fun messageAck_onlyOnMessages_bootstrapAck_onlyOnBootstrap() = runBlocking {
@@ -112,12 +98,9 @@ class PerCarrierDeliveriesTest {
             outbox = outbox,
             clock = FakeClock(epochSeconds(now)),
             routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1.seconds),
-            envelopeProtections = DefaultEnvelopeProtections(
-                signal = LenientPlaintextWebRtcSignalProtection(crypto),
-                message = LenientPlaintextMessageProtection(crypto),
-                system = LenientPlaintextSystemProtection(crypto),
-                bootstrap = BootstrapProtection(crypto, BootstrapKeySource { bootstrapSecret }),
-                file = PassthroughFileProtection(),
+            envelopeProtections = passthroughProtections(
+                crypto = crypto,
+                keySource = BootstrapKeySource { bootstrapSecret },
             ),
         )
         router.start()

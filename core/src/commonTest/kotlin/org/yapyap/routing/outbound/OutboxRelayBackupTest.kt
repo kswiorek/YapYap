@@ -14,6 +14,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
@@ -24,7 +25,9 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -38,23 +41,30 @@ class OutboxRelayBackupTest {
     private val local = PeerId("backuplocalaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     private val peer = PeerId("backuppeerbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     private val peerTor = TorEndpoint("peer.onion", 80)
+    private val relay = PeerId("backuprelaycccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+    private val relayTor = TorEndpoint("relay.onion", 80)
     private val nowSeconds = 10_000L
     private val config = RouterConfig(retryLoopMaxIdlePoll = 60.seconds, relayBackupAfter = 30.seconds)
 
-    private class Harness(
+    private class StaticRelaySelection(val relays: List<PeerId>) : RelaySelectionPolicy {
+        override suspend fun selectRelays(targetDevice: PeerId): List<PeerId> = relays
+    }
+
+    private inner class Harness(
         val tor: RecordingTorTransport,
         val outbox: TrackingPacketOutbox,
         val processor: OutboxProcessor,
         val clock: FakeClock,
-        val backedUp: MutableList<Uuid>,
-    )
+    ) {
+        /** Relay copies made so far (copies target the relay; the direct targets the peer). */
+        val backedUp: List<BinaryEnvelope> get() = outbox.enqueued.filter { it.target == relay }
+    }
 
     private fun TestScope.harness(linked: Boolean = true): Harness {
         val tor = RecordingTorTransport()
         if (!linked) tor.unlinkedEndpoints += peerTor
         val outbox = TrackingPacketOutbox()
         val clock = FakeClock(epochSeconds(nowSeconds))
-        val backedUp = mutableListOf<Uuid>()
         val identity = FakeIdentityResolverForRouter(
             localDevice = DeviceIdentity(
                 deviceId = local,
@@ -62,7 +72,7 @@ class OutboxRelayBackupTest {
                 encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
             ),
             peersByAccount = mapOf(AccountId("backup-account") to listOf(peer)),
-            torByPeer = mutableMapOf(peer to peerTor),
+            torByPeer = mutableMapOf(peer to peerTor, relay to relayTor),
         )
         val processor = outboxProcessorUnderTest(
             tor = tor,
@@ -70,11 +80,11 @@ class OutboxRelayBackupTest {
             outbox = outbox,
             clock = clock,
             routerConfig = config,
-            relayCopies = { _ -> RelayCopies { envelope, _ -> backedUp += envelope.packetId; 2 } },
+            relaySelection = StaticRelaySelection(listOf(relay)),
         )
         processor.runIn(backgroundScope)
         runCurrent()
-        return Harness(tor, outbox, processor, clock, backedUp)
+        return Harness(tor, outbox, processor, clock)
     }
 
     private fun message(type: PacketType = PacketType.MESSAGE) = BinaryEnvelope(
@@ -85,7 +95,9 @@ class OutboxRelayBackupTest {
         expiresAt = epochSeconds(nowSeconds + 3_600),
         source = local,
         target = peer,
-        payload = byteArrayOf(1, 2, 3),
+        routingHeader = byteArrayOf(1, 2, 3),
+        content = ByteArray(0),
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
     private suspend fun Harness.enqueue(envelope: BinaryEnvelope, backup: RelayBackup = RelayBackup.PENDING) =
@@ -109,7 +121,7 @@ class OutboxRelayBackupTest {
         h.processor.onDisposition(msg.packetId)
         advanceTimeBy(31.seconds)
         runCurrent()
-        assertEquals(emptyList(), h.backedUp)
+        assertTrue(h.backedUp.isEmpty())
     }
 
     @Test
@@ -121,11 +133,13 @@ class OutboxRelayBackupTest {
 
         advanceTimeBy(29.seconds)
         runCurrent()
-        assertEquals(emptyList(), h.backedUp, "still within the ACK window")
+        assertTrue(h.backedUp.isEmpty(), "still within the ACK window")
 
         advanceTimeBy(2.seconds)
         runCurrent()
-        assertEquals(listOf(msg.packetId), h.backedUp)
+        assertEquals(1, h.backedUp.size)
+        assertContentEquals(msg.routingHeader, h.backedUp.single().routingHeader)
+        assertContentEquals(msg.content, h.backedUp.single().content)
         assertEquals(RelayBackup.DEPOSITED, h.outbox.relayBackupOf(msg.packetId))
 
         // The retry (the attempt went unacknowledged) finds the backup already made.
@@ -144,7 +158,7 @@ class OutboxRelayBackupTest {
         runCurrent()
 
         assertEquals(0, h.tor.sends.size)
-        assertEquals(listOf(msg.packetId), h.backedUp)
+        assertEquals(1, h.backedUp.size)
     }
 
     @Test
@@ -162,7 +176,7 @@ class OutboxRelayBackupTest {
         h.processor.wake()
         runCurrent()
 
-        assertEquals(listOf(msg.packetId), h.backedUp)
+        assertEquals(1, h.backedUp.size)
     }
 
     @Test
@@ -174,6 +188,6 @@ class OutboxRelayBackupTest {
         advanceTimeBy(31.seconds)
         runCurrent()
 
-        assertEquals(emptyList(), h.backedUp)
+        assertTrue(h.backedUp.isEmpty())
     }
 }

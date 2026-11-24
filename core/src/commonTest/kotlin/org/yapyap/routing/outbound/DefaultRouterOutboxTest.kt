@@ -8,11 +8,9 @@ import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -241,7 +239,9 @@ class DefaultRouterOutboxTest {
             expiresAt = epochSeconds(now + 3_600),
             source = source,
             target = target,
-            payload = byteArrayOf(0x01, 0x02, 0x03),
+            routingHeader = byteArrayOf(0x01, 0x02, 0x03),
+            content = ByteArray(0),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
 
     private fun inboundTorAck(
@@ -249,17 +249,6 @@ class DefaultRouterOutboxTest {
         remoteTor: TorEndpoint,
     ): TorIncomingEnvelope {
         val ackPayload = SystemPayload.PacketAck(ackForPacketId, PacketType.MESSAGE)
-        val systemEnvelope =
-            SystemEnvelope(
-                systemEnvelopeId = Uuid.random(),
-                source = remotePeer,
-                target = localPeer,
-                createdAt = epochSeconds(10_000L),
-                nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 1 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = ackPayload.encode(),
-            )
         val binaryEnvelope =
             BinaryEnvelope(
                 packetId = Uuid.random(),
@@ -269,7 +258,9 @@ class DefaultRouterOutboxTest {
                 expiresAt = epochSeconds(11_000L),
                 source = remotePeer,
                 target = localPeer,
-                payload = systemEnvelope.encode(),
+                routingHeader = ackPayload.encode(),
+                content = ByteArray(0),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
         return TorIncomingEnvelope(remoteTor, binaryEnvelope)
     }
@@ -285,17 +276,6 @@ class DefaultRouterOutboxTest {
             reason = reason,
             reasonText = null,
         )
-        val systemEnvelope =
-            SystemEnvelope(
-                systemEnvelopeId = Uuid.random(),
-                source = remotePeer,
-                target = localPeer,
-                createdAt = epochSeconds(10_000L),
-                nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 2 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = nackPayload.encode(),
-            )
         val binaryEnvelope =
             BinaryEnvelope(
                 packetId = Uuid.random(),
@@ -305,7 +285,9 @@ class DefaultRouterOutboxTest {
                 expiresAt = epochSeconds(11_000L),
                 source = remotePeer,
                 target = localPeer,
-                payload = systemEnvelope.encode(),
+                routingHeader = nackPayload.encode(),
+                content = ByteArray(0),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
         return TorIncomingEnvelope(remoteTor, binaryEnvelope)
     }

@@ -13,6 +13,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -115,7 +116,9 @@ internal fun sampleOutboxEnvelope(
         expiresAt = epochSeconds(expiresAt),
         source = source,
         target = target,
-        payload = payload,
+        routingHeader = MessageHeader(origin = source, finalTarget = target).encode(),
+        content = payload,
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
 internal fun readPragmaUserVersion(driver: SqlDriver): Long =

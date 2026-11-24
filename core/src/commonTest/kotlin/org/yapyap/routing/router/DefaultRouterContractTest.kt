@@ -8,13 +8,11 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -169,7 +167,7 @@ class DefaultRouterContractTest {
             defaultRouterUnderTest(
                 tor = tor,
                 identity = identity,
-                envelopeProtections = tracking,
+                envelopeProtections = tracking.protections,
             )
 
         router.start()
@@ -406,7 +404,9 @@ class DefaultRouterContractTest {
                     expiresAt = epochSeconds(11_000L),
                     source = remotePeer,
                     target = localPeer,
-                    payload = byteArrayOf(0x00, 0x01, 0x02),
+                    routingHeader = byteArrayOf(0x00, 0x01, 0x02),
+                    content = byteArrayOf(),
+                    signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
                 ),
             )
 
@@ -455,17 +455,6 @@ class DefaultRouterContractTest {
         expiresAt: Long = 11_000L,
         target: PeerId = localPeer,
     ): TorIncomingEnvelope {
-        val msgEnv =
-            MessageEnvelope(
-                messageEnvelopeId = text.messageId,
-                source = remotePeer,
-                target = target,
-                createdAt = epochSeconds(10_000L),
-                nonce = ByteArray(24) { 3 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = text.encode(),
-            )
         val bin =
             BinaryEnvelope(
                 packetId = packetId,
@@ -475,7 +464,9 @@ class DefaultRouterContractTest {
                 expiresAt = epochSeconds(expiresAt),
                 source = remotePeer,
                 target = target,
-                payload = msgEnv.encode(),
+                routingHeader = MessageHeader(origin = remotePeer, finalTarget = target).encode(),
+                content = text.encode(),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
         return TorIncomingEnvelope(remoteTor, bin)
     }
@@ -486,7 +477,7 @@ class DefaultRouterContractTest {
         expectedPacketType: PacketType,
     ) {
         assertEquals(PacketType.SYSTEM, envelope.packetType)
-        val payload = SystemEnvelope.decode(envelope.payload).decodePayload()
+        val payload = SystemPayload.decode(envelope.routingHeader)
         assertTrue(payload is SystemPayload.PacketAck, "expected PacketAck but was ${payload::class.simpleName}")
         assertEquals(expectedPacketId, payload.packetId)
         assertEquals(expectedPacketType, payload.packetType)
@@ -498,7 +489,7 @@ class DefaultRouterContractTest {
         expectedReason: PacketNackReason,
     ) {
         assertEquals(PacketType.SYSTEM, envelope.packetType)
-        val payload = SystemEnvelope.decode(envelope.payload).decodePayload()
+        val payload = SystemPayload.decode(envelope.routingHeader)
         assertTrue(payload is SystemPayload.PacketNack, "expected PacketNack but was ${payload::class.simpleName}")
         assertEquals(expectedPacketId, payload.packetId)
         assertEquals(expectedReason, payload.reason)

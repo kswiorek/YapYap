@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
@@ -47,7 +48,9 @@ class FileChannelTransportTest {
         expiresAt = epochSeconds(2L),
         source = peer,
         target = self,
-        payload = byteArrayOf(0xAB.toByte()),
+        routingHeader = MessageHeader(origin = peer, finalTarget = self).encode(),
+        content = byteArrayOf(0xAB.toByte()),
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
     @Test

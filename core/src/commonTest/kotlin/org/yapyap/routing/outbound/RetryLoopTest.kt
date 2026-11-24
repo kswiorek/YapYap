@@ -104,7 +104,9 @@ class RetryLoopTest {
                 expiresAt = epochSeconds(9_999L),
                 source = targetPeer,
                 target = targetPeer,
-                payload = byteArrayOf(0x01),
+                routingHeader = byteArrayOf(0x01),
+                content = ByteArray(0),
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             ),
             nextRetryAt = epochSeconds(nextRetryAt),
         )

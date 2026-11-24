@@ -1,34 +1,28 @@
 package org.yapyap.routing.file.push
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeout
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protection.envelope.FileEnvelopeProtection
-import org.yapyap.protection.envelope.FileOfferPublicHalf
-import org.yapyap.protection.envelope.FileOfferSealedManifest
-import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
-import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.protocol.identity.EncryptionPublicKey
-import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.FileIncomingTransfers
+import org.yapyap.protocol.envelopes.FileHeader
+import org.yapyap.routing.file.IdentityFileProtection
+import org.yapyap.routing.file.InMemoryPacketOutbox
+import org.yapyap.routing.file.JvmRouterIdentity
+import org.yapyap.routing.file.ScriptablePlaintext
+import org.yapyap.routing.file.jvmProtections
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
+import org.yapyap.routing.file.seal.SealRegistry
+import org.yapyap.routing.file.transfer.TransferEngine
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
@@ -37,25 +31,21 @@ import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
-import org.yapyap.routing.router.FakeFilePlaintextSource
-import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.OutboxOutcome
-import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.router.testRoutingContext
-import org.yapyap.routing.store.DefaultFileIncomingTransferStore
-import org.yapyap.routing.store.DefaultFilePushStore
 import org.yapyap.routing.store.DefaultFileRelayStore
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.DefaultFileSealStore
+import org.yapyap.routing.store.DefaultFileTransferStore
+import org.yapyap.routing.store.FileSealStore
+import org.yapyap.routing.store.FileTransferStatus
+import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -67,92 +57,14 @@ internal val peerB = PeerId("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 internal val relay1 = PeerId("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
 internal val relay2 = PeerId("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 
-private fun deviceRecord(id: PeerId): DeviceIdentity = DeviceIdentity(
-    deviceId = id,
-    signingKey = SigningPublicKey(byteArrayOf(1)),
-    encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
-)
-
-/** Deterministic file protection: identity chunk AEAD, encoded sealed halves, fixed keys. */
-internal class RecordingFileProtectionService(
-    var nextKeyByte: Byte = 0,
-) : FileEnvelopeProtection {
-    val sealedOffers = mutableListOf<FilePayload.SealedOffer>()
-    var encryptChunkCalls = 0
-
-    override suspend fun protect(
-        input: FilePayload,
-        context: FileProtectContext,
-    ): FileEnvelope =
-        FileEnvelope(
-            transferId = context.transferId,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = ByteArray(24),
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            signature = byteArrayOf(9),
-            payload = input.encode(),
-        )
-
-    override suspend fun open(envelope: FileEnvelope): OpenedFileEnvelope =
-        error("not used in push tests")
-
-    override suspend fun protectOffer(
-        publicHalf: FileOfferPublicHalf,
-        sealed: FileOfferSealedManifest,
-        key: TransferKey,
-        ctx: FileProtectContext,
-    ): FileEnvelope {
-        val offer = FilePayload.SealedOffer(
-            fileId = sealed.fileId,
-            blockSize = sealed.blockSize,
-            blockHashes = sealed.blockHashes,
-            transferKey = key,
-            fileName = sealed.fileName,
-            mimeType = sealed.mimeType,
-        )
-        sealedOffers += offer
-        return protect(
-            FilePayload.Offer(
-                chunkSizeBytes = publicHalf.chunkSizeBytes,
-                totalBytes = publicHalf.totalBytes,
-                startIndex = publicHalf.startIndex,
-                sealedOfferBytes = offer.encode(),
-            ),
-            ctx,
-        )
-    }
-
-    override suspend fun decryptChunk(
-        transferId: TransferId,
-        key: TransferKey,
-        chunk: FilePayload.EncryptedChunk,
-    ): ByteArray = error("not used in push tests")
-
-    override suspend fun encryptChunk(
-        transferId: TransferId,
-        chunkIndex: Int,
-        key: TransferKey,
-        plaintext: ByteArray,
-    ): ByteArray {
-        encryptChunkCalls += 1
-        return plaintext
-    }
-
-    override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
-        error("not used in push tests")
-
-    override fun generateTransferKey(): TransferKey = TransferKey(ByteArray(32) { nextKeyByte++ })
-}
-
 internal data class PushHarness(
-    val engine: FilePushEngine,
-    val sender: FileSender,
-    val plaintext: FakeFilePlaintextSource,
-    val protection: RecordingFileProtectionService,
-    val pushes: FilePushStore,
-    val outboxStore: TrackingPacketOutbox,
+    val engine: TransferEngine,
+    val seals: SealRegistry,
+    val plaintext: ScriptablePlaintext,
+    val protection: IdentityFileProtection,
+    val sealStore: FileSealStore,
+    val transferStore: FileTransferStore,
+    val outbox: InMemoryPacketOutbox,
     val processor: OutboxProcessor,
     val fileEvents: MutableSharedFlow<FileEvent>,
     val clock: FakeClock,
@@ -162,26 +74,20 @@ internal data class PushHarness(
     val ctx: RoutingContext,
 )
 
-/** Current queued outbox rows as (envelope, tag) pairs, derived from the store. */
-internal val PushHarness.sent: List<Pair<BinaryEnvelope, OutboxTag?>>
-    get() = outboxStore.enqueued
-        .filter { outboxStore.contains(it.packetId) }
-        .map { env -> env to outboxStore.tagOf(env.packetId) }
+/** Currently queued outbox rows as (envelope, tag) pairs. */
+internal suspend fun PushHarness.sent(): List<Pair<BinaryEnvelope, OutboxTag?>> = outbox.sent()
 
 internal fun pushHarness(
     totalBytes: Long = 1024L * 1024,
     chunkSize: Int = 220 * 1024,
     now: Long = 10_000L,
     relaySelection: RelaySelectionPolicy = NoRelaySelection,
+    routerConfig: RouterConfig = RouterConfig(),
 ): PushHarness {
     val bytes = ByteArray(totalBytes.toInt()) { (it * 7).toByte() }
-    val local = deviceRecord(localPeerId)
-    val identity = FakeIdentityResolverForRouter(
-        localDevice = local,
-        peersByAccount = mapOf(fixtureAccount to listOf(peerA, peerB)),
-    )
-    val protection = RecordingFileProtectionService()
-    val plaintext = FakeFilePlaintextSource()
+    val identity = JvmRouterIdentity(localPeerId, mapOf(fixtureAccount to listOf(peerA, peerB)))
+    val protection = IdentityFileProtection()
+    val plaintext = ScriptablePlaintext()
     plaintext.describeImpl = { _ ->
         FileManifest(
             fileId = fixtureFileId,
@@ -207,24 +113,25 @@ internal fun pushHarness(
             override fun close() = Unit
         }
     }
-    // Real SQL store on in-memory SQLite: restart recovery, the deposit claim and the
+    // Real SQL stores on in-memory SQLite: restart recovery, the deposit claim and the
     // chunk index all rely on store atomicity, not on fake semantics.
-    val pushes = DefaultFilePushStore(openMemoryDatabase().database, Dispatchers.Unconfined)
+    val db = openMemoryDatabase().database
+    val sealStore = DefaultFileSealStore(db, Dispatchers.Unconfined)
+    val transferStore = DefaultFileTransferStore(db, Dispatchers.Unconfined)
     val fileEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
     val clock = FakeClock(epochSeconds(now))
-    val routerConfig = RouterConfig()
     val tor = RecordingTorTransport()
     val webRtc = RecordingWebRtcTransport()
-    val ctx = testRoutingContext(
+    val ctx = org.yapyap.routing.file.jvmRoutingContext(
         identity = identity,
         tor = tor,
         webRtc = webRtc,
         clock = clock,
         routerConfig = routerConfig,
-        protections = PassthroughFakeEnvelopeProtectionService(),
-        fileChunkSize = chunkSize,
+        protections = jvmProtections(file = protection),
+        chunkSize = chunkSize,
     )
-    val outboxStore = TrackingPacketOutbox()
+    val outbox = InMemoryPacketOutbox()
     val registry = PeerAvailabilityRegistry(
         clock = clock,
         routerConfig = MutableStateFlow(routerConfig),
@@ -242,96 +149,87 @@ internal fun pushHarness(
         ctx = ctx,
         dispatcher = EnvelopeDispatcher(ctx, identity),
         transportPolicy = LinkPreferencePolicy(MutableStateFlow(routerConfig)),
-        packetOutbox = outboxStore,
+        packetOutbox = outbox,
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
         peerAvailabilityRegistry = registry,
         linkKeeper = linkKeeper,
-        relayCopies = { null },
-    )
-    val engine = FilePushEngine(
-        ctx = ctx,
-        protection = protection,
-        plaintext = plaintext,
-        pushes = pushes,
-        outbox = processor,
-        outboxStore = outboxStore,
-        events = fileEvents,
         relaySelection = relaySelection,
-        relay = DefaultFileRelayStore(openMemoryDatabase().database, Dispatchers.Unconfined),
-        incoming = testIncomingTransfers(clock),
     )
-    val sender = FileSender(ctx, protection, plaintext, pushes, engine, fileEvents, ctx.fileLimits)
+    val engine = TransferEngine(
+        ctx = ctx,
+        transfers = transferStore,
+        seals = sealStore,
+        relays = DefaultFileRelayStore(db, Dispatchers.Unconfined),
+        plaintext = plaintext,
+        outbox = processor,
+        outboxStore = outbox,
+    )
+    val seals = SealRegistry(
+        ctx = ctx,
+        seals = sealStore,
+        transfers = transferStore,
+        engine = engine,
+        plaintext = plaintext,
+        relaySelection = relaySelection,
+        events = fileEvents,
+    )
     return PushHarness(
-        engine,
-        sender,
-        plaintext,
-        protection,
-        pushes,
-        outboxStore,
-        processor,
-        fileEvents,
-        clock,
-        bytes,
-        totalBytes,
-        chunkSize,
-        ctx
+        engine = engine,
+        seals = seals,
+        plaintext = plaintext,
+        protection = protection,
+        sealStore = sealStore,
+        transferStore = transferStore,
+        outbox = outbox,
+        processor = processor,
+        fileEvents = fileEvents,
+        clock = clock,
+        bytes = bytes,
+        totalBytes = totalBytes,
+        chunkSize = chunkSize,
+        ctx = ctx,
     )
 }
 
-internal fun PushHarness.chunkIndices(): List<Int> = sent.mapNotNull { (env, _) ->
-    val decoded = FileEnvelope.decode(env.payload).decodePayload()
-    (decoded as? FilePayload.EncryptedChunk)?.chunkIndex
+/** Chunk indices of currently queued FILE_TRANSFER rows, in queue order. */
+internal suspend fun PushHarness.chunkIndices(): List<Int> = sent().mapNotNull { (env, _) ->
+    (FileHeader.decode(env.routingHeader) as? FileHeader.Chunk)?.chunkIndex
 }
 
-internal suspend fun PushHarness.transferIdsFor(device: PeerId): List<TransferId> =
-    pushes.live().filter { it.targetDevice == device }.map { it.transferId }
+/** Offer envelopes currently queued. */
+internal suspend fun PushHarness.offerHeaders(): List<FileHeader.Offer> = sent().mapNotNull { (env, _) ->
+    FileHeader.decode(env.routingHeader) as? FileHeader.Offer
+}
 
-internal suspend fun PushHarness.markerOf(transferId: TransferId): Uuid {
+/** Live outgoing transfers to [device]. */
+internal suspend fun PushHarness.transfersFor(device: PeerId): List<OutgoingTransfer> =
+    sealStore.byFile(fixtureFileId).flatMap { transferStore.bySeal(it.sealId) }
+        .filter { it.peer == device && it.status.isLive }
+
+/** All transfers of the fixture file (live and ended). */
+internal suspend fun PushHarness.allTransfers(): List<OutgoingTransfer> =
+    sealStore.byFile(fixtureFileId).flatMap { transferStore.bySeal(it.sealId) }
+
+internal suspend fun PushHarness.offerPacketOf(transferId: TransferId): Uuid {
     withTimeout(5_000) {
-        while (pushes.live().singleOrNull { it.transferId == transferId }?.markerPacketId == null) delay(10)
-    }
-    return pushes.live().single { it.transferId == transferId }.let { row ->
-        requireNotNull(row.markerPacketId)
-    }
-}
-
-internal suspend fun PushHarness.ackMarker(transferId: TransferId, target: PeerId): OutboxOutcome.Acked =
-    OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value), target, markerOf(transferId))
-
-internal suspend fun PushHarness.awaitStatus(transferId: TransferId, vararg want: FilePushStatus) {
-    withTimeout(5.seconds) {
-        while (pushes.find(transferId)?.status !in want) delay(10)
-    }
-}
-
-internal suspend fun PushHarness.awaitLive(device: PeerId, count: Int = 1) {
-    withTimeout(5.seconds) {
-        while (transferIdsFor(device).size < count) delay(10)
-    }
-}
-
-internal suspend fun PushHarness.awaitMarkers(device: PeerId, count: Int = 1) {
-    withTimeout(5_000) {
-        while (true) {
-            val rows = transferIdsFor(device)
-            if (rows.size >= count && rows.all { pushes.find(it)?.markerPacketId != null }) break
-            delay(10)
+        while (transferStore.find(transferId)?.offerPacketId == null) {
+            kotlinx.coroutines.delay(10)
         }
+    }
+    return requireNotNull(transferStore.find(transferId)?.offerPacketId)
+}
+
+internal suspend fun PushHarness.ackOffer(transferId: TransferId, target: PeerId): OutboxOutcome.Acked =
+    OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferId.value), target, offerPacketOf(transferId))
+
+internal suspend fun PushHarness.awaitStatus(transferId: TransferId, vararg want: FileTransferStatus) {
+    withTimeout(5.seconds) {
+        while (transferStore.find(transferId)?.status !in want) kotlinx.coroutines.delay(10)
     }
 }
 
 internal suspend fun PushHarness.awaitOffers(count: Int) {
     withTimeout(5_000) {
-        while (sent.count {
-                FileEnvelope.decode(it.first.payload).decodePayload() is FilePayload.Offer
-            } < count
-        ) delay(10)
+        while (offerHeaders().size < count) kotlinx.coroutines.delay(10)
     }
 }
-
-/** Target-side rows on a real in-memory store, for engines whose tests never receive. */
-internal fun testIncomingTransfers(clock: Clock): FileIncomingTransfers =
-    FileIncomingTransfers(
-        DefaultFileIncomingTransferStore(openMemoryDatabase().database, Dispatchers.Unconfined),
-        clock
-    )

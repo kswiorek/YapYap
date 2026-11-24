@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.testfixtures.epochSeconds
@@ -76,6 +77,8 @@ private fun sampleBinaryEnvelope(): BinaryEnvelope {
         expiresAt = epochSeconds(2L),
         source = src,
         target = dst,
-        payload = byteArrayOf(0xAB.toByte()),
+        routingHeader = MessageHeader(origin = src, finalTarget = dst).encode(),
+        content = byteArrayOf(0xAB.toByte()),
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 }

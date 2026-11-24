@@ -29,6 +29,7 @@ import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
@@ -274,7 +275,7 @@ internal fun buildSyncRoutingStack(
         maxIdlePoll = MutableStateFlow(60.seconds),
         peerAvailabilityRegistry = availabilityRegistry,
         linkKeeper = torLinkKeeper,
-        relayCopies = { null },
+        relaySelection = NoRelaySelection,
     )
     val outboundMessenger = OutboundMessenger(
         ctx,

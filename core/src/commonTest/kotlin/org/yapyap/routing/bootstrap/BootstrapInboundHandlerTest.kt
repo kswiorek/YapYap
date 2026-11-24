@@ -11,13 +11,8 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.protection.PassthroughFileProtection
-import org.yapyap.protection.envelope.BootstrapProtectContext
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.PlaintextMessageProtection
-import org.yapyap.protection.envelope.PlaintextSystemProtection
-import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
+import org.yapyap.protection.envelope.ProtectedBootstrap
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
@@ -25,7 +20,6 @@ import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -41,6 +35,7 @@ import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.passthroughProtections
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -71,13 +66,7 @@ class BootstrapInboundHandlerTest {
         )
 
     private fun routingContext(activeSecret: ByteArray?): RoutingContext {
-        val protections = DefaultEnvelopeProtections(
-            signal = PlaintextWebRtcSignalProtection(crypto),
-            message = PlaintextMessageProtection(crypto),
-            system = PlaintextSystemProtection(crypto),
-            bootstrap = BootstrapProtection(crypto, BootstrapKeySource { activeSecret }),
-            file = PassthroughFileProtection(),
-        )
+        val protections = passthroughProtections(crypto = crypto, keySource = BootstrapKeySource { activeSecret })
         val local = localDeviceRecord()
         val identity = FakeIdentityResolverForRouter(localDevice = local)
         val tor = RecordingTorTransport()
@@ -147,19 +136,11 @@ class BootstrapInboundHandlerTest {
         source: PeerId,
         target: PeerId,
         secret: ByteArray?,
-    ): BootstrapEnvelope =
+    ): ProtectedBootstrap =
         BootstrapProtection(crypto, BootstrapKeySource { secret })
-            .protect(
-                payload,
-                BootstrapProtectContext(
-                    sourceDeviceId = source,
-                    targetDeviceId = target,
-                    createdAt = now,
-                    sharedSecret = secret,
-                ),
-            )
+            .protect(payload, source, target, sharedSecret = secret)
 
-    private fun binaryEnvelope(bootstrapEnvelope: BootstrapEnvelope, source: PeerId, target: PeerId): BinaryEnvelope =
+    private fun binaryEnvelope(protected: ProtectedBootstrap, source: PeerId, target: PeerId): BinaryEnvelope =
         BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.BOOTSTRAP,
@@ -168,7 +149,9 @@ class BootstrapInboundHandlerTest {
             expiresAt = now + 1.minutes,
             source = source,
             target = target,
-            payload = bootstrapEnvelope.encode(),
+            routingHeader = protected.header.encode(),
+            content = protected.content,
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
 
     private fun handlerUnderTest(
@@ -252,7 +235,9 @@ class BootstrapInboundHandlerTest {
             expiresAt = now + 1.minutes,
             source = sponsorDevice,
             target = newcomerDevice,
-            payload = byteArrayOf(0x11, 0x22, 0x33, 0x44, 0x55, 0x66),
+            routingHeader = byteArrayOf(0x11, 0x22, 0x33, 0x44, 0x55, 0x66),
+            content = byteArrayOf(),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
         val result = handler.handle(env)
 

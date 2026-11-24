@@ -26,39 +26,36 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protection.envelope.HopProtection
 import org.yapyap.protection.envelope.MessageProtection
-import org.yapyap.protection.envelope.PlaintextMessageProtection
-import org.yapyap.protection.envelope.PlaintextSystemProtection
-import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.envelope.SystemProtection
+import org.yapyap.protection.envelope.RatchetFileProtection
+import org.yapyap.protection.envelope.RatchetMessageProtection
+import org.yapyap.protection.envelope.RatchetSealer
+import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedHopProtection
 import org.yapyap.protection.envelope.WebRtcSignalProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
-import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.FileRequest
+import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SyncPayload
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.UnsignedEnvelope
 import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
@@ -78,30 +75,33 @@ import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.RelayCopies
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.policy.NoRelaySelection
+import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.store.AdmitResult
 import org.yapyap.routing.store.DueOutboxRow
-import org.yapyap.routing.store.FileIncomingTransfer
-import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FilePush
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.FileRelayChunk
-import org.yapyap.routing.store.FileRelayChunkRef
+import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRelayTransfer
 import org.yapyap.routing.store.FileRequestAttempt
 import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.FileRequestClass
+import org.yapyap.routing.store.FileSealStatus
+import org.yapyap.routing.store.FileSealStore
+import org.yapyap.routing.store.FileTransferStatus
+import org.yapyap.routing.store.FileTransferStore
+import org.yapyap.routing.store.IncomingSeal
+import org.yapyap.routing.store.IncomingTransfer
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.OutgoingSeal
+import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RelayTransfer
 import org.yapyap.routing.store.RetryClass
 import org.yapyap.routing.store.SyncAttempt
 import org.yapyap.routing.store.SyncAttemptStore
@@ -116,87 +116,95 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-internal class PassthroughFakeEnvelopeProtectionService(
-    crypto: CryptoProvider = DefaultCryptoProvider(),
-    fileProtection: FileEnvelopeProtection = PassthroughFileProtection(),
-) : EnvelopeProtections {
-    override val signal: WebRtcSignalProtection = LenientPlaintextWebRtcSignalProtection(crypto)
-    override val message: MessageProtection = LenientPlaintextMessageProtection(crypto)
-    override val system: SystemProtection = LenientPlaintextSystemProtection(crypto)
-    override val bootstrap: BootstrapProtection = BootstrapProtection(crypto, BootstrapKeySource { null })
-    override val file: FileEnvelopeProtection = fileProtection
+/** Hop layer that signs with a zeroed signature and verifies everything. */
+internal class FakeHopProtection(
+    private val crypto: CryptoProvider = DefaultCryptoProvider(),
+) : HopProtection {
+    override suspend fun sign(envelope: UnsignedEnvelope): BinaryEnvelope =
+        envelope.signed(ByteArray(BinaryEnvelope.SIGNATURE_BYTES))
+
+    override suspend fun verify(envelope: BinaryEnvelope): Boolean = true
+
+    override suspend fun contentId(content: ByteArray): ContentId = ContentId(crypto.sha256(content))
+}
+
+/** Plaintext message content: encode/decode with the real codec, no crypto. */
+internal class FakeMessageProtection : MessageProtection {
+    override suspend fun seal(payload: MessagePayload, finalTarget: PeerId): ByteArray = payload.encode()
+
+    override suspend fun open(content: ByteArray, origin: PeerId): MessagePayload = MessagePayload.decode(content)
+}
+
+/** Plaintext signal content: the payload rides in the clear. */
+internal class FakeWebRtcSignalProtection : WebRtcSignalProtection {
+    override suspend fun seal(signal: WebRtcSignal): ByteArray = signal.payload
+
+    override suspend fun open(
+        content: ByteArray,
+        kind: WebRtcSignalKind,
+        source: PeerId,
+        target: PeerId,
+    ): WebRtcSignal = WebRtcSignal(kind = kind, source = source, target = target, payload = content)
 }
 
 /**
- * Plaintext sealing that tolerates the production schemes the senders stamp on their
- * contexts ([SignalSecurityScheme.SIGNED] for system/signal, ENCRYPTED_AND_SIGNED for
- * messages): the payload rides in the clear either way, so routing tests exercise the real
- * send/disposition paths without keys. Strict scheme enforcement stays covered by the
- * protection unit tests, which use the strict plaintext fakes directly.
+ * No real crypto — seals/REQUESTs ride as their encodings, chunk "ciphertext" is the
+ * plaintext plus [FileProtection.CHUNK_OVERHEAD_BYTES] of padding so every size a relay
+ * or receiver checks matches the real protection's.
  */
-internal class LenientPlaintextMessageProtection(
-    private val crypto: CryptoProvider = DefaultCryptoProvider(),
-) : MessageProtection {
-    private val plaintext = PlaintextMessageProtection(crypto)
+internal class FakeFileProtection : FileProtection {
+    override suspend fun seal(seal: FileSeal, target: PeerId): ByteArray = seal.encode()
 
-    override suspend fun protect(
-        input: MessagePayload,
-        context: EnvelopeProtectContext,
-    ): MessageEnvelope =
-        plaintext.protect(input, context.copy(securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY))
+    override suspend fun openSeal(content: ByteArray, origin: PeerId): FileSeal = FileSeal.decode(content)
 
-    override suspend fun open(envelope: MessageEnvelope): MessagePayload =
-        if (envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) plaintext.open(envelope)
-        else MessagePayload.decode(envelope.payload)
+    override suspend fun encryptChunk(
+        sealId: ContentId,
+        key: SealKey,
+        offset: Long,
+        plaintext: ByteArray,
+    ): ByteArray = plaintext + ByteArray(FileProtection.CHUNK_OVERHEAD_BYTES)
+
+    override suspend fun decryptChunk(
+        sealId: ContentId,
+        key: SealKey,
+        offset: Long,
+        ciphertext: ByteArray,
+    ): ByteArray =
+        ciphertext.copyOfRange(0, ciphertext.size - FileProtection.CHUNK_OVERHEAD_BYTES)
+
+    override suspend fun sealRequest(request: FileRequest, target: PeerId): ByteArray = request.encode()
+
+    override suspend fun openRequest(content: ByteArray, source: PeerId): FileRequest =
+        FileRequest.decode(content)
+
+    override fun generateSealKey(): SealKey = SealKey(ByteArray(32))
 }
 
-/** [LenientPlaintextMessageProtection] for system envelopes. */
-internal class LenientPlaintextSystemProtection(
-    private val crypto: CryptoProvider = DefaultCryptoProvider(),
-) : SystemProtection {
-    private val plaintext = PlaintextSystemProtection(crypto)
+internal fun passthroughProtections(
+    crypto: CryptoProvider = DefaultCryptoProvider(),
+    file: FileProtection = FakeFileProtection(),
+    keySource: BootstrapKeySource = BootstrapKeySource { null },
+): EnvelopeProtections = EnvelopeProtections(
+    hop = FakeHopProtection(crypto),
+    signal = FakeWebRtcSignalProtection(),
+    message = FakeMessageProtection(),
+    bootstrap = BootstrapProtection(crypto, keySource),
+    file = file,
+)
 
-    override suspend fun protect(
-        input: SystemPayload,
-        context: EnvelopeProtectContext,
-    ): SystemEnvelope =
-        plaintext.protect(input, context.copy(securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY))
-
-    override suspend fun open(envelope: SystemEnvelope): SystemPayload =
-        if (envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) plaintext.open(envelope)
-        else SystemPayload.decode(envelope.payload)
-}
-
-/** [LenientPlaintextMessageProtection] for WebRTC signals. */
-internal class LenientPlaintextWebRtcSignalProtection(
-    private val crypto: CryptoProvider = DefaultCryptoProvider(),
-) : WebRtcSignalProtection {
-    private val plaintext = PlaintextWebRtcSignalProtection(crypto)
-
-    override suspend fun protect(
-        input: WebRtcSignal,
-        context: EnvelopeProtectContext,
-    ): WebRtcSignalEnvelope =
-        plaintext.protect(input, context.copy(securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY))
-
-    override suspend fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal =
-        if (envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) plaintext.open(envelope)
-        else WebRtcSignal(
-            kind = envelope.kind,
-            source = envelope.source,
-            target = envelope.target,
-            payload = envelope.payload,
-        )
-}
+internal fun PassthroughFakeEnvelopeProtectionService(
+    crypto: CryptoProvider = DefaultCryptoProvider(),
+    fileProtection: FileProtection = FakeFileProtection(),
+): EnvelopeProtections = passthroughProtections(crypto, fileProtection)
 
 /**
- * Wraps [delegate]'s message protection and tracks how many [MessageProtection.protect] calls
+ * Wraps [delegate]'s message protection and tracks how many [MessageProtection.seal] calls
  * overlap in time. Used to verify multi-peer fan-out runs concurrently rather than sequentially.
  */
 internal class ConcurrencyTrackingEnvelopeProtectionService(
-    private val delegate: EnvelopeProtections,
+    delegate: EnvelopeProtections,
     private val protectDelayMillis: Long = 200,
-) : EnvelopeProtections by delegate {
+) {
     private val protectStatsMutex = Mutex()
     private var activeProtects = 0
     var maxConcurrentProtects = 0
@@ -205,10 +213,7 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
     private inner class TrackingMessageProtection(
         private val inner: MessageProtection,
     ) : MessageProtection {
-        override suspend fun protect(
-            input: MessagePayload,
-            context: EnvelopeProtectContext,
-        ): MessageEnvelope {
+        override suspend fun seal(payload: MessagePayload, finalTarget: PeerId): ByteArray {
             protectStatsMutex.withLock {
                 activeProtects++
                 if (activeProtects > maxConcurrentProtects) {
@@ -217,7 +222,7 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
             }
             try {
                 delay(protectDelayMillis.milliseconds)
-                return inner.protect(input, context)
+                return inner.seal(payload, finalTarget)
             } finally {
                 protectStatsMutex.withLock {
                     activeProtects--
@@ -225,10 +230,16 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
             }
         }
 
-        override suspend fun open(envelope: MessageEnvelope): MessagePayload = inner.open(envelope)
+        override suspend fun open(content: ByteArray, origin: PeerId): MessagePayload = inner.open(content, origin)
     }
 
-    override val message: MessageProtection = TrackingMessageProtection(delegate.message)
+    val protections: EnvelopeProtections = EnvelopeProtections(
+        hop = delegate.hop,
+        signal = delegate.signal,
+        message = TrackingMessageProtection(delegate.message),
+        bootstrap = delegate.bootstrap,
+        file = delegate.file,
+    )
 }
 
 /** Router transport tests have no pending syncs: nothing to ask for, nothing served. */
@@ -246,8 +257,8 @@ internal class FakeSyncPayloadProvider : SyncPayloadProvider {
 /** In-memory [SyncAttemptStore], mirroring the SQL semantics. */
 internal class InMemorySyncAttemptStore : SyncAttemptStore {
     private data class Row(
-        var attempts: Int,
-        var nextAttemptAt: Instant,
+        var attempts: Int = 0,
+        var nextAttemptAt: Instant = Instant.DISTANT_PAST,
         val declined: MutableSet<PeerId> = mutableSetOf()
     )
 
@@ -256,6 +267,7 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
 
     override suspend fun start(syncId: Uuid, firstAttemptAt: Instant) = mutex.withLock {
         if (syncId !in rows) rows[syncId] = Row(0, firstAttemptAt)
+        Unit
     }
 
     override suspend fun drop(syncId: Uuid) {
@@ -300,43 +312,100 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
     fun nextAttemptAt(syncId: Uuid): Instant? = rows[syncId]?.nextAttemptAt
 }
 
-/** In-memory [FilePushStore], mirroring the SQL semantics. */internal class InMemoryFilePushStore : FilePushStore {
-    private val rows = linkedMapOf<TransferId, FilePush>()
-    private val chunks = linkedMapOf<Pair<TransferId, Int>, Uuid>()
+/** In-memory [FileSealStore], mirroring the SQL semantics. */
+internal class InMemoryFileSealStore : FileSealStore {
+    private val rows = linkedMapOf<ContentId, OutgoingSeal>()
+    private val claimed = mutableSetOf<ContentId>()
     private val mutex = Mutex()
 
-    override suspend fun insert(row: FilePush) = mutex.withLock {
-        rows[row.transferId] = row
+    override suspend fun insert(seal: OutgoingSeal) = mutex.withLock {
+        rows[seal.sealId] = seal
     }
 
-    override suspend fun find(transferId: TransferId): FilePush? = mutex.withLock {
-        rows[transferId]
-    }
+    override suspend fun find(sealId: ContentId): OutgoingSeal? = mutex.withLock { rows[sealId] }
 
-    override suspend fun findLiveByFileAndTarget(fileId: FileId, target: PeerId): List<FilePush> = mutex.withLock {
-        rows.values.filter { it.fileId == fileId && it.targetDevice == target && it.status.isLive }
-    }
-
-    override suspend fun deleteTerminalByFileAndTarget(fileId: FileId, target: PeerId) = mutex.withLock {
-        rows.values.removeAll { it.fileId == fileId && it.targetDevice == target && !it.status.isLive }
-        Unit
-    }
-
-    override suspend fun live(): List<FilePush> = mutex.withLock {
-        rows.values.filter { it.status.isLive }
-    }
-
-    override suspend fun allByFile(fileId: FileId): List<FilePush> = mutex.withLock {
+    override suspend fun byFile(fileId: FileId): List<OutgoingSeal> = mutex.withLock {
         rows.values.filter { it.fileId == fileId }
     }
 
-    override suspend fun setStatus(transferId: TransferId, status: FilePushStatus) = mutex.withLock {
+    override suspend fun byFileAndTarget(fileId: FileId, target: PeerId): List<OutgoingSeal> = mutex.withLock {
+        rows.values.filter { it.fileId == fileId && it.targetDevice == target }
+    }
+
+    override suspend fun live(): List<OutgoingSeal> = mutex.withLock {
+        rows.values.filter { it.status.isLive }
+    }
+
+    override suspend fun expiredAt(now: Instant): List<OutgoingSeal> = mutex.withLock {
+        rows.values.filter { it.expiresAt <= now }
+    }
+
+    override suspend fun setStatus(sealId: ContentId, status: FileSealStatus) = mutex.withLock {
+        rows[sealId]?.let {
+            rows[sealId] = OutgoingSeal(
+                sealId = it.sealId,
+                fileId = it.fileId,
+                targetDevice = it.targetDevice,
+                kind = it.kind,
+                sealBytes = it.sealBytes,
+                key = it.key,
+                totalBytes = it.totalBytes,
+                status = status,
+                createdAt = it.createdAt,
+                expiresAt = it.expiresAt,
+            )
+        }
+        Unit
+    }
+
+    override suspend fun claimDeposit(sealId: ContentId, now: Instant): Boolean = mutex.withLock {
+        if (sealId in claimed) false else {
+            claimed += sealId
+            true
+        }
+    }
+
+    override suspend fun delete(sealId: ContentId) {
+        mutex.withLock {
+            rows.remove(sealId)
+            claimed.remove(sealId)
+        }
+    }
+
+    fun all(): List<OutgoingSeal> = rows.values.toList()
+}
+
+/** In-memory [FileTransferStore], mirroring the SQL semantics. */
+internal class InMemoryFileTransferStore : FileTransferStore {
+    private val rows = linkedMapOf<TransferId, OutgoingTransfer>()
+    private val chunks = linkedMapOf<Pair<TransferId, Int>, Uuid>()
+    private val mutex = Mutex()
+
+    override suspend fun insert(transfer: OutgoingTransfer) = mutex.withLock {
+        rows[transfer.transferId] = transfer
+    }
+
+    override suspend fun find(transferId: TransferId): OutgoingTransfer? = mutex.withLock { rows[transferId] }
+
+    override suspend fun live(): List<OutgoingTransfer> = mutex.withLock {
+        rows.values.filter { it.status.isLive }
+    }
+
+    override suspend fun bySeal(sealId: ContentId): List<OutgoingTransfer> = mutex.withLock {
+        rows.values.filter { it.sealId == sealId }
+    }
+
+    override suspend fun byRelayTransfer(relayTransferId: TransferId): List<OutgoingTransfer> = mutex.withLock {
+        rows.values.filter { it.relayTransferId == relayTransferId }
+    }
+
+    override suspend fun setStatus(transferId: TransferId, status: FileTransferStatus) = mutex.withLock {
         rows[transferId]?.let { rows[transferId] = it.copy(status = status) }
         Unit
     }
 
-    override suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?) = mutex.withLock {
-        rows[transferId]?.let { rows[transferId] = it.copy(markerPacketId = markerPacketId) }
+    override suspend fun setOffer(transferId: TransferId, packetId: Uuid) = mutex.withLock {
+        rows[transferId]?.let { rows[transferId] = it.copy(offerPacketId = packetId) }
         Unit
     }
 
@@ -346,15 +415,27 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
             Unit
         }
 
-    override suspend fun claimDeposited(transferId: TransferId, now: Instant): Boolean = mutex.withLock {
-        val row = rows[transferId] ?: return@withLock false
-        if (row.depositedAt != null) return@withLock false
-        rows[transferId] = row.copy(depositedAt = now)
-        true
+    override suspend fun recordChunk(transferId: TransferId, index: Int, packetId: Uuid) = mutex.withLock {
+        chunks[transferId to index] = packetId
+        Unit
     }
 
-    override suspend fun terminalBefore(now: Instant): List<FilePush> = mutex.withLock {
-        rows.values.filter { !it.status.isLive && it.expiresAt <= now }
+    override suspend fun chunks(transferId: TransferId): Map<Int, Uuid> = mutex.withLock {
+        chunks.entries.filter { it.key.first == transferId }.associate { it.key.second to it.value }
+    }
+
+    override suspend fun chunkByPacket(packetId: Uuid): Pair<TransferId, Int>? = mutex.withLock {
+        chunks.entries.firstOrNull { it.value == packetId }?.let { it.key.first to it.key.second }
+    }
+
+    override suspend fun deleteChunk(packetId: Uuid) = mutex.withLock {
+        chunks.entries.firstOrNull { it.value == packetId }?.let { chunks.remove(it.key) }
+        Unit
+    }
+
+    override suspend fun deleteChunks(transferId: TransferId) = mutex.withLock {
+        chunks.keys.removeAll { it.first == transferId }
+        Unit
     }
 
     override suspend fun delete(transferId: TransferId) = mutex.withLock {
@@ -363,173 +444,101 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
         Unit
     }
 
-    override suspend fun recordChunk(transferId: TransferId, chunkIndex: Int, packetId: Uuid) = mutex.withLock {
-        chunks[transferId to chunkIndex] = packetId
-        Unit
-    }
-
-    override suspend fun chunksByTransfer(transferId: TransferId): Map<Int, Uuid> = mutex.withLock {
-        chunks.entries.filter { it.key.first == transferId }.associate { it.key.second to it.value }
-    }
-
-    override suspend fun chunkByPacket(packetId: Uuid): Pair<TransferId, Int>? = mutex.withLock {
-        chunks.entries.firstOrNull { it.value == packetId }?.let { it.key.first to it.key.second }
-    }
-
-    override suspend fun deleteChunkByPacket(packetId: Uuid) = mutex.withLock {
-        chunks.entries.firstOrNull { it.value == packetId }?.let { chunks.remove(it.key) }
-        Unit
-    }
-
-    override suspend fun deleteChunksByTransfer(transferId: TransferId) = mutex.withLock {
-        chunks.keys.removeAll { it.first == transferId }
-        Unit
-    }
-
-    fun all(): List<FilePush> = rows.values.toList()
+    fun all(): List<OutgoingTransfer> = rows.values.toList()
 }
 
-/** In-memory [FileRelayStore], mirroring the SQL semantics (PK-dedup, cascade delete). */
+/** In-memory [FileRelayStore], mirroring the SQL semantics. */
 internal class InMemoryFileRelayStore : FileRelayStore {
-    private val transfers = linkedMapOf<TransferId, FileRelayTransfer>()
-    private val chunks = linkedMapOf<Pair<TransferId, Int>, FileRelayChunk>()
+    private val transfers = linkedMapOf<TransferId, RelayTransfer>()
+    private val chunks = linkedMapOf<Pair<TransferId, Int>, ByteArray>()
     private val mutex = Mutex()
 
-    override suspend fun insert(row: FileRelayTransfer) = mutex.withLock {
-        transfers.getOrPut(row.transferId) { row }
-        Unit
-    }
-
-    override suspend fun find(transferId: TransferId): FileRelayTransfer? = mutex.withLock {
-        transfers[transferId]
-    }
-
-    override suspend fun live(): List<FileRelayTransfer> = mutex.withLock {
-        transfers.values.toList()
-    }
-
-    override suspend fun setStatus(transferId: TransferId, status: FileRelayStatus) = mutex.withLock {
-        transfers[transferId]?.let { transfers[transferId] = it.copy(status = status) }
-        Unit
-    }
-
-    override suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?) = mutex.withLock {
-        transfers[transferId]?.let {
-            transfers[transferId] = it.copy(markerPacketId = markerPacketId, status = FileRelayStatus.FORWARDING)
-        }
-        Unit
-    }
-
-    override suspend fun touch(transferId: TransferId, now: Instant) = mutex.withLock {
-        transfers[transferId]?.let { transfers[transferId] = it.copy(lastChunkAt = now) }
-        Unit
-    }
-
-    override suspend fun reservedBytes(): Long = mutex.withLock {
-        transfers.values.sumOf { it.reservedBytes }
-    }
-
-    override suspend fun delete(transferId: TransferId) = mutex.withLock {
-        transfers.remove(transferId)
-        chunks.keys.removeAll { it.first == transferId }
-        Unit
-    }
-
-    override suspend fun chunkRefs(transferId: TransferId): List<FileRelayChunkRef> = mutex.withLock {
-        chunks.values.filter { it.transferId == transferId }.sortedBy { it.chunkIndex }
-            .map { FileRelayChunkRef(it.chunkIndex, it.packetId) }
-    }
-
-    override suspend fun chunkBlob(transferId: TransferId, chunkIndex: Int): ByteArray? = mutex.withLock {
-        chunks[transferId to chunkIndex]?.blob
-    }
-
-    override suspend fun chunkCount(transferId: TransferId): Long = mutex.withLock {
-        chunks.values.count { it.transferId == transferId }.toLong()
-    }
-
-    override suspend fun setChunkPacket(transferId: TransferId, chunkIndex: Int, packetId: Uuid) = mutex.withLock {
-        chunks[transferId to chunkIndex]?.let { chunks[transferId to chunkIndex] = it.copy(packetId = packetId) }
-        Unit
-    }
-
-    override suspend fun findChunkByPacket(packetId: Uuid): FileRelayChunk? = mutex.withLock {
-        chunks.values.firstOrNull { it.packetId == packetId }
-    }
-
-    override suspend fun deleteChunkByPacket(packetId: Uuid) = mutex.withLock {
-        chunks.keys.firstOrNull { key -> chunks[key]?.packetId == packetId }?.let { chunks.remove(it) }
-        Unit
-    }
-
-    override suspend fun admit(
-        row: FileRelayTransfer,
-        reserveBytes: Long,
-        budget: Long,
-    ): AdmitResult = mutex.withLock {
+    override suspend fun admit(transfer: RelayTransfer, budget: Long): AdmitResult = mutex.withLock {
         val used = transfers.values.sumOf { it.reservedBytes }
-        if (used + reserveBytes <= budget) {
-            transfers.getOrPut(row.transferId) { row }
+        if (used + transfer.reservedBytes <= budget) {
+            transfers.getOrPut(transfer.transferId) { transfer }
             AdmitResult(true, emptyList())
         } else {
-            // Choose victims read-only first: a refused admission never disturbs the store.
             val victims = mutableListOf<TransferId>()
             var remaining = used
-            for (candidate in transfers.values
-                .sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value }))
-            ) {
-                if (remaining + reserveBytes <= budget) break
-                if (candidate.transferId == row.transferId) continue
+            for (candidate in transfers.values.sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value }))) {
+                if (remaining + transfer.reservedBytes <= budget) break
+                if (candidate.transferId == transfer.transferId) continue
                 victims += candidate.transferId
                 remaining -= candidate.reservedBytes
             }
-            if (remaining + reserveBytes > budget) {
+            if (remaining + transfer.reservedBytes > budget) {
                 AdmitResult(false, emptyList())
             } else {
                 for (victim in victims) {
                     transfers.remove(victim)
                     chunks.keys.removeAll { it.first == victim }
                 }
-                transfers.getOrPut(row.transferId) { row }
+                transfers.getOrPut(transfer.transferId) { transfer }
                 AdmitResult(true, victims)
             }
         }
     }
 
-    private fun suffixCompleteLocked(transferId: TransferId): Boolean {
-        val row = transfers[transferId] ?: return false
-        val count = if (row.totalBytes == 0L) 0 else ((row.totalBytes - 1) / row.chunkSizeBytes + 1).toInt()
-        val expected = maxOf(0, count - row.startIndex)
-        return chunks.values.count { it.transferId == transferId }.toLong() >= expected
-    }
+    override suspend fun find(transferId: TransferId): RelayTransfer? = mutex.withLock { transfers[transferId] }
+
+    override suspend fun all(): List<RelayTransfer> = mutex.withLock { transfers.values.toList() }
 
     override suspend fun storeChunk(
         transferId: TransferId,
-        chunkIndex: Int,
-        blob: ByteArray,
+        index: Int,
+        ciphertext: ByteArray,
         now: Instant,
     ): FileRelayStatus? = mutex.withLock {
-        if (transfers[transferId] == null) return@withLock null
-        chunks.getOrPut(transferId to chunkIndex) { FileRelayChunk(transferId, chunkIndex, null, blob) }
-        transfers[transferId]?.let { transfers[transferId] = it.copy(lastChunkAt = now) }
-        val row = transfers.getValue(transferId)
-        if (row.status == FileRelayStatus.RESERVED && suffixCompleteLocked(transferId)) {
-            transfers[transferId] = row.copy(status = FileRelayStatus.WHOLE)
+        val row = transfers[transferId] ?: return@withLock null
+        chunks.getOrPut(transferId to index) { ciphertext }
+        transfers[transferId] = RelayTransfer(
+            transferId = row.transferId,
+            sealId = row.sealId,
+            origin = row.origin,
+            finalTarget = row.finalTarget,
+            shape = row.shape,
+            sealBytes = row.sealBytes,
+            status = row.status,
+            reservedBytes = row.reservedBytes,
+            createdAt = row.createdAt,
+            lastChunkAt = now,
+            expiresAt = row.expiresAt,
+        )
+        val updated = transfers.getValue(transferId)
+        val whole = chunks.keys.count { it.first == transferId } >= updated.shape.chunkCount
+        if (updated.status == FileRelayStatus.RESERVED && whole) {
+            transfers[transferId] = RelayTransfer(
+                transferId = updated.transferId,
+                sealId = updated.sealId,
+                origin = updated.origin,
+                finalTarget = updated.finalTarget,
+                shape = updated.shape,
+                sealBytes = updated.sealBytes,
+                status = FileRelayStatus.WHOLE,
+                reservedBytes = updated.reservedBytes,
+                createdAt = updated.createdAt,
+                lastChunkAt = updated.lastChunkAt,
+                expiresAt = updated.expiresAt,
+            )
             FileRelayStatus.WHOLE
         } else {
-            row.status
+            updated.status
         }
     }
 
-    override suspend fun promoteIfWhole(transferId: TransferId): Boolean = mutex.withLock {
-        val row = transfers[transferId] ?: return@withLock false
-        if (row.status == FileRelayStatus.WHOLE) return@withLock true
-        if (row.status == FileRelayStatus.RESERVED && suffixCompleteLocked(transferId)) {
-            transfers[transferId] = row.copy(status = FileRelayStatus.WHOLE)
-            true
-        } else {
-            false
-        }
+    override suspend fun chunkIndices(transferId: TransferId): List<Int> = mutex.withLock {
+        chunks.keys.filter { it.first == transferId }.map { it.second }.sorted()
+    }
+
+    override suspend fun chunk(transferId: TransferId, index: Int): ByteArray? = mutex.withLock {
+        chunks[transferId to index]
+    }
+
+    override suspend fun delete(transferId: TransferId) = mutex.withLock {
+        transfers.remove(transferId)
+        chunks.keys.removeAll { it.first == transferId }
+        Unit
     }
 }
 
@@ -544,14 +553,14 @@ internal class FakeFilePlaintextSource(
         openImpl(fileId, fromOffset)
 }
 
-/** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */
+/** In-memory [FileRequestAttemptStore], mirroring the SQL semantics. */
 internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
     private data class Row(
         var attempts: Int = 0,
         var nextAttemptAt: Instant = Instant.DISTANT_PAST,
         var waitingDevice: PeerId? = null,
         var waitingUntil: Instant? = null,
-        var requestTransferId: TransferId? = null,
+        var attemptId: Uuid? = null,
         var requestClass: FileRequestClass = FileRequestClass.SMALL,
         val declined: MutableSet<PeerId> = mutableSetOf(),
     )
@@ -586,8 +595,8 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         rows[fileId]?.toAttempt(fileId)
     }
 
-    override suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt? = mutex.withLock {
-        rows.entries.firstOrNull { it.value.requestTransferId == transferId }?.let { (id, row) -> row.toAttempt(id) }
+    override suspend fun findByAttemptId(attemptId: Uuid): FileRequestAttempt? = mutex.withLock {
+        rows.entries.firstOrNull { it.value.attemptId == attemptId }?.let { (id, row) -> row.toAttempt(id) }
     }
 
     override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant) = mutex.withLock {
@@ -603,12 +612,12 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         fileIds.forEach { id -> rows[id]?.let { if (it.nextAttemptAt > now) it.nextAttemptAt = now } }
     }
 
-    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestTransferId: TransferId) =
+    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, attemptId: Uuid) =
         mutex.withLock {
             rows[fileId]?.let {
                 it.waitingDevice = device
                 it.waitingUntil = until
-                it.requestTransferId = requestTransferId
+                it.attemptId = attemptId
             }
             Unit
         }
@@ -617,13 +626,13 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         rows[fileId]?.let {
             it.waitingDevice = null
             it.waitingUntil = null
-            it.requestTransferId = null
+            it.attemptId = null
         }
         Unit
     }
 
-    override suspend fun setRequestTransfer(fileId: FileId, transferId: TransferId) = mutex.withLock {
-        rows[fileId]?.requestTransferId = transferId
+    override suspend fun setAttempt(fileId: FileId, attemptId: Uuid) = mutex.withLock {
+        rows[fileId]?.attemptId = attemptId
         Unit
     }
 
@@ -650,7 +659,7 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         declinedDevices = declined.toSet(),
         waitingDevice = waitingDevice,
         waitingUntil = waitingUntil,
-        requestTransferId = requestTransferId,
+        attemptId = attemptId,
         requestClass = requestClass,
     )
 }
@@ -679,37 +688,47 @@ internal class RefusingFilePorts : FakeFilePorts {
     override suspend fun requestTotalBytes(fileId: FileId): Long? = null
 }
 
-/** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */
-internal class InMemoryFileIncomingTransferStore : FileIncomingTransferStore {
-    private val rows = linkedMapOf<TransferId, FileIncomingTransfer>()
+/** In-memory [FileIncomingStore], mirroring the SQL semantics. */
+internal class InMemoryFileIncomingStore : FileIncomingStore {
+    private val seals = linkedMapOf<ContentId, IncomingSeal>()
+    private val transfers = linkedMapOf<TransferId, IncomingTransfer>()
     private val mutex = Mutex()
 
-    override suspend fun insert(row: FileIncomingTransfer) = mutex.withLock {
-        rows[row.transferId] = row
+    override suspend fun insertSeal(seal: IncomingSeal) = mutex.withLock {
+        seals[seal.sealId] = seal
     }
 
-    override suspend fun find(transferId: TransferId): FileIncomingTransfer? = mutex.withLock {
-        rows[transferId]
+    override suspend fun findSeal(sealId: ContentId): IncomingSeal? = mutex.withLock { seals[sealId] }
+
+    override suspend fun sealsByFile(fileId: FileId): List<IncomingSeal> = mutex.withLock {
+        seals.values.filter { it.seal.fileId == fileId }
     }
 
-    override suspend fun findByFile(fileId: FileId): List<FileIncomingTransfer> = mutex.withLock {
-        rows.values.filter { it.fileId == fileId }
+    override suspend fun insertTransfer(transfer: IncomingTransfer): Boolean = mutex.withLock {
+        if (transfer.transferId in transfers) false else {
+            transfers[transfer.transferId] = transfer
+            true
+        }
     }
 
-    override suspend fun delete(transferId: TransferId) = mutex.withLock {
-        rows.remove(transferId)
+    override suspend fun findTransfer(transferId: TransferId): IncomingTransfer? = mutex.withLock {
+        transfers[transferId]
+    }
+
+    override suspend fun transfersByFile(fileId: FileId): List<IncomingTransfer> = mutex.withLock {
+        val sealIds = seals.values.filter { it.seal.fileId == fileId }.map { it.sealId }.toSet()
+        transfers.values.filter { it.sealId in sealIds }
+    }
+
+    override suspend fun deleteTransfer(transferId: TransferId) = mutex.withLock {
+        transfers.remove(transferId)
         Unit
     }
 
-    override suspend fun deleteByFile(fileId: FileId) = mutex.withLock {
-        rows.entries.removeAll { it.value.fileId == fileId }
+    override suspend fun pruneExpired(now: Instant) = mutex.withLock {
+        transfers.entries.removeAll { it.value.expiresAt <= now }
+        seals.entries.removeAll { it.value.expiresAt <= now }
         Unit
-    }
-
-    override suspend fun pruneExpired(now: Instant): List<FileIncomingTransfer> = mutex.withLock {
-        val expired = rows.values.filter { it.expiresAt <= now }
-        expired.forEach { rows.remove(it.transferId) }
-        expired
     }
 }
 
@@ -1185,12 +1204,13 @@ internal fun buildE2eeRouterStack(
         )
     )
     val signatureProvider = DefaultSignatureProvider(identity, identity, crypto)
-    val protection = DefaultEnvelopeProtections(
-        signal = SignedAndEncryptedWebRtcSignalProtection(signatureProvider, sessionManager, crypto),
-        message = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
-        system = SignedSystemProtection(signatureProvider, crypto),
+    val ratchet = RatchetSealer(sessionManager)
+    val protection = EnvelopeProtections(
+        hop = SignedHopProtection(signatureProvider, crypto),
+        signal = RatchetWebRtcSignalProtection(ratchet),
+        message = RatchetMessageProtection(ratchet),
         bootstrap = BootstrapProtection(crypto, bootstrapKeySource),
-        file = PassthroughFileProtection(),
+        file = RatchetFileProtection(ratchet, crypto),
     )
     return E2eeRouterTestStack(
         peer = local,
@@ -1263,8 +1283,9 @@ internal fun e2eeRouterUnderTest(
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
     filePorts: FakeFilePorts = RefusingFilePorts(),
-    fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
-    filePushStore: FilePushStore = InMemoryFilePushStore(),
+    fileSealStore: FileSealStore = InMemoryFileSealStore(),
+    fileTransferStore: FileTransferStore = InMemoryFileTransferStore(),
+    fileIncomingStore: FileIncomingStore = InMemoryFileIncomingStore(),
     fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
     fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
@@ -1291,8 +1312,9 @@ internal fun e2eeRouterUnderTest(
         fileIngest = filePorts,
         fileRequests = filePorts,
         filePlaintext = plaintextSource,
+        fileSealStore = fileSealStore,
+        fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
-        filePushStore = filePushStore,
         fileRelayStore = fileRelayStore,
         fileRequestAttemptStore = fileRequestAttemptStore,
     )
@@ -1305,7 +1327,7 @@ internal fun outboxProcessorUnderTest(
     outbox: PacketOutbox = TrackingPacketOutbox(),
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
-    relayCopies: (OutboxTag.Kind) -> RelayCopies? = { null },
+    relaySelection: RelaySelectionPolicy = NoRelaySelection,
 ): OutboxProcessor {
     val ctx = testRoutingContext(
         identity = identity,
@@ -1313,7 +1335,7 @@ internal fun outboxProcessorUnderTest(
         webRtc = webRtc,
         clock = clock,
         routerConfig = routerConfig,
-        protections = PassthroughFakeEnvelopeProtectionService(),
+        protections = passthroughProtections(),
         fileChunkSize = 220 * 1024,
     )
     val peerAvailabilityRegistry = PeerAvailabilityRegistry(
@@ -1337,7 +1359,7 @@ internal fun outboxProcessorUnderTest(
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         linkKeeper = linkKeeper,
-        relayCopies = relayCopies,
+        relaySelection = relaySelection,
     )
 }
 
@@ -1349,11 +1371,12 @@ internal fun defaultRouterUnderTest(
     outbox: PacketOutbox = TrackingPacketOutbox(),
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
-    envelopeProtections: EnvelopeProtections = PassthroughFakeEnvelopeProtectionService(),
+    envelopeProtections: EnvelopeProtections = passthroughProtections(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
     filePorts: FakeFilePorts = RefusingFilePorts(),
-    fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
-    filePushStore: FilePushStore = InMemoryFilePushStore(),
+    fileSealStore: FileSealStore = InMemoryFileSealStore(),
+    fileTransferStore: FileTransferStore = InMemoryFileTransferStore(),
+    fileIncomingStore: FileIncomingStore = InMemoryFileIncomingStore(),
     fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
     fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
@@ -1380,8 +1403,9 @@ internal fun defaultRouterUnderTest(
         fileIngest = filePorts,
         fileRequests = filePorts,
         filePlaintext = plaintextSource,
+        fileSealStore = fileSealStore,
+        fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
-        filePushStore = filePushStore,
         fileRelayStore = fileRelayStore,
         fileRequestAttemptStore = fileRequestAttemptStore,
     )

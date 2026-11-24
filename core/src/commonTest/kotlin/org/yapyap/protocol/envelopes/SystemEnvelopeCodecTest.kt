@@ -1,12 +1,8 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -16,9 +12,6 @@ import kotlin.uuid.Uuid
 
 class SystemEnvelopeCodecTest {
 
-    private val source = PeerId("src-device")
-    private val target = PeerId("dst-device")
-    private val nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 }
     private val samplePacketId = Uuid.random()
 
     @Test
@@ -57,6 +50,8 @@ class SystemEnvelopeCodecTest {
 
     @Test
     fun systemPayload_syncRequest_encodeDecode_roundTrip() {
+        // Sync requests travel as sealed MESSAGE-family content now (envelope redesign §4),
+        // not as SYSTEM. The codec itself is unchanged; the family moved.
         val original = SyncPayload.Request(
             roomId = RoomId(Uuid.random()),
             syncId = Uuid.random(),
@@ -109,45 +104,33 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
-    fun systemEnvelope_full_encodeDecode_packetAck_roundTrip() {
-        val payload = SystemPayload.PacketAck(
-            packetId = samplePacketId,
-            packetType = PacketType.SYSTEM,
+    fun systemPayload_typingIndicator_encodeDecode_roundTrip() {
+        val original = SystemPayload.TypingIndicator(
+            roomId = RoomId(Uuid.random()),
+            intervalMillis = 3_000,
         )
-        val env = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(1_700_000_000L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = ByteArray(64) { it.toByte() },
-            payload = payload.encode(),
-        )
-        val round = SystemEnvelope.decode(env.encode())
-        assertSystemEnvelopeEquals(env, round)
+        val decoded = SystemPayload.TypingIndicator.decode(original.encode())
+        assertEquals(original, decoded)
     }
 
     @Test
-    fun systemEnvelope_full_encodeDecode_packetNack_roundTrip() {
-        val payload = SystemPayload.PacketNack(
-            packetId = samplePacketId,
-            packetType = PacketType.MESSAGE,
-            reason = PacketNackReason.DECODE_FAILED,
-            reasonText = null,
-        )
-        val env = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = source,
-            target = target,
-            createdAt = epochSeconds(42L),
-            nonce = nonce,
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = payload.encode(),
-        )
-        val round = SystemEnvelope.decode(env.encode())
-        assertSystemEnvelopeEquals(env, round)
+    fun systemPayload_logOff_encodeDecode_roundTrip() {
+        val decoded = SystemPayload.LogOff.decode(SystemPayload.LogOff.encode())
+        assertEquals(SystemPayload.LogOff, decoded)
+    }
+
+    @Test
+    fun systemPayload_decode_dispatchesAllKinds() {
+        val ack = SystemPayload.PacketAck(samplePacketId, PacketType.MESSAGE).encode()
+        assertTrue(SystemPayload.decode(ack) is SystemPayload.PacketAck)
+        val nack = SystemPayload.PacketNack(samplePacketId, PacketType.MESSAGE, PacketNackReason.EXPIRED, null).encode()
+        assertTrue(SystemPayload.decode(nack) is SystemPayload.PacketNack)
+        val typing = SystemPayload.TypingIndicator(RoomId(Uuid.random()), 1000).encode()
+        assertTrue(SystemPayload.decode(typing) is SystemPayload.TypingIndicator)
+        val ping = SystemPayload.Ping(samplePacketId, false, 0.5, emptyList()).encode()
+        assertTrue(SystemPayload.decode(ping) is SystemPayload.Ping)
+        val logOff = SystemPayload.LogOff.encode()
+        assertTrue(SystemPayload.decode(logOff) is SystemPayload.LogOff)
     }
 
     @Test
@@ -180,20 +163,6 @@ class SystemEnvelopeCodecTest {
         }
     }
 
-    private fun assertSystemEnvelopeEquals(expected: SystemEnvelope, actual: SystemEnvelope) {
-        assertEquals(expected.systemEnvelopeId, actual.systemEnvelopeId)
-        assertEquals(expected.source, actual.source)
-        assertEquals(expected.target, actual.target)
-        assertEquals(expected.createdAt, actual.createdAt)
-        assertContentEquals(expected.nonce, actual.nonce)
-        assertEquals(expected.securityScheme, actual.securityScheme)
-        when {
-            expected.signature == null -> assertNull(actual.signature)
-            else -> assertContentEquals(expected.signature, actual.signature!!)
-        }
-        assertSystemPayloadEquals(expected.decodePayload(), actual.decodePayload())
-    }
-
     private fun assertSystemPayloadEquals(expected: SystemPayload, actual: SystemPayload) {
         when {
             expected is SystemPayload.PacketAck && actual is SystemPayload.PacketAck ->
@@ -204,6 +173,11 @@ class SystemEnvelopeCodecTest {
 
             expected is SystemPayload.Ping && actual is SystemPayload.Ping ->
                 assertPingEquals(expected, actual)
+
+            expected is SystemPayload.TypingIndicator && actual is SystemPayload.TypingIndicator ->
+                assertEquals(expected, actual)
+
+            expected is SystemPayload.LogOff && actual is SystemPayload.LogOff -> Unit
 
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }

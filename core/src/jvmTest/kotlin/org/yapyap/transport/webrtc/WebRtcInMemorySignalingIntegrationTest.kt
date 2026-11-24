@@ -1,18 +1,35 @@
 package org.yapyap.transport.webrtc
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -82,7 +99,9 @@ class WebRtcInMemorySignalingIntegrationTest {
                                 expiresAt = t0 + 1.hours,
                                 source = peerA,
                                 target = peerB,
-                                payload = byteArrayOf(0x01, 0x02, 0x03, 0x04),
+                                routingHeader = MessageHeader(origin = peerA, finalTarget = peerB).encode(),
+                                content = byteArrayOf(0x01, 0x02, 0x03, 0x04),
+                                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
                             )
 
                         sendEnvelopeWhenChannelReady(alice, peerB, out)
@@ -94,7 +113,7 @@ class WebRtcInMemorySignalingIntegrationTest {
             assertEquals(peerA, received.source)
             assertEquals(envelope.packetId, received.envelope.packetId)
             assertEquals(envelope.packetType, received.envelope.packetType)
-            assertContentEquals(envelope.payload, received.envelope.payload)
+            assertContentEquals(envelope.content, received.envelope.content)
         } finally {
             relayJobs.forEach { it.cancel() }
             relayScope.cancel()
@@ -105,7 +124,7 @@ class WebRtcInMemorySignalingIntegrationTest {
 
     /**
      * Delivers the largest envelope the configured limit admits
-     * (`maxPayloadBytes - ENCODED_HEADER_BYTES`). Retried with fresh packet ids: the first
+     * (`maxPayloadBytes - ENCODED_OVERHEAD_BYTES - routingHeader`). Retried with fresh packet ids: the first
      * seconds after connect can flap and eat one in-flight message, which router ACK/outbox
      * retry absorbs in production but a single-shot await cannot.
      */
@@ -124,8 +143,9 @@ class WebRtcInMemorySignalingIntegrationTest {
         val relayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val relayJobs = mutableListOf<Job>()
 
+        val routingHeader = MessageHeader(origin = peerA, finalTarget = peerB).encode()
         val payload =
-            ByteArray(size = WebRtcBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_HEADER_BYTES) { (it % 251).toByte() }
+            ByteArray(size = WebRtcBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_OVERHEAD_BYTES - routingHeader.size) { (it % 251).toByte() }
         try {
             alice.start(peerA)
             bob.start(peerB)
@@ -162,7 +182,9 @@ class WebRtcInMemorySignalingIntegrationTest {
                                 expiresAt = epochSeconds(1_800_000_000L) + 1.hours,
                                 source = peerA,
                                 target = peerB,
-                                payload = payload,
+                                routingHeader = routingHeader,
+                                content = payload,
+                                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
                             )
                             sendEnvelopeWhenChannelReady(alice, peerB, candidate)
                             // Fresh subscription per attempt (replay covers already-delivered).
@@ -184,8 +206,8 @@ class WebRtcInMemorySignalingIntegrationTest {
             assertEquals(peerA, received.source)
             assertEquals(envelope.packetId, received.envelope.packetId)
             assertEquals(envelope.packetType, received.envelope.packetType)
-            assertEquals(envelope.payload.size, received.envelope.payload.size)
-            assertContentEquals(envelope.payload, received.envelope.payload)
+            assertEquals(envelope.content.size, received.envelope.content.size)
+            assertContentEquals(envelope.content, received.envelope.content)
         } finally {
             relayJobs.forEach { it.cancel() }
             relayScope.cancel()
@@ -243,7 +265,9 @@ class WebRtcInMemorySignalingIntegrationTest {
                 expiresAt = epochSeconds(1_800_000_000L) + 1.hours,
                 source = peerA,
                 target = peerB,
-                payload = payload,
+                routingHeader = MessageHeader(origin = peerA, finalTarget = peerB).encode(),
+                content = payload,
+                signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
             )
 
             val failure = assertFailsWith<TransportException.PayloadTooLarge> {

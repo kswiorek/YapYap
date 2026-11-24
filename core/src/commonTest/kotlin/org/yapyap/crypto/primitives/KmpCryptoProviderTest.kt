@@ -1,8 +1,13 @@
 package org.yapyap.crypto.primitives
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.protocol.SignalSecurityScheme
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 /**
  * Black-box tests for [org.yapyap.crypto.primitives.DefaultCryptoProvider] as the reference [org.yapyap.crypto.primitives.CryptoProvider] implementation.
@@ -40,13 +45,6 @@ class KmpCryptoProviderTest {
         val a = crypto.randomBytes(32)
         val b = crypto.randomBytes(32)
         assertFalse(a.contentEquals(b))
-    }
-
-    @Test
-    fun generateNonce_lengthMatchesSchemeNonceSize() {
-        for (scheme in SignalSecurityScheme.entries) {
-            assertEquals(scheme.nonceSize, crypto.generateNonce(scheme).size)
-        }
     }
 
     @Test

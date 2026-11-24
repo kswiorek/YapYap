@@ -120,6 +120,8 @@ class OutboxProcessorTest {
             expiresAt = epochSeconds(now + 3_600),
             source = source,
             target = target,
-            payload = byteArrayOf(0x01, 0x02, 0x03),
+            routingHeader = byteArrayOf(0x01, 0x02, 0x03),
+            content = ByteArray(0),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
 }

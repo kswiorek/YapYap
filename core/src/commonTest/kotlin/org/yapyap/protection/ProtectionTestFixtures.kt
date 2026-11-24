@@ -14,26 +14,25 @@ import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningKeyPair
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.protection.envelope.FileEnvelopeProtection
-import org.yapyap.protection.envelope.FileOfferPublicHalf
-import org.yapyap.protection.envelope.FileOfferSealedManifest
-import org.yapyap.protection.envelope.FileProtectContext
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protection.envelope.MessageProtection
+import org.yapyap.protection.envelope.RatchetFileProtection
+import org.yapyap.protection.envelope.RatchetMessageProtection
+import org.yapyap.protection.envelope.RatchetSealer
+import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
+import org.yapyap.protection.envelope.WebRtcSignalProtection
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ContentId
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
+import org.yapyap.protocol.envelopes.FileRequest
+import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.WebRtcSignal
@@ -45,27 +44,12 @@ import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.DeviceRouteStore
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal object FixturePeerIds {
     val A = PeerId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     val B = PeerId("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 }
-
-internal fun nonce24(): ByteArray = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 }
-
-internal fun sampleEnvelopeContext(
-    scheme: SignalSecurityScheme,
-    source: PeerId,
-    target: PeerId,
-    createdAt: Instant = epochSeconds(1_700_000_000L),
-): EnvelopeProtectContext = EnvelopeProtectContext(
-    createdAt = createdAt,
-    sourceDeviceId = source,
-    targetDeviceId = target,
-    securityScheme = scheme,
-)
 
 internal fun sampleTextPayload(): DagPayload.Text =
     DagPayload.Text(
@@ -109,12 +93,15 @@ internal fun samplePacketNackPayload(
         reasonText = reasonText,
     )
 
-internal fun sampleFileOfferPayload(): FilePayload.Offer =
-    FilePayload.Offer(
-        chunkSizeBytes = 10,
-        totalBytes = 100L,
-        startIndex = 0,
-        sealedOfferBytes = byteArrayOf(9),
+internal fun sampleFileSeal(key: SealKey): FileSeal =
+    FileSeal(
+        fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+        totalBytes = 1000L,
+        blockSize = 1024 * 1024,
+        blockHashes = listOf(ByteArray(32) { 1 }),
+        fileName = "photo.jpg",
+        mimeType = "image/jpeg",
+        key = key,
     )
 
 /**
@@ -126,48 +113,6 @@ internal suspend fun samplePeerTriplet(crypto: DefaultCryptoProvider): Triple<Si
     val remoteSigning = crypto.generateSigningKeyPair()
     val targetPeer = crypto.peerIdFromPublicKey(remoteSigning.publicKey)
     return Triple(localSigning, sourcePeer, targetPeer)
-}
-
-internal data class SignedAndEncryptedProtectionPair(
-    val sender: SignedAndEncryptedMessageProtection,
-    val receiver: SignedAndEncryptedMessageProtection,
-    val sourcePeer: PeerId,
-    val targetPeer: PeerId,
-)
-
-internal suspend fun sampleSignedAndEncryptedProtectionPair(
-    crypto: DefaultCryptoProvider,
-): SignedAndEncryptedProtectionPair {
-    val senderPeer = buildTestPeerIdentity(crypto, "sae-sender")
-    val receiverPeer = buildTestPeerIdentity(crypto, "sae-receiver")
-    val senderSession = managerForPeer(
-        crypto = crypto,
-        local = senderPeer,
-        peer = receiverPeer,
-        sessionStore = MapBackedCryptoSessionStore(),
-        oneTimePreKeyStore = InMemoryOpkRepository(crypto),
-    )
-    val receiverSession = managerForPeer(
-        crypto = crypto,
-        local = receiverPeer,
-        peer = senderPeer,
-        sessionStore = MapBackedCryptoSessionStore(),
-        oneTimePreKeyStore = InMemoryOpkRepository(crypto),
-    )
-    val senderSignatureProvider = FakeIdentityResolverForProtection(
-            localSigningPrivateKey = senderPeer.signingPrivateKey,
-            peerRecords = emptyMap(),
-    ).let { DefaultSignatureProvider(it, it, crypto) }
-    val receiverSignatureProvider = FakeIdentityResolverForProtection(
-            localSigningPrivateKey = receiverPeer.signingPrivateKey,
-            peerRecords = mapOf(senderPeer.device.deviceId to senderPeer.device),
-    ).let { DefaultSignatureProvider(it, it, crypto) }
-    return SignedAndEncryptedProtectionPair(
-        sender = SignedAndEncryptedMessageProtection(senderSignatureProvider, senderSession, crypto),
-        receiver = SignedAndEncryptedMessageProtection(receiverSignatureProvider, receiverSession, crypto),
-        sourcePeer = senderPeer.device.deviceId,
-        targetPeer = receiverPeer.device.deviceId,
-    )
 }
 
 internal suspend fun deviceRecordFor(
@@ -183,8 +128,92 @@ internal suspend fun deviceRecordFor(
     )
 }
 
+/** One ratchet sealer per direction over real crypto sessions between two fresh test peers. */
+internal data class RatchetPair(
+    val sender: RatchetSealer,
+    val receiver: RatchetSealer,
+    val sourcePeer: PeerId,
+    val targetPeer: PeerId,
+)
+
+internal suspend fun sampleRatchetPair(crypto: DefaultCryptoProvider): RatchetPair {
+    val senderPeer = buildTestPeerIdentity(crypto, "rp-sender")
+    val receiverPeer = buildTestPeerIdentity(crypto, "rp-receiver")
+    val senderSession = managerForPeer(
+        crypto = crypto,
+        local = senderPeer,
+        peer = receiverPeer,
+        sessionStore = MapBackedCryptoSessionStore(),
+        oneTimePreKeyStore = InMemoryOpkRepository(crypto),
+    )
+    val receiverSession = managerForPeer(
+        crypto = crypto,
+        local = receiverPeer,
+        peer = senderPeer,
+        sessionStore = MapBackedCryptoSessionStore(),
+        oneTimePreKeyStore = InMemoryOpkRepository(crypto),
+    )
+    return RatchetPair(
+        sender = RatchetSealer(senderSession),
+        receiver = RatchetSealer(receiverSession),
+        sourcePeer = senderPeer.device.deviceId,
+        targetPeer = receiverPeer.device.deviceId,
+    )
+}
+
+internal data class MessageProtectionPair(
+    val sender: MessageProtection,
+    val receiver: MessageProtection,
+    val sourcePeer: PeerId,
+    val targetPeer: PeerId,
+)
+
+internal suspend fun sampleMessageProtectionPair(crypto: DefaultCryptoProvider): MessageProtectionPair {
+    val ratchets = sampleRatchetPair(crypto)
+    return MessageProtectionPair(
+        sender = RatchetMessageProtection(ratchets.sender),
+        receiver = RatchetMessageProtection(ratchets.receiver),
+        sourcePeer = ratchets.sourcePeer,
+        targetPeer = ratchets.targetPeer,
+    )
+}
+
+internal data class SignalProtectionPair(
+    val sender: WebRtcSignalProtection,
+    val receiver: WebRtcSignalProtection,
+    val sourcePeer: PeerId,
+    val targetPeer: PeerId,
+)
+
+internal suspend fun sampleSignalProtectionPair(crypto: DefaultCryptoProvider): SignalProtectionPair {
+    val ratchets = sampleRatchetPair(crypto)
+    return SignalProtectionPair(
+        sender = RatchetWebRtcSignalProtection(ratchets.sender),
+        receiver = RatchetWebRtcSignalProtection(ratchets.receiver),
+        sourcePeer = ratchets.sourcePeer,
+        targetPeer = ratchets.targetPeer,
+    )
+}
+
+internal data class FileProtectionPair(
+    val sender: FileProtection,
+    val receiver: FileProtection,
+    val sourcePeer: PeerId,
+    val targetPeer: PeerId,
+)
+
+internal suspend fun sampleFileProtectionPair(crypto: DefaultCryptoProvider): FileProtectionPair {
+    val ratchets = sampleRatchetPair(crypto)
+    return FileProtectionPair(
+        sender = RatchetFileProtection(ratchets.sender, crypto),
+        receiver = RatchetFileProtection(ratchets.receiver, crypto),
+        sourcePeer = ratchets.sourcePeer,
+        targetPeer = ratchets.targetPeer,
+    )
+}
+
 /**
- * Minimal fake: local signing private key and optional peer lookup for verification.
+ * Minimal fake: local signing private key plus optional peer lookup for verification.
  */
 internal class FakeIdentityResolverForProtection(
     private val localSigningPrivateKey: SigningPrivateKey,
@@ -196,27 +225,23 @@ internal class FakeIdentityResolverForProtection(
     override suspend fun getLocalAccountIdentity(): AccountIdentity = error("not used")
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used")
-    suspend fun isLocalAccountAdmin(): Boolean = error("not used")
-    suspend fun isLocalAccountOwner(): Boolean = error("not used")
 
     override suspend fun localDeviceSigningKey(): SigningPrivateKey = localSigningPrivateKey
 
     override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = error("not used")
 
     override suspend fun localAccountSigningKey(): SigningPrivateKey = error("not used")
-    override suspend fun getLocalDeviceId(): PeerId = error("not used")
+    override suspend fun getLocalDeviceId(): PeerId = error("not used in test")
     override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
     override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity =
         peerRecords[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? = null
 
-    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId) = error("not used")
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = emptyList()
 
-    suspend fun getAllPeers(): List<PeerId> = error("not used")
-
-    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = null
 
     override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
 
@@ -227,83 +252,68 @@ internal class FakeIdentityResolverForProtection(
 
     override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey = error("not used")
 
-    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
-        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> = peerRecords.keys.toList()
 
-    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
-        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> = emptyList()
 
-
-    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = null
 }
 
 /**
- * No real crypto — wraps payloads in [FileEnvelope] / [OpenedFileEnvelope] for contract tests only.
- * Chunk "ciphertext" is the plaintext plus [FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES] of padding,
+ * No crypto — content passes through in the clear, for routing-adjacent contract tests only.
+ * Chunk "ciphertext" is the plaintext plus [FileProtection.CHUNK_OVERHEAD_BYTES] of padding,
  * so every size a relay or receiver checks matches the real protection's.
  */
-internal class PassthroughFileProtection : FileEnvelopeProtection {
+internal class PassthroughFileProtection : FileProtection {
+    override suspend fun seal(seal: FileSeal, target: PeerId): ByteArray = seal.encode()
 
-    override suspend fun protect(input: FilePayload, context: FileProtectContext): FileEnvelope =
-        FileEnvelope(
-            transferId = context.transferId,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = ByteArray(24) { 7 },
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            signature = null,
-            payload = input.encode(),
-        )
-
-    override suspend fun open(input: FileEnvelope): OpenedFileEnvelope =
-        OpenedFileEnvelope(
-            transferId = input.transferId,
-            source = input.source,
-            target = input.target,
-            createdAt = input.createdAt,
-            securityScheme = input.securityScheme,
-            payload = input.decodePayload(),
-        )
-
-    override suspend fun protectOffer(
-        publicHalf: FileOfferPublicHalf,
-        sealed: FileOfferSealedManifest,
-        key: TransferKey,
-        ctx: FileProtectContext,
-    ): FileEnvelope = protect(
-        FilePayload.Offer(
-            chunkSizeBytes = publicHalf.chunkSizeBytes,
-            totalBytes = publicHalf.totalBytes,
-            startIndex = publicHalf.startIndex,
-            sealedOfferBytes = FilePayload.SealedOffer(
-                fileId = sealed.fileId,
-                blockSize = sealed.blockSize,
-                blockHashes = sealed.blockHashes,
-                transferKey = key,
-                fileName = sealed.fileName,
-                mimeType = sealed.mimeType,
-            ).encode(),
-        ),
-        ctx,
-    )
-
-    override suspend fun decryptChunk(
-        transferId: TransferId,
-        key: TransferKey,
-        chunk: FilePayload.EncryptedChunk,
-    ): ByteArray =
-        chunk.chunkCiphertext.copyOfRange(0, chunk.chunkCiphertext.size - FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES)
+    override suspend fun openSeal(content: ByteArray, origin: PeerId): FileSeal = FileSeal.decode(content)
 
     override suspend fun encryptChunk(
-        transferId: TransferId,
-        chunkIndex: Int,
-        key: TransferKey,
+        sealId: ContentId,
+        key: SealKey,
+        offset: Long,
         plaintext: ByteArray,
-    ): ByteArray = plaintext + ByteArray(FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES)
+    ): ByteArray = plaintext + ByteArray(FileProtection.CHUNK_OVERHEAD_BYTES)
 
-    override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
-        FilePayload.SealedOffer.decode(sealed)
+    override suspend fun decryptChunk(
+        sealId: ContentId,
+        key: SealKey,
+        offset: Long,
+        ciphertext: ByteArray,
+    ): ByteArray =
+        ciphertext.copyOfRange(0, ciphertext.size - FileProtection.CHUNK_OVERHEAD_BYTES)
 
-    override fun generateTransferKey(): TransferKey = TransferKey(ByteArray(32))
+    override suspend fun sealRequest(request: FileRequest, target: PeerId): ByteArray = request.encode()
+
+    override suspend fun openRequest(content: ByteArray, source: PeerId): FileRequest =
+        FileRequest.decode(content)
+
+    override fun generateSealKey(): SealKey = SealKey(ByteArray(32))
+}
+
+/** No crypto — the payload rides in the clear, for routing-adjacent contract tests only. */
+internal class PassthroughMessageProtection : MessageProtection {
+    override suspend fun seal(
+        payload: org.yapyap.protocol.envelopes.MessagePayload,
+        finalTarget: PeerId,
+    ): ByteArray = payload.encode()
+
+    override suspend fun open(
+        content: ByteArray,
+        origin: PeerId,
+    ): org.yapyap.protocol.envelopes.MessagePayload =
+        org.yapyap.protocol.envelopes.MessagePayload.decode(content)
+}
+
+/** No crypto — the signal payload rides in the clear, for routing-adjacent contract tests only. */
+internal class PassthroughSignalProtection : WebRtcSignalProtection {
+    override suspend fun seal(signal: WebRtcSignal): ByteArray = signal.payload
+
+    override suspend fun open(
+        content: ByteArray,
+        kind: WebRtcSignalKind,
+        source: PeerId,
+        target: PeerId,
+    ): WebRtcSignal = WebRtcSignal(kind = kind, source = source, target = target, payload = content)
 }

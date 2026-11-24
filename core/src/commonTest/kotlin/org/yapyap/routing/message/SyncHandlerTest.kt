@@ -10,12 +10,10 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
-import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterLifecycle
@@ -68,7 +66,6 @@ class SyncHandlerTest {
             lifecycle = lifecycle,
             outboxProcessor = stack.outboxProcessor,
             systemSender = stack.systemSender,
-            relaySelection = NoRelaySelection,
             syncAttemptStore = InMemorySyncAttemptStore(),
             syncProvider = provider,
             peerPolicy = DefaultSyncPeerPolicy(stack.ctx),
@@ -177,14 +174,13 @@ class SyncHandlerTest {
         val envelope = remote.outboundMessenger.buildEnvelope(localDevice, syncRequest(), 90.seconds)
         val result = inbound.handle(envelope)
 
-        val success = assertIs<InboundHandleResult.Success>(result)
-        assertTrue(success.sourceAuthenticated)
+        assertIs<InboundHandleResult.Success>(result)
         // The reply is queued for the requesting device through the outbox.
         assertEquals(served.size, local.outbox.enqueued.size)
         assertTrue(local.outbox.enqueued.all { it.target == remoteDevice })
         // And the queued bytes decode back to the served messages.
         val decoded = local.outbox.enqueued.map {
-            MessagePayload.decode(MessageEnvelope.decode(it.payload).payload) as DagPayload
+            MessagePayload.decode(it.content) as DagPayload
         }
         assertEquals(served, decoded)
     }

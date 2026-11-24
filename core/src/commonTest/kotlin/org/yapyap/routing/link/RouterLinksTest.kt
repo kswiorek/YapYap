@@ -9,10 +9,8 @@ import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -66,16 +64,6 @@ class RouterLinksTest {
         expiresAt: Long = now + 1_000,
         dispositionRequested: Boolean = false,
     ): TorIncomingEnvelope {
-        val system = SystemEnvelope(
-            systemEnvelopeId = Uuid.random(),
-            source = remotePeer,
-            target = localPeer,
-            createdAt = epochSeconds(now),
-            nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 1 },
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = payload.encode(),
-        )
         val envelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.SYSTEM,
@@ -84,7 +72,9 @@ class RouterLinksTest {
             expiresAt = epochSeconds(expiresAt),
             source = remotePeer,
             target = localPeer,
-            payload = system.encode(),
+            routingHeader = payload.encode(),
+            content = ByteArray(0),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
         return TorIncomingEnvelope(remoteTor, envelope, link)
     }
@@ -142,7 +132,7 @@ class RouterLinksTest {
             withTimeout(5.seconds) { tor.awaitMessageSendCount(1) }
             val nackIndex = tor.sends.indexOfFirst { (_, envelope) ->
                 envelope.packetType == PacketType.SYSTEM &&
-                        SystemEnvelope.decode(envelope.payload).decodePayload() is SystemPayload.PacketNack
+                        SystemPayload.decode(envelope.routingHeader) is SystemPayload.PacketNack
             }
             assertEquals(TorLinkId(9), tor.sendVias[nackIndex])
         } finally {
