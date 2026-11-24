@@ -1,9 +1,23 @@
 package org.yapyap.routing.outbound
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -14,11 +28,16 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.policy.OutboundPolicy
+import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.OutboxEntry
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import org.yapyap.transport.TransportException
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
@@ -42,9 +61,11 @@ internal class OutboxProcessor(
      * may want to try that peer now.
      */
     private val linkKeeper: LinkKeeper,
-    /** Makes the relay copies of a due row (see [backUpToRelays]); keyed by the row's tag kind. */
-    private val relayCopies: (OutboxTag.Kind) -> RelayCopies? = { null },
+    relaySelection: RelaySelectionPolicy,
 ) {
+    /** Makes the store-and-forward copies of rows still owing a backup (see [backUpToRelays]). */
+    private val relayDepositor = RelayDepositor(ctx, relaySelection)
+
     /**
      * Peers whose last Tor dispatch failed with [TransportException.TorException.OnionNotFound].
      * Tor remembers such misses for minutes, so once the peer is known to be online again
@@ -173,11 +194,12 @@ internal class OutboxProcessor(
      * peer, no ACK within `relayBackupAfter` of a send, or a retry (the earlier attempt went
      * unacknowledged). While a link delivers, relays carry nothing.
      */
-    suspend fun backUpToRelays(envelope: BinaryEnvelope, tag: OutboxTag, reason: String): Int {
-        val sink = relayCopies(tag.kind) ?: return 0
+    suspend fun backUpToRelays(envelope: BinaryEnvelope, reason: String): Int {
         if (!packetOutbox.claimRelayBackup(envelope.packetId)) return 0
         val copies = try {
-            sink.deposit(envelope, tag)
+            relayDepositor.copies(envelope).onEach { copy ->
+                packetOutbox.enqueue(copy, ctx.clock.now())
+            }.size
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -189,6 +211,7 @@ internal class OutboxProcessor(
             )
             0
         }
+        if (copies > 0) wake()
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.OUTBOX_MESSAGE_QUEUED,
@@ -359,12 +382,11 @@ internal class OutboxProcessor(
             ?: if (entry.targetEndpoint != null) RouterTransport.TOR else return null
         // A retry means the previous attempt went unacknowledged (also after a restart, when
         // the in-memory ACK timer of [send] is gone). Only rows still owing a backup (PENDING:
-        // messages and OFFER markers) make one; the claim gate in backUpToRelays enforces
-        // at-most-once.
+        // messages) make one; the claim gate in backUpToRelays enforces at-most-once.
         if (entry.attempts > 0 && entry.relayBackup == RelayBackup.PENDING) {
-            entry.tag?.let { backUpToRelays(entry.envelope, it, reason = "retry") }
+            backUpToRelays(entry.envelope, reason = "retry")
         }
-        // Only chunk rows retry at the flat delay (design §6.2): markers and REQUESTs use the
+        // Only file chunk rows retry at the flat delay (design §6.2): OFFERs and REQUESTs use the
         // message schedule. The row's own retry_class decides, never the tag kind.
         val nextRetryAt = if (entry.retryClass == RetryClass.FLAT) {
             now + ctx.routerConfig.value.fileChunkRetryDelay
@@ -386,10 +408,10 @@ internal class OutboxProcessor(
         val until = now + ctx.routerConfig.value.noLinkRecheckDelay
         // An entry expiring sooner is looked at when it expires, so its expiry is reported then.
         entries.forEach { packetOutbox.deferRetry(it.packetId, minOf(until, it.envelope.expiresAt)) }
-        // Only rows still owing a backup (PENDING: messages and OFFER markers) make one; the
-        // claim gate enforces at-most-once.
+        // Only rows still owing a backup (PENDING: messages) make one; the claim gate enforces
+        // at-most-once.
         entries.filter { it.relayBackup == RelayBackup.PENDING }
-            .forEach { entry -> entry.tag?.let { backUpToRelays(entry.envelope, it, reason = "no link") } }
+            .forEach { entry -> backUpToRelays(entry.envelope, reason = "no link") }
         inFlightLock.withLock { entries.forEach { inFlight.remove(it.packetId) } }
         val peers = entries.map { it.envelope.target }.distinct()
         AppLog.debug(
@@ -470,11 +492,10 @@ internal class OutboxProcessor(
      * and system packets start no timer; the claim gate enforces at-most-once.
      */
     private fun awaitAckOrBackUp(entry: OutboxEntry) {
-        val tag = entry.tag ?: return
         val scope = dispatchScope ?: return
         scope.launch {
             delay(ctx.routerConfig.value.relayBackupAfter)
-            backUpToRelays(entry.envelope, tag, reason = "no ACK in time")
+            backUpToRelays(entry.envelope, reason = "no ACK in time")
         }
     }
 

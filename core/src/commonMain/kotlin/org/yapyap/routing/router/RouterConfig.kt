@@ -11,6 +11,10 @@ import kotlin.time.Duration.Companion.seconds
 
 @Serializable
 internal data class RouterConfig(
+    /**
+     * How long a message's content lives, from its first hop; relay copies and forwards keep the
+     * same expiry. Below crypto's superseded-session retention (`wiring/ConfigInvariants`).
+     */
     val binaryEnvelopeLifetime: Duration = 2.days,
     val ackLifetime: Duration = 1.hours,
     val fastRetryBudget: Int = 3,
@@ -74,9 +78,9 @@ internal data class RouterConfig(
      */
     val syncAttemptTimeout: Duration = 90.seconds,
     /**
-     * A message sent over a link but not ACKed within this long gets its relay copies (the
-     * link may only look open). Healthy links ACK in about a second, so this rarely fires
-     * while the peer is really there.
+     * A message sent over a link but not ACKed within this long gets its relay copies, and a
+     * file OFFER its deposit (the link may only look open). Healthy links ACK in about a second,
+     * so this rarely fires while the peer is really there.
      */
     val relayBackupAfter: Duration = 30.seconds,
     /** Tor links (kept open to every active peer): wait after the first failed open, doubling per failure. */
@@ -109,7 +113,7 @@ internal data class RouterConfig(
 
     val pingInterval: Duration = 5.minutes,
     /**
-     * How often [PeerAvailabilityRegistry]'s sweep samples peer availability: for each peer it
+     * How often [org.yapyap.routing.presence.PeerAvailabilityRegistry]'s sweep samples peer availability: for each peer it
      * looks at whether we saw any traffic from them within the last [sweepInterval] (boost) or,
      * failing that, whether one of our pings went unanswered (decay). Independent of [pingInterval];
      * should be a few times larger so a ping early in a window has time to draw a reply.
@@ -137,12 +141,12 @@ internal data class RouterConfig(
     /** Relays below this reliability score are never used (score 0 = opted out). */
     val minRelayScore: Double = 0.1,
     /**
-     * File-transfer lifetime (design §15): OFFER markers, relay reservations and transfer
-     * rows live this long. Must stay below crypto's superseded-session retention (checked in
-     * `wiring/ConfigInvariants`).
+     * A seal's lifetime: every transfer of it, at every hop, and every relay copy expire with it.
+     * Must stay below crypto's superseded-session retention (checked in `wiring/ConfigInvariants`),
+     * so a seal forwarded late still opens.
      */
     val fileTransferTtl: Duration = 2.days,
-    /** The pusher's in-flight window: pending chunk rows per transfer (≈4.1 MB of outbox at 16 chunks). */
+    /** A transfer's in-flight window: pending chunk rows per transfer (≈4.1 MB of outbox at 16 chunks). */
     val maxInFlightChunks: Int = 16,
     /**
      * Flat retry delay for FILE chunk rows (design §6.2), outside the message
@@ -155,13 +159,14 @@ internal data class RouterConfig(
      */
     val fileRequestAttemptTimeout: Duration = 90.seconds,
     /**
-     * How long a REQUEST waits for its OFFER after the ACK ("I hold it, serving") before
+     * How long a REQUEST waits for the serve's OFFER after the ACK ("I hold it, serving") before
      * the next candidate is asked.
      */
     val fileRequestWaitTimeout: Duration = 90.seconds,
     /**
-     * Chunk-phase deposit signal (design §6.3): a transfer with rows in flight and no chunk ACK
-     * at all for this long deposits its remainder at the policy-selected relays. Only the
+     * Chunk-phase gone signal: a transfer with chunks in flight and no ACK at all for this long
+     * reports its peer gone, and a seal's direct transfer deposits its remainder at the
+     * policy-selected relays. Only the
      * absence of every ACK counts; one slow or retried chunk never triggers it. Must stay below
      * the orchestrator's stall timeout (checked in `wiring/ConfigInvariants`), so the push acts
      * before the receiver re-requests.

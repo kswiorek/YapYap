@@ -1,0 +1,88 @@
+import kotlin.time.Instant;
+import kotlin.uuid.Uuid;
+import org.yapyap.protocol.ContentId;
+import org.yapyap.protocol.PeerId;
+import org.yapyap.protocol.TransferId;
+
+-- Every transfer this device sends (docs/envelope-redesign.md §5.3): one hop of one seal's chunks
+-- to [peer]. Ours carry a seal we hold (file_seals); a relay forward names the inbound relay
+-- transfer it forwards. Restart-recoverable from these rows plus the outbox. Status is a plain
+-- string mapped in the store.
+CREATE TABLE file_transfers_out (
+    transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
+    seal_id BLOB AS ContentId NOT NULL,
+    relay_transfer_id TEXT AS TransferId,
+    peer TEXT AS PeerId NOT NULL,
+    chunk_size INTEGER NOT NULL,
+    byte_from INTEGER NOT NULL,
+    byte_to INTEGER NOT NULL,
+    next_chunk_index INTEGER NOT NULL,
+    contiguous_acked INTEGER NOT NULL,
+    offer_packet_id TEXT AS Uuid,
+    status TEXT NOT NULL,
+    created_at INTEGER AS Instant NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL
+);
+
+CREATE INDEX file_transfers_out_seal_idx ON file_transfers_out(seal_id);
+CREATE INDEX file_transfers_out_relay_idx ON file_transfers_out(relay_transfer_id);
+
+-- Chunk index recovery across restarts: packet id → index, recorded when a chunk is enqueued, so
+-- a restart rebuilds the window from outbox rows instead of re-encrypting.
+CREATE TABLE file_transfer_chunks (
+    transfer_id TEXT AS TransferId NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    packet_id TEXT AS Uuid NOT NULL,
+    PRIMARY KEY (transfer_id, chunk_index),
+    FOREIGN KEY (transfer_id) REFERENCES file_transfers_out(transfer_id) ON DELETE CASCADE
+);
+
+CREATE INDEX file_transfer_chunks_packet_idx ON file_transfer_chunks(packet_id);
+
+insertFileTransfer:
+INSERT INTO file_transfers_out (
+    transfer_id, seal_id, relay_transfer_id, peer, chunk_size, byte_from, byte_to,
+    next_chunk_index, contiguous_acked, offer_packet_id, status, created_at, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?);
+
+selectFileTransfer:
+SELECT * FROM file_transfers_out WHERE transfer_id = ?;
+
+selectFileTransfersWithStatus:
+SELECT * FROM file_transfers_out WHERE status IN ?;
+
+selectFileTransfersBySeal:
+SELECT * FROM file_transfers_out WHERE seal_id = ?;
+
+selectFileTransfersByRelayTransfer:
+SELECT * FROM file_transfers_out WHERE relay_transfer_id = ?;
+
+updateFileTransferStatus:
+UPDATE file_transfers_out SET status = ? WHERE transfer_id = ?;
+
+updateFileTransferOffer:
+UPDATE file_transfers_out SET offer_packet_id = ? WHERE transfer_id = ?;
+
+updateFileTransferProgress:
+UPDATE file_transfers_out SET next_chunk_index = ?, contiguous_acked = ? WHERE transfer_id = ?;
+
+deleteFileTransfer:
+DELETE FROM file_transfers_out WHERE transfer_id = ?;
+
+deleteFileTransfersBySeal:
+DELETE FROM file_transfers_out WHERE seal_id = ?;
+
+insertFileTransferChunk:
+INSERT OR REPLACE INTO file_transfer_chunks (transfer_id, chunk_index, packet_id) VALUES (?, ?, ?);
+
+selectFileTransferChunks:
+SELECT chunk_index, packet_id FROM file_transfer_chunks WHERE transfer_id = ?;
+
+selectFileTransferChunkByPacket:
+SELECT transfer_id, chunk_index FROM file_transfer_chunks WHERE packet_id = ?;
+
+deleteFileTransferChunkByPacket:
+DELETE FROM file_transfer_chunks WHERE packet_id = ?;
+
+deleteFileTransferChunks:
+DELETE FROM file_transfer_chunks WHERE transfer_id = ?;

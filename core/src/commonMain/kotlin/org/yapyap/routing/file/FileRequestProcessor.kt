@@ -9,16 +9,13 @@ import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.envelope.FileEnvelopeProtection
-import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.FileHeader
+import org.yapyap.protocol.envelopes.FileRequest
 import org.yapyap.routing.candidate.AttemptExecutor
 import org.yapyap.routing.candidate.AttemptState
 import org.yapyap.routing.candidate.BuiltAttempt
@@ -48,7 +45,7 @@ import kotlin.uuid.Uuid
  * File request loop (design §9): one candidate at a time.
  *
  * Small files: sealed REQUEST through the outbox, ACK, then WAITING for the
- * OFFER; DECLINED moves to the next candidate. The sealed REQUEST is
+ * serve's OFFER; DECLINED moves to the next candidate. The sealed REQUEST is
  * direct-only — it never goes through a relay. Runs on the shared candidate
  * core with an outbox executor.
  *
@@ -60,7 +57,6 @@ import kotlin.uuid.Uuid
  */
 internal class FileRequestProcessor(
     ctx: RoutingContext,
-    protection: FileEnvelopeProtection,
     private val attempts: FileRequestAttemptStore,
     private val requests: FileRequestSource,
     outboxProcessor: OutboxProcessor,
@@ -73,7 +69,7 @@ internal class FileRequestProcessor(
     webRtcLinks: LinkKeeper,
     fetchService: FileFetchService,
 ) {
-    private val strategy = FileRequestStrategy(ctx, protection, attempts, requests, outboxProcessor, events)
+    private val strategy = FileRequestStrategy(ctx, attempts, requests, outboxProcessor, events)
     private val smallCore = CandidateRequestCore(
         ctx = ctx,
         strategy = strategy,
@@ -129,9 +125,9 @@ internal class FileRequestProcessor(
     suspend fun onAttemptOutcome(outcome: OutboxOutcome) = smallCore.onAttemptOutcome(outcome)
 
     /**
-     * The holder's OFFER arrived: the serve transfer takes over. Drops our asking
-     * state (a proactive push also lands here — with no attempt row it is a no-op)
-     * and reports satisfaction to the orchestrator.
+     * A seal of [fileId] arrived: its transfer takes over. Drops our asking state (a
+     * proactive push also lands here — with no attempt row it is a no-op) and reports
+     * satisfaction to the orchestrator.
      */
     suspend fun onOfferReceived(fileId: FileId) {
         val core = coreFor(fileId) ?: return
@@ -148,7 +144,6 @@ internal class FileRequestProcessor(
 /** Small-path plug into the shared candidate core: coverage-built REQUESTs, ACK→WAITING. */
 internal class FileRequestStrategy(
     private val ctx: RoutingContext,
-    private val protection: FileEnvelopeProtection,
     private val store: FileRequestAttemptStore,
     private val requests: FileRequestSource,
     private val outbox: OutboxProcessor,
@@ -178,8 +173,8 @@ internal class FileRequestStrategy(
             store.removeDeclined(id, devices)
         override suspend fun setWaiting(id: FileId, device: PeerId, until: Instant) {
             val row = store.findById(id) ?: return
-            val transferId = row.requestTransferId ?: return
-            store.setWaiting(id, device, until, transferId)
+            val attemptId = row.attemptId ?: return
+            store.setWaiting(id, device, until, attemptId)
         }
 
         override suspend fun clearWaiting(id: FileId) = store.clearWaiting(id)
@@ -200,50 +195,37 @@ internal class FileRequestStrategy(
         // the file needs no request (already READY) — the core drops the row. Seal
         // failures propagate: the core logs and re-arms on backoff.
         val coverage = requests.heldCoverage(id) ?: return null
-        val transferId = TransferId(Uuid.random())
-        val payload = FilePayload.Request(
+        val request = FileRequest(
             fileId = id,
             contiguousBytes = coverage.contiguousBytes,
-            missingRanges = coverage.missingRanges.take(FilePayload.Request.MAX_MISSING_RANGES),
+            missingRanges = coverage.missingRanges.take(FileRequest.MAX_MISSING_RANGES),
         )
-        val envelope = protection.protect(
-            payload,
-            FileProtectContext(
-                sourceDeviceId = ctx.localDeviceId,
-                targetDeviceId = device,
-                createdAt = now,
-                transferId = transferId,
-            ),
+        val envelope = ctx.envelope(
+            packetType = PacketType.FILE,
+            target = device,
+            routingHeader = FileHeader.Request.encode(),
+            content = ctx.envelopeProtections.file.sealRequest(request, device),
+            expiresAt = now + ctx.routerConfig.value.fileRequestAttemptTimeout,
+            dispositionRequested = true,
         )
-        return BuiltAttempt(
-            BinaryEnvelope(
-                packetId = Uuid.random(),
-                packetType = PacketType.FILE,
-                dispositionRequested = true,
-                createdAt = now,
-                expiresAt = now + ctx.routerConfig.value.fileRequestAttemptTimeout,
-                source = ctx.localDeviceId,
-                target = device,
-                payload = envelope.encode(),
-            ),
-            OutboxTag(OutboxTag.Kind.FILE_REQUEST, transferId.value),
-        )
+        // The attempt's id correlates its outbox outcome back to the file.
+        return BuiltAttempt(envelope, OutboxTag(OutboxTag.Kind.FILE_REQUEST, Uuid.random()))
     }
 
     override suspend fun afterEnqueue(id: FileId, built: BuiltAttempt) {
-        store.setRequestTransfer(id, TransferId(built.tag.id))
+        store.setAttempt(id, built.tag.id)
     }
 
     override suspend fun attemptState(id: FileId): AttemptState {
         val row = store.findById(id) ?: return AttemptState.None
-        val transferId = row.requestTransferId ?: return AttemptState.None
-        val queued = outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE_REQUEST, transferId.value))
+        val attemptId = row.attemptId ?: return AttemptState.None
+        val queued = outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE_REQUEST, attemptId))
         return if (queued) AttemptState.Pending else AttemptState.None
     }
 
     override suspend fun resolveOutcome(outcome: OutboxOutcome): FileId? {
         if (outcome.tag.kind != OutboxTag.Kind.FILE_REQUEST) return null
-        return store.findByTransferId(TransferId(outcome.tag.id))?.fileId
+        return store.findByAttemptId(outcome.tag.id)?.fileId
     }
 
     override suspend fun onSuccess(id: FileId, device: PeerId): SuccessAction {

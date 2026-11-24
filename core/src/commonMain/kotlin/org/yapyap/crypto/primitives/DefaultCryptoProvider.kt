@@ -16,7 +16,6 @@ import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.random.Random
@@ -86,9 +85,6 @@ internal class DefaultCryptoProvider(
         require(size > 0) { "size must be greater than 0" }
         return random.nextBytes(size)
     }
-
-    override fun generateNonce(scheme: SignalSecurityScheme): ByteArray =
-        random.nextBytes(scheme.nonceSize)
 
     override suspend fun deriveSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray {
         require(privateKey.isNotEmpty()) { "privateKey must not be empty" }

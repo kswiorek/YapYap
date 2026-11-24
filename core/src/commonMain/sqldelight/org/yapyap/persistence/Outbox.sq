@@ -82,8 +82,8 @@ SELECT * FROM outbox
 WHERE target_device_id = ?;
 
 -- Due pass (design §6.2): ids, targets, tags and retry classes only — no blobs. Non-file rows
--- (messages, ACKs, pings, system traffic, REQUESTs) come before file rows (FILE_PUSH and
--- FILE_FORWARD: OFFER markers, chunks and transfer control) so a text
+-- (messages, ACKs, pings, system traffic, REQUESTs) come before file rows (FILE_TRANSFER:
+-- OFFERs and chunks) so a text
 -- message queued behind a full chunk window goes out first. Each class is
 -- oldest-first and bounded; claimed rows load their envelopes one by one. Targets at their
 -- per-target in-flight cap are hidden via :busyTargets (empty passes a sentinel that matches

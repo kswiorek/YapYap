@@ -5,16 +5,13 @@ the design, not the current state of any one class: when the code and this guide
 in one of them and raise it, don't silently follow the code.
 
 Deeper references: [`transport.md`](transport.md) (Tor/WebRTC links), [`router.md`](router.md) (router
-internals), [`e2ee.md`](e2ee.md) (sessions and ratchets), [`file/design.md`](file/design.md) (file transfer
-design; built, with the refactor's notes in [`file/refactor.md`](file/refactor.md)), [
-`global events.md`](global%20events.md)
+internals), [`e2ee.md`](e2ee.md) (sessions and ratchets), [`envelope-redesign.md`](envelope-redesign.md)
+(the one envelope every family shares, and the small-file path on seals and hops), [`file/design.md`](file/design.md)
+(file transfer design), [`global events.md`](global%20events.md)
 (accounts,
 devices, admin chain), [`room events.md`](room%20events.md) (rooms and membership), [`gui-api.md`](gui-api.md)
 (what the GUI may use).
 
-**Agreed, not built yet:** [`envelope-redesign.md`](envelope-redesign.md) changes the envelope layering for every
-family (signed hops, public routing header, end-to-end content) and the small-file path (seal once, transfers are
-hops). Where it disagrees with this guide or the file design, it is the newer decision.
 
 ## 1. What YapYap is
 
@@ -106,10 +103,12 @@ lose the boundary that matters most here: who knows about devices and packets, a
 
 ### Services beside the layers
 
-- **protocol** — wire types and codecs (`BinaryEnvelope`, `MessageEnvelope`, `SystemEnvelope`,
-  `BootstrapEnvelope`, `FileEnvelope`, `WebRtcSignalEnvelope`), ids (`AccountId`, `PeerId`, `RoomId`,
-  `TorEndpoint`), and the observability profiles (`EnvelopeObservability`) that say which routing metadata is
-  visible on the wire. Also the public identity vocabulary that travels on the wire (`protocol/identity`: public
+- **protocol** — wire types and codecs: the one `BinaryEnvelope` every family shares (a signed hop
+  header, a public routing header, end-to-end content) and each family's routing header (`MessageHeader`,
+  `SignalHeader`, `SystemPayload`, `BootstrapHeader`, `FileHeader`), ids (`AccountId`, `PeerId`, `RoomId`,
+  `TorEndpoint`, `ContentId`), and the observability profiles (`EnvelopeObservability`) that say which routing
+  metadata is visible on the wire. Also the public identity vocabulary that travels on the wire (`protocol/identity`:
+  public
   keys, prekey ids, `SignedPreKey`, `AccountIdentity`, `DeviceIdentity`) and the WebRTC signal types. It is the
   bottom of the graph: it depends on nothing else in the core. Codecs encode and decode; signing, hashing and
   encryption happen elsewhere (e.g. room ids are hashed by the DAG's `RoomIds` from bytes `protocol` defines).
@@ -117,8 +116,9 @@ lose the boundary that matters most here: who knows about devices and packets, a
   E2EE (X3DH, Double Ratchet, session manager). The identity services: `LocalIdentity` (who this device is;
   readable by every layer), `LocalKeys` (this device's private keys; crypto, protection and setup only) and
   `PeerKeys` (peers' public keys, strictly resolved). Owns its stores, including the keyring-backed key store.
-- **protection** — turns a payload into protected envelope bytes and back (sign, encrypt, verify, decrypt) for
-  each envelope family. Used by the router; built on crypto.
+- **protection** — the hop layer (`HopProtection`: every envelope is signed by the device that sends it,
+  relays included, and verified by the device that receives it) and each family's content protection (encrypt, decrypt;
+  file seals and chunk AEAD). Used by the router; built on crypto.
 - **persistence** — the database only: SQLDelight schema (`.sq`), migrations (`.sqm`), driver and column
   adapters, and the generated queries. It is infrastructure, not a layer. Stores — interface and SQL
   implementation — live with the layer that owns their tables: `crypto/store`, `routing/store`,
@@ -130,7 +130,7 @@ lose the boundary that matters most here: who knows about devices and packets, a
   `ConfigValue`, `UpdateResult`) and the config-file watcher. The aggregate of all layer configs (`RuntimeConfig`), the
   settings registry that maps file keys onto it, and loading, watching and distributing
   config live in the composition root.
-- **Size limits** — each layer states only its own framing overhead (`MessageEnvelope.maxPayloadBytes`,
+- **Size limits** — each layer states only its own framing overhead (`BinaryEnvelope.maxContentBytes`,
   `CryptoLimits.forSessionWireFrameBudget`); the composition root chains them from the transport limits
   (`wiring/MessageLimits`, `wiring/FileLimits`) and hands each consumer its piece: the router
   `TransportLimits` and `FileLimits`, crypto `CryptoLimits`, the orchestrator the max text size.
@@ -179,15 +179,16 @@ read-only interfaces that the *reading* layer declares (the router's `DeviceDire
 | `message_deliveries`                                                 | orchestrator   | the delivery tracker                                                                                                                                                                                            |
 | `rooms`, `room_members`                                              | orchestrator   | the room fold; GLOBAL membership: the global fold (the GLOBAL room itself is seeded by the schema)                                                                                                              |
 | `pending_syncs`, `pending_sync_candidate_accounts`                   | orchestrator   | the sync coordinator                                                                                                                                                                                            |
-| `sync_attempts`, `sync_declined_devices`                             | routing        | the message pull processor                                                                                                                                                                                        |
+| `sync_attempts`, `sync_declined_devices`                             | routing        | the message pull processor                                                                                                                                                                                      |
 | `device_routes`                                                      | routing        | the router: endpoints it proved, reliability, last seen (a proven endpoint overrides the declared one in `devices`)                                                                                             |
 | `outbox`, `dedup`                                                    | routing        | the router                                                                                                                                                                                                      |
 | `file_descriptors`                                                   | orchestrator   | the file store (`FileStore`): imports, finished receives (`adopt`), lost sources, quota                                                                                                                         |
 | `file_receives`, `file_receive_chunks`                               | orchestrator   | the receive engine; others change a receive only through its verbs (`FileReceiveControl`)                                                                                                                       |
 | `pending_file_requests`                                              | orchestrator   | the file request coordinator, including the user's accept and decline (`FileRequestControl`)                                                                                                                    |
-| `file_pushes`, `file_push_chunks`                                    | routing        | the push engine (per-transfer actors): transferId-grain send state per [`file/design.md`](file/design.md) §6                                                                                                    |
-| `file_incoming_transfers`                                            | routing        | `FileIncomingTransfers` (the target side's per-transfer rows): written only on OFFER accept, dropped on end                                                                                                     |
-| `file_relay_transfers`, `file_relay_chunks`                          | routing        | the relay door (admission and storage) and the push engine (forwards): transferId-grain relay state per [`file/design.md`](file/design.md) §7                                                                   |
+| `file_seals`                                                         | routing        | the seal registry: our seals, their deposit round and delivery state ([`envelope-redesign.md`](envelope-redesign.md) §5.2)                                                                                      |
+| `file_transfers_out`, `file_transfer_chunks`                         | routing        | the transfer engine: every transfer this device sends, ours and relay forwards (§5.3 there)                                                                                                                     |
+| `file_incoming_seals`, `file_incoming_transfers`                     | routing        | the target side: seals opened here (written the moment they open) and the transfers delivering them (§5.5 there)                                                                                                |
+| `file_relay_transfers`, `file_relay_chunks`                          | routing        | the relay door (admission and chunks) and the relay forwards (forgetting finished deposits) (§5.4 there)                                                                                                        |
 | `file_request_attempts`, `file_request_declined_devices`             | routing        | the file request processor: transferId-grain state per [`file/design.md`](file/design.md) §9                                                                                                                    |
 | `spaces`                                                             | not in use yet | —                                                                                                                                                                                                               |
 
@@ -213,7 +214,7 @@ Rules:
   `protocol/identity`) and private keys (`SigningPrivateKey`, `EncryptionPrivateKey`, under `PrivateKey` in
   `crypto/keys`) are separate hierarchies, so a private key can never stand where a wire key is expected. All
   wrap the bytes, compare by content, and never print a private key. Prekey ids are `SignedPreKeyId` /
-  `OneTimePreKeyId`. Per-transfer file keys are `TransferKey` (exactly 32 bytes, never printed) through
+  `OneTimePreKeyId`. File seal keys are `SealKey` (exactly 32 bytes, never printed) through
   protection and the routing rows. Raw `ByteArray` keys appear only at the wire (codecs, payload classes)
   and inside the ratchet; convert at that boundary.
 - **Keyring entries are `KeySlot`s.** Each key the app holds outside the database has one slot; its keyring
@@ -285,24 +286,21 @@ never a loss.
 ### Outcomes and delivery state
 
 - Every outbox entry that someone waits on carries a tag saying what it is for (a message push, a bootstrap
-  packet, a sync attempt, a file transfer: `FILE_PUSH` for our transfers, `FILE_FORWARD` for relay forwards,
-  `FILE_REQUEST` for REQUESTs). However the entry leaves the outbox — ACK, terminal NACK, expiry —
+  packet, a sync attempt, a file transfer: `FILE_TRANSFER` for every transfer we send, ours and relay
+  forwards alike, `FILE_REQUEST` for REQUESTs). However the entry leaves the outbox — ACK, terminal NACK, expiry —
   the outcome is reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets
   a tag; it does not add another callback path. The due query loads only ids, targets, tags and retry classes (never
   blobs), claims non-file rows first, hides targets already at their per-target in-flight cap, and
   FILE chunk rows retry at their own flat delay (`FLAT`) instead of the message
-  backoff (`STANDARD` for OFFER markers and REQUESTs, which keep the message schedule).
-- File relay backup is split by packet kind: whether a row backs up is its own `RelayBackup`
-  flag — PENDING only on authoring markers and messages, never on chunks or control packets.
-  FILE OFFER markers use the message triggers — no link at claim, a retry (the earlier attempt went
-  unacknowledged), no ACK in time — because a marker that never lands
-  leaves the whole transfer stranded with no chunk rows to watch. FILE chunk rows never back up:
-  one slow or retried chunk must not multiply traffic. Their deposit signal is gone-only — the
-  target's link closed, no link at claim time, or no chunk ACK at all for `chunkAckTimeout` while
-  rows are in flight. One deposit round per source transfer at most (claimed durably on the
-  source row), parallel over the relays the
-  reliability policy returns; the sender never chases a failing relay and forwarding relays never
-  re-deposit (one relay hop, ever).
+  backoff (`STANDARD` for OFFERs and REQUESTs, which keep the message schedule).
+- Relay backup is a message mechanism: a message row owing one (`RelayBackup.PENDING`) gets the same
+  routing header and content in a new envelope to each relay the reliability policy returns — no link at
+  claim time, a retry, or no ACK within `relayBackupAfter` — once, and the copy keeps the original's
+  expiry. Files never use it: a seal's direct transfer deposits its remainder itself when its peer looks
+  gone (before the OFFER lands: no link or no ACK in time; after: no link, its link closing, or no chunk
+  ACK at all for `chunkAckTimeout` — never one slow chunk), one round per seal, the same seal at every
+  relay, and a forwarding relay never re-deposits (one relay hop, ever). See
+  [`envelope-redesign.md`](envelope-redesign.md) §5.4.
 - Upward, the router reports only push-path ACKs, per account (`MessageCarrier.deliveries` for messages,
   `BootstrapCarrier.deliveries` for bootstrap packets). An ACK proves delivery;
   its absence proves nothing, since relays and the pull path never ACK to the original sender.
@@ -314,7 +312,7 @@ never a loss.
 
 `ProtectionDisposition` is two-valued:
 
-- `PERMANENT` — these bytes are dead (bad signature, replay, violation, corrupt).
+- `PERMANENT` — these bytes are dead (bad signature, violation, corrupt, or already opened).
 - `DEFER` — prerequisites missing (session/identity not ready). There is no "retryable" protection verdict:
   retry policy is owned by the outbox.
 
@@ -323,7 +321,12 @@ never a loss.
 - `DEFER` is silent by design: no ACK, no NACK, dedup row cleared, so the sender's resend is processed fresh
   once the prerequisite lands. A NACK here would either replay a stale verdict for later duplicates or falsely
   ACK the packet through the duplicate-replay path.
-- `ACK` means processed — never sent before a successful decrypt-and-handle.
+- `ACK` means processed — never sent before a successful decrypt-and-handle. Content opened before (a
+  ratchet replay: the same content by two routes) is `ProtectionException.Duplicate`, and is ACKed: it was
+  processed when it was first opened.
+- Every envelope is signed by its hop's source. A known source's signature is checked before dedup and
+  before any handler; a packet that fails it is dropped unanswered. Only BOOTSTRAP (its content carries its
+  own authentication) and the bootstrap dispositions below get through from a source we have no key for.
 - The sender owns a message until it decrypts on the receiver: there is no inbound hold queue; the sender's
   outbox retry is the only recovery path for undecryptable packets.
 - A received NACK's meaning is a pure function of its reason, decided in one place in the router. Terminal
@@ -341,7 +344,7 @@ never a loss.
   fetches are the second: the requesting device opens a WebRTC session (signaled over Tor) and pulls the bytes
   on a dedicated data channel, which never touches the outbox, the envelope pipeline or Tor payloads.
 - Unknown devices: an ACK/NACK from a device with no row is accepted only when it refers to a bootstrap packet
-  in our outbox addressed to exactly that device (a recovering device can't verify its sponsor's signature yet;
+  in our outbox addressed to exactly that device (a recovering device can't verify its sponsor's hop signature yet;
   the unguessable packet id authenticates the reply). It is never answered. Accepted bootstrap ACKs are
   reported to the orchestrator so onboarding can show "request delivered".
 
@@ -372,9 +375,10 @@ Working:
 - 1:1 E2EE (X3DH + Double Ratchet) for messages and WebRTC signaling.
 - Global chain (accounts, devices, admin roles), rooms with a membership fold, the message DAG and sync.
 - Onboarding by invite, adding devices, recovery.
-- Small-file transfer, both paths: direct push, REQUEST/serve pull path, relay deposits
-  with store-and-forward, stall deposit and the receiver gap trigger, receive engine with
-  file store (per-transfer keys via `TransferKey`, hardened codecs); large files pull-only over WebRTC data channels
+- Small-file transfer on seals and hops: a file sealed once per target device, a direct transfer, a
+  deposit of the same seal at relays when the target looks gone, relays forwarding whole deposits,
+  the REQUEST/serve pull path, the receiver gap trigger and the receive engine with the file store; large files
+  pull-only over WebRTC data channels
   (fetch protocol, no envelopes, no keys — DTLS plus the block list — and the receive engine shared with small files).
 - Compose desktop GUI.
 
@@ -382,10 +386,12 @@ Not done yet:
 
 - GUI file surface (progress, accept/decline, open: the core's `FileTransferService` has them, no screen calls them
   yet) — the envelope family, file protection, both
-  transfer paths and storage are built; the order of the rest is in [`file/plan.md`](file/plan.md) steps 23–24.
+  transfer paths and storage are built.
 - File transfer soak and test matrix (multi-GB fetches with forced drops, receiver restarts).
 - Audio/video media (session contracts exist; media tracks do not).
 - Mobile: push and background behavior, network monitoring on Android/iOS.
+- `file/design.md` rewritten on seals and hops ([`envelope-redesign.md`](envelope-redesign.md) is the
+  newer decision where they differ).
 - Signed-prekey rotation and the remaining epoch lifecycle work (see [`e2ee.md`](e2ee.md)).
 - Metadata minimization beyond the current observability profiles (desirable, not a v1 blocker).
 

@@ -1,8 +1,13 @@
 package org.yapyap.routing.inbound
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -12,7 +17,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
@@ -20,7 +24,11 @@ import org.yapyap.routing.policy.NackAction
 import org.yapyap.routing.policy.nackActionFor
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.presence.PingProvider
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.DeviceRouteStore
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.InboundSideEffect
+import org.yapyap.routing.router.RouterTransport
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.TorLinkId
@@ -126,6 +134,24 @@ internal class InboundEnvelopeProcessor(
                 fields = mapOf(
                     "sourceDeviceId" to inbound.source,
                     "packetType" to inbound.packetType,
+                ),
+            )
+            return
+        }
+
+        // Every hop signs what it sends (docs/envelope-redesign.md §3.1). A known source's
+        // signature is checked before dedup, so a forged packet can never claim a real packet id
+        // and is never answered. An unknown source has no key to check: only BOOTSTRAP gets this
+        // far, and its content carries its own authentication.
+        if (knownDevice && !ctx.envelopeProtections.hop.verify(inbound)) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                message = "Inbound hop signature did not verify; dropped",
+                fields = mapOf(
+                    "packetId" to inbound.packetId,
+                    "packetType" to inbound.packetType,
+                    "sourceDeviceId" to inbound.source,
                 ),
             )
             return
@@ -257,10 +283,8 @@ internal class InboundEnvelopeProcessor(
 
         // Before the side effects: a ping's echo (a side effect) should already go out on the
         // link adopted here.
-        if (handleResult is InboundHandleResult.Success
-            && handleResult.sourceAuthenticated
-            && provenSourceEndpoint != null
-        ) {
+        // The hop signature authenticated a known source, so its arrival onion can heal the mapping.
+        if (handleResult is InboundHandleResult.Success && knownDevice && provenSourceEndpoint != null) {
             reconcileSourceEndpoint(inbound.source, provenSourceEndpoint)
             if (arrivalLink != null) adoptArrivalLink(inbound.source, handleResult, arrivalLink, provenSourceEndpoint)
         }
@@ -371,7 +395,7 @@ internal class InboundEnvelopeProcessor(
     /**
      * Endpoint reconciliation [Sprint 4]: heals the source's stored Tor mapping (onion
      * rotation) from the transport-proven arrival onion — but only after the packet
-     * authenticated ([InboundHandleResult.Success.sourceAuthenticated]). Rewriting on
+     * authenticated (its hop signature verified, see [handle]). Rewriting on
      * arrival alone would let anyone who knows a peer's device id redirect its mapping
      * with a single spoofed packet (the packet itself would then fail authentication,
      * but the mapping would already be poisoned).
@@ -452,9 +476,8 @@ internal class InboundEnvelopeProcessor(
      * packet falls through to the normal drop) for anything else.
      */
     private suspend fun handleUnknownSourceDisposition(inbound: BinaryEnvelope): Boolean {
-        val system = runCatching { SystemEnvelope.decode(inbound.payload) }.getOrNull() ?: return false
-        if (system.source != inbound.source || system.target != ctx.localDeviceId) return false
-        val payload = runCatching { system.decodePayload() }.getOrNull() ?: return false
+        if (inbound.target != ctx.localDeviceId) return false
+        val payload = runCatching { SystemPayload.decode(inbound.routingHeader) }.getOrNull() ?: return false
         val (packetId, acked) = when (payload) {
             is SystemPayload.PacketAck -> payload.packetId to true
             is SystemPayload.PacketNack -> payload.packetId to false

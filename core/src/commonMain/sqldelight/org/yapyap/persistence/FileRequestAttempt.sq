@@ -1,19 +1,18 @@
-import kotlin.uuid.Uuid;
 import kotlin.time.Instant;
 import org.yapyap.protocol.FileId;
 import org.yapyap.protocol.PeerId;
-import org.yapyap.protocol.TransferId;
+import kotlin.uuid.Uuid;
 
 -- Router-owned: how a pending file request is being asked for. Mirrors SyncAttempt.sq,
 -- keyed by fileId instead of syncId, plus the WAITING state (ACK received, OFFER pending)
--- and the in-flight REQUEST's transferId for outcome correlation.
+-- and the in-flight REQUEST's attempt id for outcome correlation.
 CREATE TABLE file_request_attempts(
     file_id TEXT AS FileId NOT NULL PRIMARY KEY,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER AS Instant NOT NULL,
     waiting_device TEXT AS PeerId,
     waiting_until INTEGER AS Instant,
-    request_transfer_id TEXT AS TransferId,
+    request_attempt_id TEXT AS Uuid,
     request_class TEXT NOT NULL
 );
 
@@ -54,21 +53,21 @@ WHERE next_attempt_at > :now AND file_id IN :fileIds;
 selectFileRequestById:
 SELECT * FROM file_request_attempts WHERE file_id = ?;
 
-selectFileRequestByTransferId:
-SELECT * FROM file_request_attempts WHERE request_transfer_id = ?;
+selectFileRequestByAttemptId:
+SELECT * FROM file_request_attempts WHERE request_attempt_id = ?;
 
 setFileRequestWaiting:
 UPDATE file_request_attempts
-SET waiting_device = ?, waiting_until = ?, request_transfer_id = ?
+SET waiting_device = ?, waiting_until = ?, request_attempt_id = ?
 WHERE file_id = ?;
 
 clearFileRequestWaiting:
 UPDATE file_request_attempts
-SET waiting_device = NULL, waiting_until = NULL, request_transfer_id = NULL
+SET waiting_device = NULL, waiting_until = NULL, request_attempt_id = NULL
 WHERE file_id = ?;
 
-setFileRequestTransfer:
-UPDATE file_request_attempts SET request_transfer_id = ? WHERE file_id = ?;
+setFileRequestAttempt:
+UPDATE file_request_attempts SET request_attempt_id = ? WHERE file_id = ?;
 
 selectDeclinedFileRequestDevices:
 SELECT device_id FROM file_request_declined_devices WHERE file_id = ?;

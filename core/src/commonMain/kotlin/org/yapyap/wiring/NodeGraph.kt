@@ -54,20 +54,22 @@ import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
+import org.yapyap.protection.envelope.RatchetFileProtection
+import org.yapyap.protection.envelope.RatchetMessageProtection
+import org.yapyap.protection.envelope.RatchetSealer
+import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedHopProtection
+import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.DefaultDeviceRouteStore
-import org.yapyap.routing.store.DefaultFileIncomingTransferStore
-import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileRequestAttemptStore
+import org.yapyap.routing.store.DefaultFileSealStore
+import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.DefaultPacketDeduplicator
 import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.routing.store.DefaultSyncAttemptStore
@@ -127,8 +129,9 @@ internal class NodeGraph(
     private val roomRepository = DefaultRoomRepository(database)
     private val pendingSyncRepository = DefaultPendingSyncRepository(database)
     private val deviceRoutes = DefaultDeviceRouteStore(database, identityStore)
-    private val fileIncomingStore = DefaultFileIncomingTransferStore(database)
-    private val filePushStore = DefaultFilePushStore(database)
+    private val fileSealStore = DefaultFileSealStore(database)
+    private val fileTransferStore = DefaultFileTransferStore(database)
+    private val fileIncomingStore = DefaultFileIncomingStore(database)
     private val fileRelayStore = DefaultFileRelayStore(database)
     private val fileRequestAttemptStore = DefaultFileRequestAttemptStore(database)
     private val fileDescriptorStore = DefaultFileDescriptorStore(database)
@@ -198,16 +201,13 @@ internal class NodeGraph(
         sessionConfig = config.cryptoConfig,
     )
     private val signatureProvider = DefaultSignatureProvider(localKeys, peerKeys, crypto)
-    private val envelopeProtections = DefaultEnvelopeProtections(
-        signal = SignedAndEncryptedWebRtcSignalProtection(
-            signatureProvider,
-            cryptoSessionManager,
-            crypto
-        ),
-        message = SignedAndEncryptedMessageProtection(signatureProvider, cryptoSessionManager, crypto),
-        system = SignedSystemProtection(signatureProvider, crypto),
+    private val ratchet = RatchetSealer(cryptoSessionManager)
+    private val envelopeProtections = EnvelopeProtections(
+        hop = SignedHopProtection(signatureProvider, crypto),
+        signal = RatchetWebRtcSignalProtection(ratchet),
+        message = RatchetMessageProtection(ratchet),
         bootstrap = BootstrapProtection(crypto, vault.bootstrapSessionStore),
-        file = SignedAndEncryptedFileProtection(signatureProvider, cryptoSessionManager, crypto),
+        file = RatchetFileProtection(ratchet, crypto),
     )
 
     private val maintenance = MaintenanceScheduler(
@@ -254,8 +254,9 @@ internal class NodeGraph(
         fileIngest = fileReceiveEngine,
         fileRequests = fileRequestSource,
         filePlaintext = DefaultFilePlaintextSource(fileDescriptorStore, fileStore, fileAccess, crypto),
+        fileSealStore = fileSealStore,
+        fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
-        filePushStore = filePushStore,
         fileRelayStore = fileRelayStore,
         fileRequestAttemptStore = fileRequestAttemptStore,
     )

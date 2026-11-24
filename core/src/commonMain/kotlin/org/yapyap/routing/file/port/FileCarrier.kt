@@ -45,7 +45,16 @@ internal sealed interface FileEvent {
         val requester: AccountId,
     ) : FileEvent
 
-    /** A send or serve transfer completed end-to-end (COMPLETE from the target). */
+    /**
+     * Our send to [target] is handed off: what the target holds plus a relay's whole copy cover
+     * the file, so relays deliver the rest without us. Not a delivery proof (docs/envelope-redesign.md §5.6).
+     */
+    data class OutgoingHandedOff(
+        val fileId: FileId,
+        val target: AccountId,
+    ) : FileEvent
+
+    /** Our send to [target] was delivered: the target holds the file. */
     data class OutgoingComplete(
         val fileId: FileId,
         val target: AccountId,
@@ -73,7 +82,7 @@ internal enum class FileFailureReason {
     /** The user cancelled. */
     CANCELLED,
 
-    /** The transfer ended without a COMPLETE: the outcome at the target is unknown (design §6.1, §14). */
+    /** Every transfer ended without delivery or hand-off: the outcome at the target is unknown. */
     ENDED,
 
     /** This device could not go on (the file unreadable, verification failed). */
@@ -85,10 +94,10 @@ internal enum class FileFailureReason {
  * through [FileCarrier.endIncoming]; routing owns the resulting signaling and row cleanup.
  */
 internal sealed interface FileReceiveEnd {
-    /** The file is complete and verified: send COMPLETE to every live transfer author. */
+    /** The file is complete and verified: tell the senders and the seals' origins. */
     data object Ready : FileReceiveEnd
 
-    /** The receive stopped: send CANCEL with [reason] to every live transfer author. */
+    /** The receive stopped: send CANCEL with [reason] to every live incoming transfer's sender. */
     data class Cancelled(val reason: FileCancelReason) : FileReceiveEnd
 }
 
@@ -107,14 +116,14 @@ internal interface FileCarrier {
     /** End our push of [fileId] to [target]'s devices (user cancel). */
     suspend fun cancelFile(fileId: FileId, target: AccountId)
 
-    /** Per-account send state (design §12–§13): computed from `file_pushes`, no new table. */
+    /** Per-account send state, computed from our seals of [fileId] (no table of its own). */
     suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState>
 
     /**
      * Starts asking candidate devices for [fileId] (idempotent), first at [firstAttemptAt]. What to
      * ask for and which accounts may hold it come from the [FileRequestSource]; routing asks one
-     * candidate at a time until an OFFER (small) or FETCH_OK (large) arrives or every candidate
-     * declines.
+     * candidate at a time until a seal of the file (small) or FETCH_OK (large) arrives or every
+     * candidate declines.
      */
     suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
 
@@ -127,10 +136,11 @@ internal interface FileCarrier {
     suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason)
 
     /**
-     * The receive of [fileId] ended ([end]). Routing answers every live **incoming** transfer
-     * author — COMPLETE for [FileReceiveEnd.Ready], CANCEL for [FileReceiveEnd.Cancelled] — and
-     * drops the incoming rows. Incoming only: our outgoing pushes and serves of the same file are
-     * separate sends, ended by their own targets' COMPLETE (design §6.5) or TTL.
+     * The receive of [fileId] ended ([end]). For [FileReceiveEnd.Ready] routing tells every live
+     * incoming transfer's sender that it holds everything and sends each seal's origin a
+     * COMPLETE; for [FileReceiveEnd.Cancelled] it CANCELs the live incoming transfers. The
+     * incoming transfer rows go either way. Incoming only: our own sends and serves of the same
+     * file are separate, ended by their own targets.
      *
      * File-scoped, never peer-scoped: the orchestrator never names devices. The answer is
      * politeness — an unanswered author's transfer ends on its own TTL — so this is idempotent
@@ -148,6 +158,9 @@ internal data class FileSendState(
 
 internal enum class FileSendStatus {
     SENDING,
+
+    /** Relays hold the rest and deliver it; shown as sent, not as delivered. */
+    HANDED_OFF,
     COMPLETED,
     ENDED,
     EXPIRED,

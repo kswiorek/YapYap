@@ -28,25 +28,26 @@ Primary implementation locations:
 
 ```
 Router.sendMessage
-  → SignedAndEncryptedMessageProtection.protect
+  → RatchetMessageProtection.seal (RatchetSealer)
     → DefaultCryptoSessionManager.encryptMessage
       → X3DH bootstrap (first contact, epoch 1)
       → DoubleRatchetSession.encrypt
-    → SessionWireFrame.encode → MessageEnvelope.payload
-  → Ed25519 signature over MessageEnvelope
-  → BinaryEnvelope → Tor / WebRTC
+    → SessionWireFrame.encode → BinaryEnvelope content
+  → BinaryEnvelope (MessageHeader: origin, final target) signed by the hop (HopProtection)
+  → Tor / WebRTC
 ```
 
-On receive, the path is reversed: verify envelope signature, decode `SessionWireFrame`, bootstrap session from
-`outerHandshake` if needed, Double Ratchet decrypt, decode inner application bytes.
+On receive, the path is reversed: verify the hop signature, decode `SessionWireFrame`, bootstrap session from
+`outerHandshake` if needed (with the origin's session), Double Ratchet decrypt, decode inner application bytes. A
+frame opened before (`CryptoSessionException.Replay`) is a duplicate — the same content by two routes — and is
+ACKed, not refused ([`envelope-redesign.md`](envelope-redesign.md) §3.3).
 
 ### Layer responsibilities
 
 | Layer               | Protects                                                | Observable on the wire                                |
 |---------------------|---------------------------------------------------------|-------------------------------------------------------|
-| `BinaryEnvelope`    | Routing, dedup, delivery                                | `source`, `target`, `packetId`, `packetType`          |
-| `MessageEnvelope`   | Integrity (Ed25519)                                     | Headers + signed blob (includes crypto payload)       |
-| `SessionWireFrame`  | Session epoch, optional X3DH wire info                  | Inside signed payload                                 |
+| `BinaryEnvelope`    | Routing, dedup, delivery; hop integrity (Ed25519)       | Hop header, routing header (origin, final target)     |
+| `SessionWireFrame`  | Session epoch, optional X3DH wire info                  | The envelope's content                                |
 | `RatchetCiphertext` | Message confidentiality + header integrity (AEAD + AAD) | DH pubkey, counters in ratchet header; body encrypted |
 
 ---
@@ -114,13 +115,15 @@ are not published in advance. Starting with 3-DH allows:
 
 X3DH public material (ephemeral key, signed prekey ID, epoch, mode) is sent in `SessionWireFrame.outerHandshake`,
 outside the ratchet ciphertext. This matches the fundamental constraint of X3DH: the responder must see DH public keys
-to derive the shared secret. The block is **integrity-protected** by the Ed25519 `MessageEnvelope` signature, but **not
-confidential**.
+to derive the shared secret. The block is **not confidential**. On a direct send the hop signature is the origin's and
+covers it; on a relayed one the hop signature is the relay's, so the origin's authorship rests on the handshake and
+ratchet themselves: a frame decrypts only under keys derived from the origin's identity key, which a relay never holds,
+so tampering yields a decrypt failure, never a forgery.
 
 ### Identity binding via routing layer (planned)
 
 The handshake wire format does not include the initiator identity encryption key (IK). Session establishment currently
-trusts `MessageEnvelope.source` / roster lookup via `PeerKeys`. A future **signed encrypted DAG roster** will
+trusts the routing header's `origin` / roster lookup via `PeerKeys`. A future **signed encrypted DAG roster** will
 provide trustworthy device routing metadata.
 
 ### Immutable device identity (no IK rotation)
@@ -230,7 +233,7 @@ epoch-1 ephemeral.
   replay guard; inbound generation reset deferred until first decrypt succeeds
 - Wire decode bounds — `CryptoWireLimits` constants enforced in `ByteReader`/`ByteWriter` (max-size length-prefixed
   fields), session wire / ratchet / inner control decoders, skipped-keys persistence codec; outbound checks at encrypt
-  and `MessageEnvelope` open
+  and content open
 - Immutable device identity — `device_id` tied to signing key; no in-place identity key rotation; revocation = ban
   device + provision new device
 
@@ -582,8 +585,8 @@ Cost: superseded ratchet rows are retained one day longer; message lifetimes are
    existing `device_id`; new keys ⇒ new device record.
 2. **Device revocation** — A compromised device is banned/retired and replaced with a newly provisioned device (
    `device_id` changes). Sessions with the old id are not continued.
-3. **Envelope signatures** — Ed25519 on `MessageEnvelope` prevents tampering with signed fields including the crypto
-   payload.
+3. **Hop signatures** — Ed25519 on every `BinaryEnvelope`, by the hop that sends it, prevents tampering with the hop
+   and routing headers and the content in transit; end to end, the ratchet's AEAD authenticates the content.
 4. **SQLCipher** — Session secrets at rest depend on DB encryption and OS keystore for the master key.
 5. **Tor / relay observers** — Can see routing metadata and cleartext X3DH wire fields inside the signed payload.
    Message content remains encrypted.

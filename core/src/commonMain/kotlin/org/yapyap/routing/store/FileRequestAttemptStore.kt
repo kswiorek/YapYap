@@ -7,8 +7,8 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TransferId
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 internal enum class FileRequestClass {
     SMALL,
@@ -22,8 +22,8 @@ internal data class FileRequestAttempt(
     /** ACK received, OFFER pending: the device asked and the wait deadline, else null. */
     val waitingDevice: PeerId?,
     val waitingUntil: Instant?,
-    /** In-flight REQUEST's transferId for outcome correlation, else null. */
-    val requestTransferId: TransferId?,
+    /** In-flight REQUEST's attempt id for outcome correlation, else null. */
+    val attemptId: Uuid?,
     val requestClass: FileRequestClass,
 )
 
@@ -45,7 +45,7 @@ internal interface FileRequestAttemptStore {
     suspend fun findDue(now: Instant, limit: Int, requestClass: FileRequestClass): List<FileRequestAttempt>
 
     suspend fun findById(fileId: FileId): FileRequestAttempt?
-    suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt?
+    suspend fun findByAttemptId(attemptId: Uuid): FileRequestAttempt?
 
     /** Counts an attempt and schedules the next one. */
     suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant)
@@ -57,13 +57,13 @@ internal interface FileRequestAttemptStore {
     suspend fun advanceToNow(fileIds: Collection<FileId>, now: Instant)
 
     /** Enters WAITING for the OFFER from [device] until [until]. */
-    suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestTransferId: TransferId)
+    suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, attemptId: Uuid)
 
     /** Leaves WAITING (satisfied, timed out, or declined); clears the request ref too. */
     suspend fun clearWaiting(fileId: FileId)
 
-    /** Records the in-flight REQUEST's transferId for outcome correlation. */
-    suspend fun setRequestTransfer(fileId: FileId, transferId: TransferId)
+    /** Records the in-flight REQUEST's attempt id for outcome correlation. */
+    suspend fun setAttempt(fileId: FileId, attemptId: Uuid)
 
     suspend fun declinedDevices(fileId: FileId): Set<PeerId>
     suspend fun addDeclined(fileId: FileId, device: PeerId)
@@ -104,9 +104,9 @@ internal class DefaultFileRequestAttemptStore(
         row.toAttempt(queries.selectDeclinedFileRequestDevices(fileId).executeAsList().toSet())
     }
 
-    override suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt? =
+    override suspend fun findByAttemptId(attemptId: Uuid): FileRequestAttempt? =
         withContext(dbDispatcher) {
-            queries.selectFileRequestByTransferId(transferId).executeAsOneOrNull()?.let { row ->
+            queries.selectFileRequestByAttemptId(attemptId).executeAsOneOrNull()?.let { row ->
                 row.toAttempt(queries.selectDeclinedFileRequestDevices(row.file_id).executeAsList().toSet())
             }
         }
@@ -124,9 +124,9 @@ internal class DefaultFileRequestAttemptStore(
         withContext(dbDispatcher) { queries.advanceFileRequestsToNow(now, fileIds) }
     }
 
-    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestTransferId: TransferId) {
+    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, attemptId: Uuid) {
         withContext(dbDispatcher) {
-            queries.setFileRequestWaiting(device, until, requestTransferId, fileId)
+            queries.setFileRequestWaiting(device, until, attemptId, fileId)
         }
     }
 
@@ -134,8 +134,8 @@ internal class DefaultFileRequestAttemptStore(
         withContext(dbDispatcher) { queries.clearFileRequestWaiting(fileId) }
     }
 
-    override suspend fun setRequestTransfer(fileId: FileId, transferId: TransferId) {
-        withContext(dbDispatcher) { queries.setFileRequestTransfer(transferId, fileId) }
+    override suspend fun setAttempt(fileId: FileId, attemptId: Uuid) {
+        withContext(dbDispatcher) { queries.setFileRequestAttempt(attemptId, fileId) }
     }
 
     override suspend fun declinedDevices(fileId: FileId): Set<PeerId> =
@@ -162,7 +162,7 @@ internal class DefaultFileRequestAttemptStore(
         declinedDevices = declined,
         waitingDevice = waiting_device,
         waitingUntil = waiting_until,
-        requestTransferId = request_transfer_id,
+        attemptId = request_attempt_id,
         requestClass = FileRequestClass.valueOf(request_class),
     )
 }

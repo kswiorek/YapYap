@@ -8,7 +8,7 @@ import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
@@ -17,14 +17,14 @@ import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.isKnownNonBanned
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.uuid.Uuid
 
 /**
- * The sealed MESSAGE family's inbound face: relay transit for foreign targets, and locally the
- * content dispatch — a [DagPayload] node goes to the orchestrator's pipeline, a
- * pull-path [SyncPayload.Request] to [MessageInbound], whose serve-or-decline answer is
- * the packet's disposition. The type split is the guard: the DAG flow cannot carry a request.
+ * The MESSAGE family's inbound face: relay transit for packets whose final target is another
+ * device, and locally the content dispatch — a [DagPayload] node goes to the orchestrator's
+ * pipeline, a pull-path [SyncPayload.Request] to [MessageInbound], whose serve-or-decline answer
+ * is the packet's disposition. The type split is the guard: the DAG flow cannot carry a request.
  */
 internal class MessageInboundHandler(
     private val ctx: RoutingContext,
@@ -32,55 +32,24 @@ internal class MessageInboundHandler(
     private val inbound: MessageInbound,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
-        val messageEnvelope = runCatching { MessageEnvelope.decode(env.payload) }.getOrNull() ?: run {
+        val header = runCatching { MessageHeader.decode(env.routingHeader) }.getOrNull() ?: run {
             AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode message envelope",
+                message = "Failed to decode message header",
                 fields = mapOf("error" to "decode_failed"),
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
         }
-
-        if (messageEnvelope.target != ctx.localDeviceId) {
-            AppLog.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
-                message = "Message envelope received for peer ${messageEnvelope.target}",
-                fields = mapOf(
-                    "sourceDeviceId" to messageEnvelope.source,
-                    "targetDeviceId" to messageEnvelope.target,
-                    "localDeviceId" to ctx.localDeviceId,
-                ),
-            )
-            val now = ctx.clock.now()
-            val binaryEnvelope = BinaryEnvelope(
-                packetId = Uuid.random(),
-                packetType = PacketType.MESSAGE,
-                dispositionRequested = true,
-                createdAt = now,
-                expiresAt = now + ctx.routerConfig.value.binaryEnvelopeLifetime,
-                source = ctx.localDeviceId,
-                target = messageEnvelope.target,
-                payload = messageEnvelope.encode(),
-            )
-
-            return InboundHandleResult.Success(
-                sideEffects = listOf(InboundSideEffect.EnqueueForRelay(binaryEnvelope)),
-                // Deliberately unauthenticated: the inner payload is E2EE to its target,
-                // so this relay transit proves nothing about the claimed source. The
-                // processor must not heal endpoint mappings (or availability) from it.
-                sourceAuthenticated = false,
-            )
-        }
+        if (header.finalTarget != ctx.localDeviceId) return relay(env, header)
 
         val content = try {
-            ctx.envelopeProtections.message.open(messageEnvelope)
+            ctx.envelopeProtections.message.open(env.content, header.origin)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
             logInboundProtectionFailure(
-                message = "Failed to open message envelope",
+                message = "Failed to open message content",
                 packetId = env.packetId,
                 source = env.source,
                 exception = e,
@@ -91,13 +60,45 @@ internal class MessageInboundHandler(
         return when (content) {
             is DagPayload -> {
                 incomingMessages.emit(content)
-                InboundHandleResult.Success(sourceAuthenticated = true)
+                InboundHandleResult.Success()
             }
 
             is SyncPayload -> when (content) {
-                is SyncPayload.Request ->
-                    inbound.onSyncRequested(content, messageEnvelope.source)
+                is SyncPayload.Request -> inbound.onSyncRequested(content, header.origin)
             }
         }
+    }
+
+    /**
+     * Store-and-forward for another device (docs/envelope-redesign.md §3.2): admitted only from
+     * its origin (one hop, ever — relays never accept from relays), for a known final target. The
+     * forward is our own envelope with the same header and content and the same expiry.
+     */
+    private suspend fun relay(env: BinaryEnvelope, header: MessageHeader): InboundHandleResult {
+        if (env.source != header.origin ||
+            !ctx.devices.isKnownNonBanned(header.origin) ||
+            ctx.devices.getDeviceStatus(header.finalTarget) == null
+        ) {
+            AppLog.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_WRONG_TARGET,
+                message = "Declined relay transit: not from its origin, or for an unknown device",
+                fields = mapOf(
+                    "sourceDeviceId" to env.source,
+                    "originDeviceId" to header.origin,
+                    "finalTargetDeviceId" to header.finalTarget,
+                ),
+            )
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        val forward = ctx.envelope(
+            packetType = PacketType.MESSAGE,
+            target = header.finalTarget,
+            routingHeader = env.routingHeader,
+            content = env.content,
+            expiresAt = env.expiresAt,
+            dispositionRequested = true,
+        )
+        return InboundHandleResult.Success(sideEffects = listOf(InboundSideEffect.EnqueueForRelay(forward)))
     }
 }

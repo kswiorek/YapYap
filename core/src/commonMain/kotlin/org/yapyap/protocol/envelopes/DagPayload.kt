@@ -1,6 +1,17 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.DagPayloadType
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MAX_FILE_NAME_BYTES
+import org.yapyap.protocol.MAX_FILE_NAME_CHARS
+import org.yapyap.protocol.MAX_MIME_TYPE_BYTES
+import org.yapyap.protocol.MAX_MIME_TYPE_CHARS
+import org.yapyap.protocol.MessagePayloadFamily
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -30,7 +41,7 @@ internal sealed interface DagPayload : MessagePayload {
     /**
      * Sender's wall-clock composition time, set once by
      * [org.yapyap.orchestrator.dag.DagEngine.append] at send time and carried on the wire
-     * unchanged. Distinct from [MessageEnvelope.createdAt] (transport-level, set at envelope
+     * unchanged. Distinct from [BinaryEnvelope.createdAt] (transport-level, set at envelope
      * assembly). Used as the primary GUI display-order key.
      */
     val createdAt: Instant

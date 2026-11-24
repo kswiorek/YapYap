@@ -79,6 +79,7 @@ internal interface PacketOutbox {
 /**
  * Store-and-forward backup of a message sent straight to its recipient: relays get copies only
  * when the direct path shows it may not deliver (no link, or no ACK in time), at most once.
+ * Messages only: file transfers make their own deposits (the file engine's triggers).
  */
 internal enum class RelayBackup(val code: Long) {
     /** Not a message to its final recipient (relay copies, system packets, bootstrap). */
@@ -123,43 +124,37 @@ internal data class OutboxTag(val kind: Kind, val id: Uuid) {
         /** A direct push of a DAG message to one of its recipients; [id] is the message id. */
         MESSAGE(0),
 
-        /** A bootstrap-family packet; [id] is the packet id [org.yapyap.routing.router.Router.sendBootstrap] returned. */
+        /** A bootstrap-family packet; [id] is the packet id [org.yapyap.routing.router.BootstrapCarrier.sendBootstrap] returned. */
         BOOTSTRAP(1),
 
         /** One attempt of a sync request; [id] is the sync id. */
         SYNC(2),
 
         /**
-         * One attempt of a file request; [id] is the REQUEST's transfer id. The outcome
+         * One attempt of a file request; [id] is the attempt id. The outcome
          * routes to the file request processor, which correlates it to the
          * file through its attempts row.
          */
         FILE_REQUEST(4),
 
         /**
-         * One packet of our own transfer (OFFER marker or chunk); [id] is the transfer id.
-         * The outcome routes to the push engine. Chunks retry at a flat delay
-         * ([RetryClass.FLAT]); markers use the message schedule.
+         * One packet of an outgoing file transfer (OFFER or chunk); [id] is the transfer id. A
+         * transfer is one hop, ours or a relay forward alike. Chunks retry at a flat delay
+         * ([RetryClass.FLAT]); OFFERs use the message schedule.
          */
-        FILE_PUSH(5),
-
-        /**
-         * One packet of a relay forward (stored OFFER or chunk replay); [id] is the transfer id.
-         * The outcome routes to the relay forwarder. Chunks retry flat like pushes.
-         */
-        FILE_FORWARD(6),
+        FILE_TRANSFER(5),
         ;
 
         companion object {
             fun fromCode(code: Long): Kind? = entries.firstOrNull { it.code == code }
 
-            /** File traffic (pushes and forwards) vs everything else in the due query. */
-            val FILE_KINDS: Set<Kind> = setOf(FILE_PUSH, FILE_FORWARD)
+            /** File transfer traffic vs everything else in the due query. */
+            val FILE_KINDS: Set<Kind> = setOf(FILE_TRANSFER)
         }
     }
 }
 
-/** Retry schedule for one outbox row (design §6.2): markers and requests use the message schedule. */
+/** Retry schedule for one outbox row (design §6.2): OFFERs and REQUESTs use the message schedule. */
 internal enum class RetryClass(val code: Long) {
     STANDARD(0),
     FLAT(1);

@@ -3,21 +3,17 @@ package org.yapyap.routing.inbound
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.message.MessageInbound
 import org.yapyap.routing.policy.NackAction
 import org.yapyap.routing.policy.nackActionFor
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
-import org.yapyap.routing.router.RoutingContext
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * The signed-only SYSTEM family: fire-and-forget control traffic, never an outbox row. ACK/NACK
+ * The header-only, hop-signed SYSTEM family: fire-and-forget control traffic, never an outbox row. ACK/NACK
  * dispositions, pings, log-off and typing.
  *
  * This handler sits with the kernel's inbound pipeline rather than in a service package: SYSTEM
@@ -27,46 +23,17 @@ import kotlin.coroutines.cancellation.CancellationException
  * MESSAGE-family content (`SyncPayload.Request`) and never reach this handler.
  */
 internal class SystemInboundHandler(
-    private val ctx: RoutingContext,
     private val messages: MessageInbound,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
-        val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
+        val payload = runCatching { SystemPayload.decode(env.routingHeader) }.getOrNull() ?: run {
             AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode message envelope",
+                message = "Failed to decode system header",
                 fields = mapOf("error" to "decode_failed"),
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
-        }
-
-        if (systemEnvelope.target != ctx.localDeviceId) {
-            AppLog.error(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
-                message = "System envelope received for peer ${systemEnvelope.target}",
-                fields = mapOf(
-                    "sourceDeviceId" to systemEnvelope.source,
-                    "targetDeviceId" to systemEnvelope.target,
-                    "localDeviceId" to ctx.localDeviceId,
-                ),
-            )
-            return InboundHandleResult.Rejected(PacketNackReason.WRONG_TARGET)
-        }
-
-        val payload = try {
-            ctx.envelopeProtections.system.open(systemEnvelope)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ProtectionException) {
-            logInboundProtectionFailure(
-                message = "Failed to open system envelope",
-                packetId = env.packetId,
-                source = env.source,
-                exception = e,
-            )
-            return inboundResultForProtectionFailure(e)
         }
 
         return when (payload) {
@@ -78,12 +45,11 @@ internal class SystemInboundHandler(
                     fields = mapOf(
                         "packetId" to payload.packetId,
                         "packetType" to payload.packetType,
-                        "source" to systemEnvelope.source,
+                        "source" to env.source,
                     ),
                 )
                 InboundHandleResult.Success(
                     sideEffects = listOf(InboundSideEffect.OutboxDisposition(payload.packetId)),
-                    sourceAuthenticated = true,
                 )
             }
 
@@ -97,7 +63,7 @@ internal class SystemInboundHandler(
                             "packetId" to payload.packetId,
                             "packetType" to payload.packetType,
                             "reason" to payload.reason,
-                            "source" to systemEnvelope.source,
+                            "source" to env.source,
                         ),
                     )
                     InboundHandleResult.Success(
@@ -120,10 +86,10 @@ internal class SystemInboundHandler(
                             "packetId" to payload.packetId,
                             "packetType" to payload.packetType,
                             "reason" to payload.reason,
-                            "source" to systemEnvelope.source,
+                            "source" to env.source,
                         ),
                     )
-                    InboundHandleResult.Success(sourceAuthenticated = true)
+                    InboundHandleResult.Success()
                 }
             }
 
@@ -133,13 +99,13 @@ internal class SystemInboundHandler(
                     event = LogEvent.TYPING_INDICATOR_RECEIVED,
                     message = "Typing indicator received",
                     fields = mapOf(
-                        "source" to systemEnvelope.source,
+                        "source" to env.source,
                         "roomId" to payload.roomId,
                         "intervalMillis" to payload.intervalMillis,
                     ),
                 )
-                messages.onTyping(systemEnvelope.source, payload.roomId, payload.intervalMillis)
-                InboundHandleResult.Success(sourceAuthenticated = true)
+                messages.onTyping(env.source, payload.roomId, payload.intervalMillis)
+                InboundHandleResult.Success()
             }
 
             is SystemPayload.Ping -> {
@@ -148,13 +114,12 @@ internal class SystemInboundHandler(
                     event = LogEvent.PING_HANDLED,
                     message = "Received ping",
                     fields = mapOf(
-                        "source" to systemEnvelope.source,
+                        "source" to env.source,
                         "roomPayloadCount" to payload.roomFrontiers.size,
                     ),
                 )
                 InboundHandleResult.Success(
-                    listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)),
-                    sourceAuthenticated = true,
+                    listOf(InboundSideEffect.PeerHeartbeat(env.source, payload)),
                 )
             }
 
@@ -164,13 +129,12 @@ internal class SystemInboundHandler(
                     event = LogEvent.LOG_OFF_HANDLED,
                     message = "Received log off",
                     fields = mapOf(
-                        "source" to systemEnvelope.source,
+                        "source" to env.source,
                     )
                 )
 
                 InboundHandleResult.Success(
-                    listOf(InboundSideEffect.PeerOffline(systemEnvelope.source)),
-                    sourceAuthenticated = true,
+                    listOf(InboundSideEffect.PeerOffline(env.source)),
                 )
             }
         }

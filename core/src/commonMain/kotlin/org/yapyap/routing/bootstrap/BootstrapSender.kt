@@ -1,10 +1,8 @@
 package org.yapyap.routing.bootstrap
 
-import org.yapyap.protection.envelope.BootstrapProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.RoutingContext
@@ -33,23 +31,20 @@ internal class BootstrapSender(
         targetEndpoint: TorEndpoint? = null,
         sharedSecret: ByteArray? = null,
     ): Uuid {
-        val context = BootstrapProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            sharedSecret = sharedSecret,
-        )
-        val protected = ctx.envelopeProtections.bootstrap.protect(payload, context)
-        val now = ctx.clock.now()
-        val envelope = BinaryEnvelope(
-            packetId = Uuid.random(),
-            packetType = PacketType.BOOTSTRAP,
-            dispositionRequested = true,
-            createdAt = now,
-            expiresAt = now + ctx.routerConfig.value.bootstrapIntroLifetime,
+        val protected = ctx.envelopeProtections.bootstrap.protect(
+            payload,
             source = ctx.localDeviceId,
             target = target,
-            payload = protected.encode(),
+            sharedSecret = sharedSecret,
+        )
+        val now = ctx.clock.now()
+        val envelope = ctx.envelope(
+            packetType = PacketType.BOOTSTRAP,
+            target = target,
+            routingHeader = protected.header.encode(),
+            content = protected.content,
+            expiresAt = now + ctx.routerConfig.value.bootstrapIntroLifetime,
+            dispositionRequested = true,
         )
         outboxProcessor.enqueueAndWake(
             envelope,

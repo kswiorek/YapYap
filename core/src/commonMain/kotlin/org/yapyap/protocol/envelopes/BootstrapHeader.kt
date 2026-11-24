@@ -4,7 +4,6 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -16,117 +15,51 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
- * Out-of-band bootstrap transport envelope: the authenticated control message that delivers
- * the sponsor's identity (account + device keys, onion, DAG head) to a newcomer before any DB rows
- * exist. Nested inside a [BinaryEnvelope] with [org.yapyap.protocol.PacketType.BOOTSTRAP] so
- * dedup, expiry, and target-check come from the existing inbound machinery.
+ * The BOOTSTRAP family's routing header: how the content is protected ([scheme]) and the packet's
+ * own id. The bootstrap content is the one family content a receiver may have to open before it
+ * knows the sender's key (a newcomer, a recovering device), so it carries its own authentication:
  *
- * [scheme] is the *protection* scheme in plaintext so the inbound handler can open the envelope
- * before decoding — the payload kind is deliberately NOT in the header (mirroring
- * [MessageEnvelope], which carries a security scheme rather than a payload type). It must be in the
- * header because the payload kind is not always visible through the protection: an INTRO payload is
- * AEAD ciphertext, so its kind byte is unreachable until you have already picked the right scheme.
- * The [BootstrapPayloadKind.INVITE] is an out-of-band QR/CLI artifact and never travels in an
- * envelope.
+ * - SECRET_AEAD (INTRO): the content is AEAD ciphertext of an encoded [BootstrapPayload], keyed from
+ *   the one-time shared secret carried in the newcomer's QR / recovery request (onboarding design
+ *   doc, §8). This header plus the hop's source and target are bound as the AEAD AAD, so the packet
+ *   cannot be re-targeted or replayed against another device.
+ * - ACCOUNT_SIGNED (RECOVERY_REQUEST): the content is the plaintext payload, authenticated by the
+ *   account-key signature inside it.
  *
- * For SECRET_AEAD, [payload] is AEAD ciphertext of an encoded [BootstrapPayload], keyed from the
- * one-time shared secret carried in the newcomer's QR / recovery request (see the onboarding design
- * doc, §8). The header — scheme, envelope id, source, target, createdAt — is bound into the AEAD
- * AAD ([aadBytes]) so the header cannot be swapped, re-targeted, or replayed against a different
- * device. The cipher's IV is embedded in the AEAD output (library-managed), so no separate nonce
- * field is needed.
+ * [scheme] must be readable before the content is opened (an INTRO's kind byte is ciphertext), so
+ * it lives here, never inside the payload. The INVITE ([BootstrapPayloadKind.INVITE]) is an
+ * out-of-band QR/CLI artifact and never travels in an envelope.
  */
-internal data class BootstrapEnvelope(
+internal data class BootstrapHeader(
     val scheme: BootstrapSecurityScheme,
     val bootstrapEnvelopeId: Uuid,
-    val source: PeerId,
-    val target: PeerId,
-    val createdAt: Instant,
-    val payload: ByteArray,
 ) {
     fun encode(): ByteArray {
-        val writer = ByteWriter(32 + payload.size)
-        writeHeader(writer)
-        writer.writeByteArray(payload)
-        return writer.toByteArray()
-    }
-
-    /** Everything except the payload, bound as AEAD AAD on open. */
-    fun aadBytes(): ByteArray {
-        val writer = ByteWriter(32)
-        writeHeader(writer)
-        return writer.toByteArray()
-    }
-
-    fun observableHeaderValues(): Map<String, Any?> = mapOf(
-        Fields.SCHEME to scheme,
-        Fields.BOOTSTRAP_ENVELOPE_ID to bootstrapEnvelopeId,
-        Fields.SOURCE to source,
-        Fields.TARGET to target,
-        Fields.CREATED_AT to createdAt,
-    )
-
-    fun decodePayload(): BootstrapPayload = BootstrapPayload.decode(payload)
-
-    private fun writeHeader(writer: ByteWriter) {
-        writer.writeBytes(MAGIC)
-        writer.writeByte(VERSION.toInt())
+        val writer = ByteWriter(1 + Uuid.SIZE_BYTES)
         writer.writeByte(scheme.wireValue)
         writer.writeUuid(bootstrapEnvelopeId)
-        writer.writePeerId(source)
-        writer.writePeerId(target)
-        writer.writeLong(createdAt.epochSeconds)
+        return writer.toByteArray()
     }
 
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other == null || this::class != other::class) return false
-        other as BootstrapEnvelope
-        return scheme == other.scheme &&
-                bootstrapEnvelopeId == other.bootstrapEnvelopeId &&
-                source == other.source &&
-                target == other.target &&
-                createdAt == other.createdAt &&
-                payload.contentEquals(other.payload)
-    }
-
-    override fun hashCode(): Int {
-        var result = scheme.hashCode()
-        result = 31 * result + bootstrapEnvelopeId.hashCode()
-        result = 31 * result + source.hashCode()
-        result = 31 * result + target.hashCode()
-        result = 31 * result + createdAt.hashCode()
-        result = 31 * result + payload.contentHashCode()
-        return result
-    }
+    fun observableValues(): Map<String, Any?> = mapOf(
+        Fields.SCHEME to scheme,
+        Fields.BOOTSTRAP_ENVELOPE_ID to bootstrapEnvelopeId,
+    )
 
     companion object {
         object Fields {
             const val SCHEME = "scheme"
             const val BOOTSTRAP_ENVELOPE_ID = "bootstrapEnvelopeId"
-            const val SOURCE = "source"
-            const val TARGET = "target"
-            const val CREATED_AT = "createdAt"
-            const val PAYLOAD = "payload"
         }
 
-        private val MAGIC = byteArrayOf('Y'.code.toByte(), 'B'.code.toByte(), 'P'.code.toByte(), '1'.code.toByte())
-        private const val VERSION: Byte = 1
-
-        fun decode(bytes: ByteArray): BootstrapEnvelope {
+        fun decode(bytes: ByteArray): BootstrapHeader {
             val reader = ByteReader(bytes)
-            val magic = reader.readBytes(MAGIC.size)
-            require(magic.contentEquals(MAGIC)) { "Invalid bootstrap envelope magic" }
-            val version = reader.readByte()
-            require(version == VERSION) { "Unsupported bootstrap envelope version: $version" }
-            val scheme = BootstrapSecurityScheme.fromWireValue(reader.readByte())
-            val envelopeId = reader.readUuid()
-            val source = reader.readPeerId()
-            val target = reader.readPeerId()
-            val createdAt = Instant.fromEpochSeconds(reader.readLong())
-            val payload = reader.readByteArray()
+            val header = BootstrapHeader(
+                scheme = BootstrapSecurityScheme.fromWireValue(reader.readByte()),
+                bootstrapEnvelopeId = reader.readUuid(),
+            )
             reader.requireFullyRead()
-            return BootstrapEnvelope(scheme, envelopeId, source, target, createdAt, payload)
+            return header
         }
     }
 }
@@ -134,7 +67,7 @@ internal data class BootstrapEnvelope(
 /**
  * How a bootstrap envelope is protected. The payload kind lives *inside* the (opened) payload — this
  * header discriminator only tells the handler how to open it, mirroring
- * [MessageEnvelope.securityScheme].
+ * the scheme of the other families' content.
  */
 internal enum class BootstrapSecurityScheme(val wireValue: Byte) {
     /** INTRO: AEAD under the one-time session secret (QR shared secret / recovery request secret). */
@@ -150,10 +83,10 @@ internal enum class BootstrapSecurityScheme(val wireValue: Byte) {
     }
 }
 
-internal enum class BootstrapPayloadKind(public val wireValue: Byte) {
+internal enum class BootstrapPayloadKind(val wireValue: Byte) {
     /**
      * Sponsor → newcomer. Delivers the sponsor's identity (account + device keys, onion, DAG head)
-     * to a newcomer before any DB rows exist. AEAD-encrypted inside [BootstrapEnvelope], keyed from
+     * to a newcomer before any DB rows exist. AEAD-encrypted in the bootstrap content, keyed from
      * the newcomer's one-time shared secret — hence it never carries the secret itself.
      */
     INTRO(1),
@@ -284,11 +217,11 @@ internal data class Intro(
 
 /** Newcomer → sponsor (out-of-band QR/CLI only): the newcomer's identity + one-time shared secret. */
 internal class Invite(
-    public override val version: Int = 1,
-    public override val account: AccountIdentity?,
-    public override val device: DeviceIdentity,
-    public override val deviceType: DeviceType,
-    public override val torEndpoint: TorEndpoint,
+    override val version: Int = 1,
+    override val account: AccountIdentity?,
+    override val device: DeviceIdentity,
+    override val deviceType: DeviceType,
+    override val torEndpoint: TorEndpoint,
     internal val sharedSecret: ByteArray,
     /**
      * The newcomer's account key over [accountSignedDeviceBindingBytes] (the device binding
@@ -299,7 +232,7 @@ internal class Invite(
      */
     internal val accountKeySignature: ByteArray? = null,
 ) : BootstrapPayload {
-    public override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INVITE
+    override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INVITE
 
     init {
         require(version in 0..255) { "version must be in 0..255" }

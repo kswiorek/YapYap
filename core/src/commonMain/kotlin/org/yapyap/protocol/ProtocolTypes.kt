@@ -47,20 +47,9 @@ public data class TorEndpoint(
 // Wire enums
 // ------------------------------------------------------------------
 
-internal enum class SignalSecurityScheme(val wireValue: Byte, val nonceSize: Int) {
-    PLAINTEXT_TEST_ONLY(0, 24),
-    SIGNED(1, 24),
-    ENCRYPTED_AND_SIGNED(2, 24);
-
-    companion object {
-        fun fromWireValue(value: Byte): SignalSecurityScheme =
-            entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported signal security scheme wire value: $value")
-    }
-}
-
 /**
- * Packet categories carried by the Tor envelope.
+ * Packet families: the type selects how a [org.yapyap.protocol.envelopes.BinaryEnvelope]'s routing
+ * header and content are read.
  */
 internal enum class PacketType(val wireValue: Byte) {
     MESSAGE(1),

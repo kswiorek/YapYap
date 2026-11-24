@@ -1,0 +1,57 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.ContentId;
+import org.yapyap.protocol.FileId;
+import org.yapyap.protocol.PeerId;
+import org.yapyap.protocol.SealKey;
+
+-- Origin side (docs/envelope-redesign.md §5.2): one file sealed for one target device. The seal
+-- bytes are made once and attached to every transfer of the seal; the key encrypts its chunks.
+-- Status and kind are plain strings mapped in the store. Rows go when the seal expires.
+CREATE TABLE file_seals (
+    seal_id BLOB AS ContentId NOT NULL PRIMARY KEY,
+    file_id TEXT AS FileId NOT NULL,
+    target_device TEXT AS PeerId NOT NULL,
+    kind TEXT NOT NULL,
+    seal_bytes BLOB NOT NULL,
+    seal_key BLOB AS SealKey NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER AS Instant NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL,
+    -- Deposit-round claim: set once when the round starts, NULL before.
+    deposited_at INTEGER AS Instant
+);
+
+CREATE INDEX file_seals_file_target_idx ON file_seals(file_id, target_device);
+
+insertFileSeal:
+INSERT INTO file_seals (
+    seal_id, file_id, target_device, kind, seal_bytes, seal_key, total_bytes, status,
+    created_at, expires_at, deposited_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
+
+selectFileSeal:
+SELECT * FROM file_seals WHERE seal_id = ?;
+
+selectFileSealsByFile:
+SELECT * FROM file_seals WHERE file_id = ?;
+
+selectFileSealsByFileAndTarget:
+SELECT * FROM file_seals WHERE file_id = ? AND target_device = ?;
+
+selectFileSealsWithStatus:
+SELECT * FROM file_seals WHERE status IN ?;
+
+selectFileSealsExpiredAt:
+SELECT * FROM file_seals WHERE expires_at <= ?;
+
+updateFileSealStatus:
+UPDATE file_seals SET status = ? WHERE seal_id = ?;
+
+-- The deposit round's claim: true exactly once per seal, across restarts.
+claimFileSealDeposit:
+UPDATE file_seals SET deposited_at = ? WHERE seal_id = ? AND deposited_at IS NULL;
+
+deleteFileSeal:
+DELETE FROM file_seals WHERE seal_id = ?;
+

@@ -6,44 +6,35 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.envelopes.SignalHeader
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 
+/**
+ * The SIGNAL family's inbound half: a WebRTC session-establishment message from a peer's
+ * transport to ours. Signals are always direct, so the hop's source is the signal's author.
+ */
 internal class SignalInboundHandler(
     private val ctx: RoutingContext,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
-        val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
+        val header = runCatching { SignalHeader.decode(env.routingHeader) }.getOrNull() ?: run {
             AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode signal envelope",
+                message = "Failed to decode signal header",
                 fields = mapOf("error" to "decode_failed"),
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
         }
-        if (signalEnvelope.target != ctx.localDeviceId) {
-            AppLog.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
-                message = "Signal envelope ignored due to target mismatch",
-                fields = mapOf(
-                    "sourceDeviceId" to signalEnvelope.source,
-                    "targetDeviceId" to signalEnvelope.target,
-                    "localDeviceId" to ctx.localDeviceId,
-                ),
-            )
-            return InboundHandleResult.Rejected(PacketNackReason.WRONG_TARGET)
-        }
         val signal = try {
-            ctx.envelopeProtections.signal.open(signalEnvelope)
+            ctx.envelopeProtections.signal.open(env.content, header.kind, source = env.source, target = env.target)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
             logInboundProtectionFailure(
-                message = "Failed to open signal envelope",
+                message = "Failed to open signal content",
                 packetId = env.packetId,
                 source = env.source,
                 exception = e,
@@ -51,6 +42,6 @@ internal class SignalInboundHandler(
             return inboundResultForProtectionFailure(e)
         }
         ctx.webRtcTransport.handleBootstrapSignal(signal)
-        return InboundHandleResult.Success(sourceAuthenticated = true)
+        return InboundHandleResult.Success()
     }
 }

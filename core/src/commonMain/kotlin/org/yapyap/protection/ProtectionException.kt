@@ -4,7 +4,7 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.CryptoSessionException
 
 internal enum class ProtectionDisposition {
-    /** Corrupt, authenticated-as-bad, or replay — resending the same bytes will not help. */
+    /** Corrupt, authenticated-as-bad, or already opened — resending the same bytes will not help. */
     PERMANENT,
 
     /**
@@ -22,6 +22,9 @@ internal enum class ProtectionReason {
     SESSION,
     SESSION_GAP,
     SESSION_VIOLATION,
+
+    /** The content was opened before (a ratchet replay): already processed, not a violation. */
+    DUPLICATE,
 }
 
 internal enum class AuthenticationReason {
@@ -92,6 +95,20 @@ internal sealed class ProtectionException(
         )
 
     /**
+     * The ratchet frame was opened before: the same content arrived again (a message's direct
+     * copy and its relay copy, a seal carried by two hops). PERMANENT for these bytes — they can
+     * never be opened again — but the packet was processed when it was first opened, so routing
+     * answers it like a processed packet (docs/envelope-redesign.md §3.3).
+     */
+    class Duplicate(cause: CryptoSessionException) :
+        ProtectionException(
+            message = "Content already opened",
+            disposition = ProtectionDisposition.PERMANENT,
+            reason = ProtectionReason.DUPLICATE,
+            cause = cause,
+        )
+
+    /**
      * Encrypt failed for a reason that is not a known crypto condition (DB, IO, locks).
      * DEFER — the failure is environmental until proven otherwise; the staged message is
      * kept for re-protection rather than dropped as permanently dead.
@@ -115,7 +132,7 @@ internal sealed class ProtectionException(
     companion object {
         fun mapCryptoSessionException(error: CryptoSessionException): ProtectionException =
             when (error) {
-                is CryptoSessionException.Replay,
+                is CryptoSessionException.Replay -> Duplicate(error)
                 is CryptoSessionException.MessageSkipExceeded,
                 is CryptoSessionException.OversizedFrame,
                     -> SessionViolation(error)

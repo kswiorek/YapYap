@@ -1,13 +1,15 @@
 package org.yapyap.wiring
 
 import org.yapyap.crypto.e2ee.session.CryptoLimits
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.routing.router.TransportLimits
 
 /**
  * All message-size limits, derived from the transport backend configs — not independently
- * configurable. Each layer subtracts its own framing ([MessageEnvelope.maxPayloadBytes],
+ * configurable. Each layer subtracts its own framing ([BinaryEnvelope.maxContentBytes] with the
+ * [MessageHeader], 
  * [CryptoLimits.forSessionWireFrameBudget]); this only chains them and hands each consumer
  * its piece:
  *  - the router gets [transport]
@@ -44,6 +46,8 @@ internal data class MessageLimits(
         }
 
         private fun cryptoLimitsFor(binaryEnvelopeBytes: Int): CryptoLimits =
-            CryptoLimits.forSessionWireFrameBudget(MessageEnvelope.maxPayloadBytes(binaryEnvelopeBytes))
+            CryptoLimits.forSessionWireFrameBudget(
+                BinaryEnvelope.maxContentBytes(binaryEnvelopeBytes, MessageHeader.ENCODED_BYTES),
+            )
     }
 }

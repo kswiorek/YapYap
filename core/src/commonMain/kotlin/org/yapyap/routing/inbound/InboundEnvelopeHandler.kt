@@ -21,22 +21,25 @@ internal fun logInboundProtectionFailure(
     source: PeerId,
     exception: ProtectionException,
 ) {
-    AppLog.warn(
-        component = LogComponent.ROUTER,
-        event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-        message = message,
-        fields = mapOf(
-            "packetId" to packetId,
-            "sourceDeviceId" to source,
-            "disposition" to exception.disposition.name,
-            "reason" to exception.reason.name,
-            "error" to exception.message,
-        ),
+    val fields = mapOf(
+        "packetId" to packetId,
+        "sourceDeviceId" to source,
+        "disposition" to exception.disposition.name,
+        "reason" to exception.reason.name,
+        "error" to exception.message,
     )
+    // A duplicate is expected traffic (the same content by two routes), not a failure.
+    if (exception is ProtectionException.Duplicate) {
+        AppLog.debug(LogComponent.ROUTER, LogEvent.ENVELOPE_PROTECTION_FAILED, message, fields)
+    } else {
+        AppLog.warn(LogComponent.ROUTER, LogEvent.ENVELOPE_PROTECTION_FAILED, message, fields)
+    }
 }
 
 internal fun inboundResultForProtectionFailure(ex: ProtectionException): InboundHandleResult =
-    when (ex.disposition) {
+// Content opened before (a direct copy and a relay copy, docs/envelope-redesign.md §3.3): it
+    // was processed then, so it is answered like a processed packet — an ACK.
+    if (ex is ProtectionException.Duplicate) InboundHandleResult.Success() else when (ex.disposition) {
         ProtectionDisposition.PERMANENT -> InboundHandleResult.Rejected(
             if (ex is ProtectionException.InvalidEnvelope) {
                 PacketNackReason.DECODE_FAILED

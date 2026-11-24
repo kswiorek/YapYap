@@ -5,7 +5,7 @@ import org.yapyap.protocol.MessagePayloadFamily
 import kotlin.uuid.Uuid
 
 /**
- * What a sealed [MessageEnvelope] carries, once opened. Decoding is a hierarchy of dispatches:
+ * What MESSAGE content carries, once opened. Decoding is a hierarchy of dispatches:
  *
  * 1. [decode] reads the family byte ([MessagePayloadFamily]) and runs that family's decode.
  * 2. [DagPayload.decode] reads the DAG node-type byte and runs the node's decode;

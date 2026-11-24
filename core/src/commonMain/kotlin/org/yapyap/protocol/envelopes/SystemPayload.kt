@@ -1,102 +1,17 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.RoomId
 import kotlin.math.roundToInt
-import kotlin.time.Instant
-import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-internal data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
-    val systemEnvelopeId: Uuid,
-    val source: PeerId,
-    val target: PeerId,
-    val createdAt: Instant,
-    val nonce: ByteArray,
-    val securityScheme: SignalSecurityScheme,
-    val signature: ByteArray?,
-    val payload: ByteArray,
-) {
-    init {
-        require(nonce.isNotEmpty()) { "nonce must not be empty" }
-    }
-
-    /** Canonical wire bytes with [signature] cleared; used as Ed25519 signing input. */
-    fun encodeForSigning(): ByteArray = copy(signature = null).encode()
-
-    fun encode(): ByteArray {
-        val writer = ByteWriter(256 + nonce.size + payload.size + (signature?.size ?: 0))
-        writer.writeBytes(MAGIC)
-        writer.writeByte(VERSION.toInt())
-        writer.writeUuid(systemEnvelopeId)
-        writer.writePeerId(source)
-        writer.writePeerId(target)
-        writer.writeLong(createdAt.epochSeconds)
-        writer.writeByteArray(nonce)
-        writer.writeByte(securityScheme.wireValue)
-        writer.writeNullableByteArray(signature)
-        writer.writeByteArray(payload)
-        return writer.toByteArray()
-    }
-
-    fun observableHeaderValues(): Map<String, Any?> = mapOf(
-        Fields.CORRELATION_ID to systemEnvelopeId,
-        Fields.SOURCE to source,
-        Fields.TARGET to target,
-        Fields.CREATED_AT to createdAt,
-        Fields.NONCE to nonce,
-        Fields.SECURITY_SCHEME to securityScheme,
-        Fields.SIGNATURE to signature,
-    )
-
-    fun decodePayload(): SystemPayload = SystemPayload.decode(payload)
-
-    companion object {
-        object Fields {
-            const val CORRELATION_ID = "correlationId"
-            const val SOURCE = "source"
-            const val TARGET = "target"
-            const val CREATED_AT = "createdAt"
-            const val NONCE = "nonce"
-            const val SECURITY_SCHEME = "securityScheme"
-            const val SIGNATURE = "signature"
-            const val PAYLOAD = "payload"
-        }
-
-        private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'S'.code.toByte(), '1'.code.toByte())
-        private const val VERSION: Byte = 1
-
-        fun decode(bytes: ByteArray): SystemEnvelope {
-            val reader = ByteReader(bytes)
-            val magic = reader.readBytes(MAGIC.size)
-            require(magic.contentEquals(MAGIC)) { "Invalid system envelope magic" }
-
-            val version = reader.readByte()
-            require(version == VERSION) { "Unsupported system envelope version: $version" }
-
-            val correlationId = reader.readUuid()
-            val source = reader.readPeerId()
-            val target = reader.readPeerId()
-            val createdAt = Instant.fromEpochSeconds(reader.readLong())
-            val nonce = reader.readByteArray()
-            val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
-            val signature = reader.readNullableByteArray()
-            val encodedPayload = reader.readByteArray()
-            reader.requireFullyRead()
-
-            return SystemEnvelope(
-                systemEnvelopeId = correlationId,
-                source = source,
-                target = target,
-                createdAt = createdAt,
-                nonce = nonce,
-                securityScheme = securityScheme,
-                signature = signature,
-                payload = encodedPayload,
-            )
-        }
-    }
-}
-
+/**
+ * The SYSTEM family's routing header — the whole packet: SYSTEM traffic is hop-to-hop control
+ * (dispositions, pings, typing, log-off), never relayed and never end-to-end encrypted, so it has
+ * no content. The hop signature authenticates it.
+ */
 internal sealed interface SystemPayload {
     val kind: SystemEnvelopeKind
 

@@ -1,6 +1,5 @@
 package org.yapyap.protocol
 
-import org.yapyap.protocol.envelopes.FilePayload
 
 /**
  * Large-path fetch frames (design §6.6): plain fetch protocol on a dedicated
@@ -13,7 +12,7 @@ import org.yapyap.protocol.envelopes.FilePayload
  *
  * The `fileId` appears in `FETCH` in the clear inside the channel — DTLS
  * covers it, and only the peer device ever sees the channel (design §4,
- * invariant 23). This is intentionally *not* part of [FilePayload]: fetch
+ * invariant 23). This is intentionally *not* part of the FILE envelope family ([org.yapyap.protocol.envelopes.FileHeader]): fetch
  * frames never go through the envelope pipeline, protection or the outbox.
  */
 internal enum class FileFetchKind(val wireValue: Byte) {

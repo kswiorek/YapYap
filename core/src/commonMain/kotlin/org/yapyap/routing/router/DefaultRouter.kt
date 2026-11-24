@@ -1,12 +1,23 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.TransferId
 import org.yapyap.routing.bootstrap.BootstrapService
 import org.yapyap.routing.file.FileService
 import org.yapyap.routing.file.port.FileCarrier
@@ -20,7 +31,10 @@ import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.message.MessageService
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
-import org.yapyap.routing.outbound.*
+import org.yapyap.routing.outbound.EnvelopeDispatcher
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.outbound.WebRtcSignaler
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
@@ -28,7 +42,16 @@ import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.presence.PingProvider
 import org.yapyap.routing.presence.PresenceService
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.FileIncomingStore
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileRequestAttemptStore
+import org.yapyap.routing.store.FileSealStore
+import org.yapyap.routing.store.FileTransferStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.PeerAvailabilityStore
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.transport.tor.TorSessionState
 import org.yapyap.transport.tor.backend.TorHealth
 import kotlin.coroutines.cancellation.CancellationException
@@ -42,9 +65,9 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Takes the ambient world ([RoutingContext], built by the composition root) plus the stores
  * routing owns and the ports the orchestrator implements. The assembly stays here, not in
- * wiring: the kernel and the services depend on each other (the outbox needs the services'
- * relay copies, the services need the outbox), and a composition root holding both can defer
- * those references; the wiring knowledge (link reactions, relay routing) is routing's own.
+ * wiring: it is routing's own knowledge (which kernel parts each service uses, how outcomes and
+ * link reactions are routed). The kernel is built first and the services on top of it; nothing
+ * in the kernel refers back to a service.
  */
 internal class DefaultRouter(
     /** Who we are, the device world, transports and live links, sealing, time and rules. */
@@ -57,17 +80,18 @@ internal class DefaultRouter(
     private val peerAvailabilityStore: PeerAvailabilityStore,
     private val syncAttemptStore: SyncAttemptStore,
     // Content the orchestrator supplies to the message pull path and pings.
-    private val syncPayloadProvider: SyncPayloadProvider,
+    syncPayloadProvider: SyncPayloadProvider,
     private val frontierSnapshotProvider: FrontierSnapshotProvider,
     // File orchestrator ports (content out, content in, request/serve policy).
-    private val fileIngest: FileIngestPort,
-    private val fileRequests: FileRequestSource,
-    private val filePlaintext: FilePlaintextSource,
+    fileIngest: FileIngestPort,
+    fileRequests: FileRequestSource,
+    filePlaintext: FilePlaintextSource,
     // File stores routing owns.
-    private val fileIncomingStore: FileIncomingTransferStore,
-    private val filePushStore: FilePushStore,
-    private val fileRelayStore: FileRelayStore,
-    private val fileRequestAttemptStore: FileRequestAttemptStore,
+    fileSealStore: FileSealStore,
+    fileTransferStore: FileTransferStore,
+    fileIncomingStore: FileIncomingStore,
+    fileRelayStore: FileRelayStore,
+    fileRequestAttemptStore: FileRequestAttemptStore,
 ) : Router {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -159,7 +183,6 @@ internal class DefaultRouter(
     )
     private val peerPolicy = DefaultSyncPeerPolicy(ctx)
 
-    //TODO: fix nested lambdas, during file system rewrite
     private val outboxProcessor: OutboxProcessor = OutboxProcessor(
         ctx = ctx,
         dispatcher = envelopeDispatcher,
@@ -168,14 +191,7 @@ internal class DefaultRouter(
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         linkKeeper = torLinkKeeper,
-        // Who owes relay copies is the row's tag's business, never its packet type.
-        relayCopies = { kind ->
-            when (kind) {
-                OutboxTag.Kind.MESSAGE -> RelayCopies { envelope, _ -> messageService.depositToRelays(envelope) }
-                OutboxTag.Kind.FILE_PUSH -> RelayCopies { _, tag -> fileService.depositMarker(TransferId(tag.id)) }
-                else -> null
-            }
-        },
+        relaySelection = relaySelectionPolicy,
     )
 
     private val messageService = MessageService(
@@ -183,7 +199,6 @@ internal class DefaultRouter(
         lifecycle = lifecycle,
         outboxProcessor = outboxProcessor,
         systemSender = systemSender,
-        relaySelection = relaySelectionPolicy,
         syncAttemptStore = syncAttemptStore,
         syncProvider = syncPayloadProvider,
         peerPolicy = peerPolicy,
@@ -215,7 +230,8 @@ internal class DefaultRouter(
         plaintext = filePlaintext,
         ingest = fileIngest,
         requests = fileRequests,
-        pushesStore = filePushStore,
+        sealStore = fileSealStore,
+        transferStore = fileTransferStore,
         incomingStore = fileIncomingStore,
         relayStore = fileRelayStore,
         requestAttempts = fileRequestAttemptStore,
@@ -239,7 +255,7 @@ internal class DefaultRouter(
             PacketType.MESSAGE to messageService.inboundHandler,
             PacketType.SIGNAL to SignalInboundHandler(ctx),
             PacketType.FILE to fileService.inboundHandler,
-            PacketType.SYSTEM to SystemInboundHandler(ctx, messageService),
+            PacketType.SYSTEM to SystemInboundHandler(messageService),
             PacketType.BOOTSTRAP to bootstrapService.inboundHandler,
         ),
         outboxProcessor = outboxProcessor,
@@ -424,8 +440,7 @@ internal class DefaultRouter(
         when (outcome.tag.kind) {
             OutboxTag.Kind.MESSAGE, OutboxTag.Kind.SYNC -> messageService.offerOutcome(outcome)
             OutboxTag.Kind.BOOTSTRAP -> bootstrapService.offerOutcome(outcome)
-            OutboxTag.Kind.FILE_PUSH, OutboxTag.Kind.FILE_FORWARD, OutboxTag.Kind.FILE_REQUEST ->
-                fileService.offerOutcome(outcome)
+            OutboxTag.Kind.FILE_TRANSFER, OutboxTag.Kind.FILE_REQUEST -> fileService.offerOutcome(outcome)
         }
     }
 }

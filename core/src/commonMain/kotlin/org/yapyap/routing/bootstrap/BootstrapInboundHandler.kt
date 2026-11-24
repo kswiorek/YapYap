@@ -7,7 +7,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapHeader
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.RecoveryRequest
@@ -39,37 +39,23 @@ internal class BootstrapInboundHandler(
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val received = ctx.clock.now()
-        val bootstrapEnvelope = runCatching { BootstrapEnvelope.decode(env.payload) }.getOrNull() ?: run {
+        val header = runCatching { BootstrapHeader.decode(env.routingHeader) }.getOrNull() ?: run {
             AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode bootstrap envelope",
+                message = "Failed to decode bootstrap header",
                 fields = mapOf("error" to "decode_failed"),
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
         }
 
-        if (bootstrapEnvelope.target != ctx.localDeviceId) {
-            AppLog.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
-                message = "Bootstrap envelope received for peer ${bootstrapEnvelope.target}",
-                fields = mapOf(
-                    "sourceDeviceId" to bootstrapEnvelope.source,
-                    "targetDeviceId" to bootstrapEnvelope.target,
-                    "localDeviceId" to ctx.localDeviceId,
-                ),
-            )
-            return InboundHandleResult.Rejected(PacketNackReason.WRONG_TARGET)
-        }
-
         val payload = try {
-            ctx.envelopeProtections.bootstrap.open(bootstrapEnvelope)
+            ctx.envelopeProtections.bootstrap.open(header, env.content, source = env.source, target = env.target)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
             logInboundProtectionFailure(
-                message = "Failed to open bootstrap envelope",
+                message = "Failed to open bootstrap content",
                 packetId = env.packetId,
                 source = env.source,
                 exception = e,
@@ -77,15 +63,15 @@ internal class BootstrapInboundHandler(
             return inboundResultForProtectionFailure(e)
         }
 
-        if (bootstrapEnvelope.source != payload.device.deviceId) {
-            // The envelope header source is AAD-bound, so a mismatch with the attested device id
-            // means the packet was assembled inconsistently — reject.
+        if (env.source != payload.device.deviceId) {
+            // The hop's source is bound into the AEAD AAD (INTRO), and a recovery request names the
+            // device it signs for: a mismatch means the packet was assembled inconsistently.
             AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                message = "Bootstrap envelope source does not match attested device id",
+                message = "Bootstrap source does not match attested device id",
                 fields = mapOf(
-                    "sourceDeviceId" to bootstrapEnvelope.source,
+                    "sourceDeviceId" to env.source,
                     "attestedDeviceId" to payload.device.deviceId,
                 ),
             )
@@ -96,7 +82,7 @@ internal class BootstrapInboundHandler(
             is Intro -> Unit // no policy gate: the AEAD open already proved an onboarding session
             is RecoveryRequest -> checkRecoveryPolicy(payload)?.let { return it }
             else -> {
-                // INVITE never travels on the wire; BootstrapEnvelope.init rejects it, so this is
+                // INVITE never travels on the wire; BootstrapProtection never protects one, so this is
                 // unreachable — fail closed.
                 AppLog.error(
                     component = LogComponent.ROUTER,
@@ -109,7 +95,7 @@ internal class BootstrapInboundHandler(
         }
 
         bootstrapPackets.emit(BootstrapPacketEvent(payload, receivedAt = received))
-        return InboundHandleResult.Success(sourceAuthenticated = true)
+        return InboundHandleResult.Success()
     }
 
     /** Responder-side policy; null means emit, otherwise answer with the disposition. */

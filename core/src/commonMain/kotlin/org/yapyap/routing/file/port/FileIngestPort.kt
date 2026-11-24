@@ -35,7 +35,7 @@ internal sealed interface FileAppendResult {
     /** P after this call (often unchanged: checkpoints move it by bytes and by time). */
     data class Appended(val committedBytes: Long) : FileAppendResult
 
-    /** The file is complete: this append finished it (the engine reports READY on its own flow; the orchestrator then answers the transfer authors), or it already was. */
+    /** The file is complete: this append finished it (the engine reports READY on its own flow; the orchestrator then ends the incoming transfers), or it already was. */
     data object Ready : FileAppendResult
 
     /** A block failed its hash: truncated to its start; the requester ABORTs and re-asks. */
@@ -56,7 +56,7 @@ internal sealed interface FileIngestResult {
     /** Decrypted and durably recorded: the chunk may now be ACKed. Carries the new P. */
     data class Staged(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
 
-    /** The chunk completed the file: checkpointed at completion (READY is reported on the engine's own flow; the orchestrator answers the transfer authors). */
+    /** The chunk completed the file: checkpointed at completion (READY is reported on the engine's own flow; the orchestrator then ends the incoming transfers). */
     data class Ready(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
 
     /** Fully-covered range (a duplicate across transfers/relays): ACK, nothing stored. */

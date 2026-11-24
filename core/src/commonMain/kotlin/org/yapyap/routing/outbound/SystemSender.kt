@@ -3,10 +3,8 @@ package org.yapyap.routing.outbound
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -16,7 +14,6 @@ import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.transport.tor.TorLinkId
-import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 internal class SystemSender(
@@ -63,17 +60,11 @@ internal class SystemSender(
         endpointOverride: TorEndpoint? = null,
         torReplyLink: TorLinkId? = null,
     ) {
-        val ackContext = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = source,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
         val ackPayload = SystemPayload.PacketAck(
             packetId,
             packetType,
         )
-        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride, torReplyLink)
+        sendSystemEnvelope(ackPayload, source, transport, endpointOverride, torReplyLink)
         AppLog.info(
             LogComponent.ROUTER,
             LogEvent.ACK_SENT,
@@ -101,20 +92,13 @@ internal class SystemSender(
         if (persistReason) {
             packetDeduplicator.markNacked(packetId, source, reason)
         }
-
-        val ackContext = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = source,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
         val ackPayload = SystemPayload.PacketNack(
             packetId,
             packetType,
             reason,
             reasonText = reasonText,
         )
-        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride, torReplyLink)
+        sendSystemEnvelope(ackPayload, source, transport, endpointOverride, torReplyLink)
         AppLog.info(
             LogComponent.ROUTER,
             LogEvent.NACK_SENT,
@@ -139,14 +123,7 @@ internal class SystemSender(
         payload: SystemPayload.TypingIndicator,
     ) {
         val transport = transportPolicy.resolve(target, ctx.peerLinks.linksOf(target), retries = 0).transport ?: return
-
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
-        sendSystemEnvelope(payload, transport, context)
+        sendSystemEnvelope(payload, target, transport)
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.TYPING_INDICATOR_SENT,
@@ -164,14 +141,8 @@ internal class SystemSender(
         target: PeerId,
         payload: SystemPayload.Ping,
     ) {
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
 
-        sendSystemEnvelope(payload, transportFor(target), context)
+        sendSystemEnvelope(payload, target, transportFor(target))
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.PING_SENT,
@@ -185,14 +156,8 @@ internal class SystemSender(
     suspend fun sendLogOff(
         target: PeerId,
     ) {
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
 
-        sendSystemEnvelope(SystemPayload.LogOff, transportFor(target), context)
+        sendSystemEnvelope(SystemPayload.LogOff, target, transportFor(target))
     }
 
     /**
@@ -202,34 +167,21 @@ internal class SystemSender(
     private suspend fun transportFor(target: PeerId): RouterTransport =
         transportPolicy.resolve(target, ctx.peerLinks.linksOf(target), retries = 0).transport ?: RouterTransport.TOR
 
+    /** SYSTEM packets are header-only and hop-signed: the payload is the routing header. */
     private suspend fun sendSystemEnvelope(
         payload: SystemPayload,
+        target: PeerId,
         transport: RouterTransport,
-        context: EnvelopeProtectContext,
         endpointOverride: TorEndpoint? = null,
         torReplyLink: TorLinkId? = null,
     ) {
-        val envelope = buildSystemEnvelope(payload, context, dispositionRequested = false)
-        dispatcher.dispatch(envelope, transport, endpointOverride, torReplyLink = torReplyLink)
-    }
-
-    private suspend fun buildSystemEnvelope(
-        payload: SystemPayload,
-        context: EnvelopeProtectContext,
-        dispositionRequested: Boolean = false,
-        lifetime: Duration = ctx.routerConfig.value.ackLifetime,
-    ): BinaryEnvelope {
-        val protected = ctx.envelopeProtections.system.protect(payload, context)
-        val now = ctx.clock.now()
-        return BinaryEnvelope(
-            packetId = Uuid.random(),
+        val envelope = ctx.envelope(
             packetType = PacketType.SYSTEM,
-            dispositionRequested = dispositionRequested,
-            createdAt = now,
-            expiresAt = now + lifetime,
-            source = ctx.localDeviceId,
-            target = context.targetDeviceId,
-            payload = protected.encode(),
+            target = target,
+            routingHeader = payload.encode(),
+            expiresAt = ctx.clock.now() + ctx.routerConfig.value.ackLifetime,
+            dispositionRequested = false,
         )
+        dispatcher.dispatch(envelope, transport, endpointOverride, torReplyLink = torReplyLink)
     }
 }

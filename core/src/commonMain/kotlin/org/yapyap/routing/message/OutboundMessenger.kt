@@ -8,13 +8,12 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.outbound.OutboxProcessor
@@ -25,7 +24,6 @@ import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RelayBackup
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
-import kotlin.uuid.Uuid
 
 internal class OutboundMessenger(
     private val ctx: RoutingContext,
@@ -156,11 +154,7 @@ internal class OutboundMessenger(
         // unacknowledged (the outbox backs it up then). With none, back it up now: relays hold
         // a copy and forward it once the recipient surfaces, sender online or not.
         val relaysDeposited = if (supplementRelays && ctx.peerLinks.linksOf(target).isEmpty()) {
-            outboxProcessor.backUpToRelays(
-                binaryEnvelope,
-                OutboxTag(OutboxTag.Kind.MESSAGE, payload.messageId),
-                reason = "no link",
-            )
+            outboxProcessor.backUpToRelays(binaryEnvelope, reason = "no link")
         } else {
             0
         }
@@ -176,26 +170,14 @@ internal class OutboundMessenger(
         target: PeerId,
         payload: MessagePayload,
         lifetime: Duration = ctx.routerConfig.value.binaryEnvelopeLifetime,
-    ): BinaryEnvelope {
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-        )
-        val messageEnvelope = ctx.envelopeProtections.message.protect(payload, context)
-        val now = ctx.clock.now()
-        return BinaryEnvelope(
-            packetId = Uuid.random(),
-            packetType = PacketType.MESSAGE,
-            dispositionRequested = true,
-            createdAt = now,
-            expiresAt = now + lifetime,
-            source = ctx.localDeviceId,
-            target = target,
-            payload = messageEnvelope.encode(),
-        )
-    }
+    ): BinaryEnvelope = ctx.envelope(
+        packetType = PacketType.MESSAGE,
+        target = target,
+        routingHeader = MessageHeader(origin = ctx.localDeviceId, finalTarget = target).encode(),
+        content = ctx.envelopeProtections.message.seal(payload, target),
+        expiresAt = ctx.clock.now() + lifetime,
+        dispositionRequested = true,
+    )
 
     private fun outboundResultForProtectionFailure(
         target: PeerId,

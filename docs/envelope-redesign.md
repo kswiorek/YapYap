@@ -1,8 +1,9 @@
 # Envelope and file transfer redesign
 
-Agreed 24 November 2026, not implemented yet. This document is the design of record for the change
-until it lands; when it does, its rules move into [`guide.md`](guide.md), [`router.md`](router.md) and
-[`file/design.md`](file/design.md) in the same change (§10), and this file goes.
+Agreed 24 November 2026 and implemented on the `files` branch. This document is the design of record
+for the envelope layering and the small-file path until [`file/design.md`](file/design.md) is rewritten
+on it (§10); where the two disagree, this one is the newer decision. §11 records where the
+implementation settled details this document left open.
 
 It replaces two things at once, because the second only makes sense with the first:
 
@@ -56,9 +57,10 @@ BinaryEnvelope v2
   a relay that forwards it. Each family defines its own (§4). It is public and covered by the hop
   signature. Plaintext hop-to-hop data with no end-to-end protection lives here too (SYSTEM).
 - **The content** is end to end, from the packet's origin to its final target, and hops copy it
-  verbatim. It starts with a scheme byte: `RATCHET` (a session frame from origin to final target),
-  `CHUNK_AEAD` (a file chunk under its seal's key, §5.3) or `PLAINTEXT_TEST_ONLY`. Header-only packets
-  have empty content. The `SIGNED` scheme is retired: the hop signature authenticates every hop.
+  verbatim. How it is protected follows from the family and kind alone (§4) — a ratchet frame from
+  origin to final target, a file chunk under its seal's key (§5.3), or bootstrap's own schemes — so it
+  carries no scheme byte. Header-only packets have empty content. The old `SIGNED` and
+  `PLAINTEXT_TEST_ONLY` schemes are gone: the hop signature authenticates every hop.
 - **`contentId` = SHA-256 (content)**, 32 bytes. It is derived, never on the wire. It is what the hop
   signature covers, what relays key their storage by, and for a file OFFER it is the `sealId` (§5.2).
 - **The hop signature** covers `hop header ‖ routing header ‖ contentId` (the content's hash, not its
@@ -96,7 +98,8 @@ BinaryEnvelope v2
 - A forward is a new hop envelope from the relay to the final target: new `packetId`, the relay as
   `source`, the routing header and content copied (files rewrite the transfer fields, §5.4), `expiresAt`
   copied, signed by the relay.
-- Relays deduplicate stored content by `contentId`, so a sender's retries never make extra copies.
+- A sender's retries of one relay copy share its packet id, so the relay's packet dedup already
+  keeps them from making extra copies; a file deposit is keyed by its transfer id.
 
 ### 3.3 Duplicate content
 
@@ -104,8 +107,9 @@ BinaryEnvelope v2
   a seal carried by a direct OFFER and a relay's OFFER.
 - **A ratchet `Replay` is a duplicate, not a violation.** `DoubleRatchetSession.rejectReplayIfStale`
   throws `Replay` only when the frame's number is below the receive counter and no skipped key is held
-  for it: in practice, the frame was opened before. Protection maps it to its own reason (`DUPLICATE`), and the inbound
-  processor answers it like a processed packet: ACK, logged at debug.
+  for it: in practice, the frame was opened before. Protection maps it to `ProtectionException.Duplicate`
+  (reason `DUPLICATE`; the disposition stays `PERMANENT`, since these bytes can never be opened again), and
+  the inbound processor answers it like a processed packet: ACK, logged at debug.
     - The frame was processed when it was first opened, so the ACK is honest — except in the crash
       window between opening and handling, which is accepted (below).
     - The other way to get `Replay` is a skipped key that was pruned: that message is lost to every
@@ -173,7 +177,8 @@ its store.
 
 - **Contents** (ratchet-encrypted from the origin to the target device): `fileId`, `totalBytes`,
   `blockSize`, the block list, `fileName`, `mimeType` and the **seal key** (32 bytes, ChaCha20-Poly1305,
-  the type that replaces `TransferKey`). File facts only: no chunk size, no transfer data.
+  `SealKey`, which replaces `TransferKey`). A seal that can't be made (no session to the device yet)
+  is skipped for that device: the pull path covers it. File facts only: no chunk size, no transfer data.
 - **`sealId` = the `contentId` of the OFFER content**, i.e. SHA-256 of the seal bytes.
   Content-addressed: nobody can swap a seal under an id, and the target recognises a seal it already
   holds without decrypting it (§5.5).
@@ -255,8 +260,10 @@ acknowledgement proves delivery, its absence proves nothing.
   file. Deposits start at the target's prefix, so any one relay that becomes whole suffices. The origin **stops pushing
   directly** then: the relays deliver, and repeating it directly would only duplicate
   traffic on the same reconnect.
-- **A seal is DELIVERED** when a **COMPLETE** (`sealId`) reaches the origin. The target sends it to the
-  seal's origin when the file is READY, directly; it is not relay-backed and may never arrive.
+- **A seal is DELIVERED** when a **COMPLETE** (`sealId`) reaches the origin, or when its direct transfer
+  finishes: the target ACKed every chunk as durably staged, which is delivery as the message model
+  defines it. The target sends COMPLETE to the seal's origin when the file is READY, directly; it is not
+  relay-backed and may never arrive.
 - **Otherwise the seal expires.** Until then its row stays, so a stray coverage ACK or COMPLETE still
   resolves. The pull path is the backstop: a target that ends up short REQUESTs, and the serve is a new
   seal.
@@ -314,10 +321,10 @@ file_transfers_out (                  -- replaces file_pushes: every hop this de
   next_chunk_index INT, contiguous_acked INT, marker_packet_id NULL,
   status TEXT, created_at, expires_at
 )
-file_push_chunks                      -- unchanged shape, keyed by the hop's transfer_id
+file_transfer_chunks                  -- packet id → chunk index, keyed by the hop's transfer_id
 
 -- routing: target side
-file_incoming_seals (seal_id PK, origin_device, file_id, seal_key, expires_at)
+file_incoming_seals (seal_id PK, origin_device, file_id, seal BLOB, expires_at)   -- the opened seal, key included
 file_incoming_transfers (transfer_id PK, seal_id, sender_device, chunk_size, byte_from, byte_to, expires_at)
 
 -- routing: relay side
@@ -327,6 +334,9 @@ file_relay_transfers (                -- the relay's inbound transfers
   status, reserved_bytes, created_at, last_chunk_at, expires_at
 )
 file_relay_chunks (transfer_id, chunk_index PK, ciphertext BLOB)   -- ciphertext, not envelopes
+
+-- routing: request attempts (unchanged but for the name: a REQUEST is no transfer)
+file_request_attempts.request_attempt_id                           -- was request_transfer_id
 ```
 
 The outbox's `tag_kind` values follow §5.8. Guide §4's ownership table changes with these rows (all
@@ -358,7 +368,8 @@ original signature" rule (§3, §7.1 there); the rest stand.
 7. Chunk AEAD binds (`sealId`, offset, length); placement comes from what decrypts, never from a
    public header.
 8. A transfer is one hop with a fixed public shape; a relay forwards only a whole transfer.
-9. Delivery is proven only by a COMPLETE; HANDED_OFF stops the origin's direct push.
+9. Delivery is proven only by a COMPLETE or the direct transfer finishing; HANDED_OFF stops the
+   origin's direct push.
 
 ## 7. Rejected alternatives
 
@@ -412,3 +423,34 @@ serve gate, block hashing and the file store are unchanged.
   here replace, including §3.3's "protection keeps the plaintext of frames it opened".
 - [`e2ee.md`](e2ee.md): `Replay` as a duplicate; the content lifetime invariant.
 - [`transport.md`](transport.md): only if it describes the envelope layout.
+
+## 11. Implementation notes
+
+Where the code settled what this document left open (the code is the reference for the rest):
+
+- **Packages.** `protocol/envelopes`: `BinaryEnvelope` (+ `UnsignedEnvelope`), `MessageHeader`,
+  `SignalHeader`, `SystemPayload` (the SYSTEM header), `BootstrapHeader`, `FileHeader` with
+  `TransferShape`, `FileSeal` and `FileRequest`; `protocol/SealKey.kt` holds `SealKey` and `ContentId`.
+  `protection/envelope`: `HopProtection` (`SignedHopProtection`), `RatchetSealer` shared by the
+  ratchet families, `MessageProtection`, `WebRtcSignalProtection`, `BootstrapProtection`,
+  `FileProtection`; `EnvelopeProtections` bundles them.
+- **Signing.** `RoutingContext.envelope(...)` builds and signs every envelope we send, so no routing
+  code assembles an unsigned one. `InboundEnvelopeProcessor` verifies a known source's signature
+  before dedup, so a forged packet never claims a real packet id; a failed check is dropped
+  unanswered. `InboundHandleResult.Success` no longer carries `sourceAuthenticated`.
+- **Outbox.** `OutboxProcessor` owns `RelayDepositor` (messages only) and takes the relay policy;
+  `backUpToRelays(envelope, reason)` has no tag. One file tag kind, `FILE_TRANSFER`.
+- **File routing** (`routing/file`): `transfer/TransferEngine` runs every outgoing transfer (ours and
+  relay forwards) over a `ChunkSource` and reports `TransferEvent`s (progress, gone, ended) on an
+  unbounded flow; `seal/SealRegistry` owns seals, the deposit round, hand-off, delivery and the
+  account-level events; `relay/RelayDoor` admits deposits and parks chunks, `relay/RelayForwards`
+  forwards whole deposits and forgets them when the forward ends; `inbound/TargetSide` holds seals
+  and incoming transfers and feeds the receive engine; `inbound/FileInboundHandler` dispatches by
+  header and runs the shared chunk checks before a `ChunkSink` sees a chunk. The registry and the
+  forwards subscribe to the engine's events (guide §5), and each sweeps its rows so a restart that
+  cut an event short still settles.
+- **Gone signals.** Before the OFFER is ACKed: no link to the peer, or no ACK within
+  `relayBackupAfter`. After: chunks in flight and no link, or no ACK at all for `chunkAckTimeout`, or
+  the peer's link closing. Only a seal's direct transfer acts on them (one deposit round).
+- **Config.** `wiring/ConfigInvariants` also checks `binaryEnvelopeLifetime <
+  supersededSessionRetention` (relayed messages keep their first hop's expiry).

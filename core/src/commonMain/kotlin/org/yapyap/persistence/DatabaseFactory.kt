@@ -10,11 +10,12 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.OneTimePreKeyId
 import org.yapyap.protocol.identity.SignedPreKeyId
@@ -180,26 +181,37 @@ internal class DatabaseFactory(
                 file_receive_chunksAdapter = File_receive_chunks.Adapter(
                     file_idAdapter = FileIdAdapter(),
                 ),
-                file_incoming_transfersAdapter = File_incoming_transfers.Adapter(
-                    transfer_idAdapter = TransferIdAdapter(),
+                file_incoming_sealsAdapter = File_incoming_seals.Adapter(
+                    seal_idAdapter = ContentIdAdapter(),
+                    origin_deviceAdapter = PeerIdAdapter(),
                     file_idAdapter = FileIdAdapter(),
-                    author_deviceAdapter = PeerIdAdapter(),
-                    keyAdapter = TransferKeyAdapter(),
-                    created_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
-                file_pushesAdapter = File_pushes.Adapter(
+                file_incoming_transfersAdapter = File_incoming_transfers.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
+                    seal_idAdapter = ContentIdAdapter(),
+                    sender_deviceAdapter = PeerIdAdapter(),
+                    expires_atAdapter = InstantEpochSecondsAdapter,
+                ),
+                file_sealsAdapter = File_seals.Adapter(
+                    seal_idAdapter = ContentIdAdapter(),
                     file_idAdapter = FileIdAdapter(),
                     target_deviceAdapter = PeerIdAdapter(),
-                    via_relayAdapter = PeerIdAdapter(),
-                    keyAdapter = TransferKeyAdapter(),
-                    marker_packet_idAdapter = UuidAdapter(),
+                    seal_keyAdapter = SealKeyAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                     deposited_atAdapter = InstantEpochSecondsAdapter,
                 ),
-                file_push_chunksAdapter = File_push_chunks.Adapter(
+                file_transfers_outAdapter = File_transfers_out.Adapter(
+                    transfer_idAdapter = TransferIdAdapter(),
+                    seal_idAdapter = ContentIdAdapter(),
+                    relay_transfer_idAdapter = TransferIdAdapter(),
+                    peerAdapter = PeerIdAdapter(),
+                    offer_packet_idAdapter = UuidAdapter(),
+                    created_atAdapter = InstantEpochSecondsAdapter,
+                    expires_atAdapter = InstantEpochSecondsAdapter,
+                ),
+                file_transfer_chunksAdapter = File_transfer_chunks.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
                     packet_idAdapter = UuidAdapter(),
                 ),
@@ -214,7 +226,7 @@ internal class DatabaseFactory(
                     next_attempt_atAdapter = InstantEpochSecondsAdapter,
                     waiting_deviceAdapter = PeerIdAdapter(),
                     waiting_untilAdapter = InstantEpochSecondsAdapter,
-                    request_transfer_idAdapter = TransferIdAdapter(),
+                    request_attempt_idAdapter = UuidAdapter(),
                 ),
                 file_request_declined_devicesAdapter = File_request_declined_devices.Adapter(
                     file_idAdapter = FileIdAdapter(),
@@ -222,16 +234,15 @@ internal class DatabaseFactory(
                 ),
                 file_relay_transfersAdapter = File_relay_transfers.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
-                    source_deviceAdapter = PeerIdAdapter(),
-                    target_deviceAdapter = PeerIdAdapter(),
-                    marker_packet_idAdapter = UuidAdapter(),
+                    seal_idAdapter = ContentIdAdapter(),
+                    origin_deviceAdapter = PeerIdAdapter(),
+                    final_targetAdapter = PeerIdAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
                     last_chunk_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 file_relay_chunksAdapter = File_relay_chunks.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
-                    packet_idAdapter = UuidAdapter(),
                 ),
             ),
             driver = driver,
@@ -312,9 +323,14 @@ internal class FileIdAdapter : ColumnAdapter<FileId, String> {
     override fun encode(value: FileId): String = value.value
 }
 
-internal class TransferKeyAdapter : ColumnAdapter<TransferKey, ByteArray> {
-    override fun decode(databaseValue: ByteArray): TransferKey = TransferKey(databaseValue)
-    override fun encode(value: TransferKey): ByteArray = value.bytes
+internal class SealKeyAdapter : ColumnAdapter<SealKey, ByteArray> {
+    override fun decode(databaseValue: ByteArray): SealKey = SealKey(databaseValue)
+    override fun encode(value: SealKey): ByteArray = value.bytes
+}
+
+internal class ContentIdAdapter : ColumnAdapter<ContentId, ByteArray> {
+    override fun decode(databaseValue: ByteArray): ContentId = ContentId(databaseValue)
+    override fun encode(value: ContentId): ByteArray = value.bytes
 }
 
 internal data class DatabaseConnection(

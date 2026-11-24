@@ -1,38 +1,44 @@
 package org.yapyap.routing.file.inbound
 
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protection.ProtectionException
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.port.FileRequestSource
-import org.yapyap.routing.file.push.FileSender
+import org.yapyap.routing.file.seal.SealRegistry
+import org.yapyap.routing.inbound.inboundResultForProtectionFailure
+import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RoutingContext
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * REQUEST handler (design §9): the serve gate decides, then the push engine serves with
- * a fresh transfer floor-aligned at the requester's held coverage. Refusals are DECLINED
- * so the requester moves to its next candidate at once. Unexpected store, identity or
- * serve failures propagate: the inbound processor clears dedup and the sender retries.
+ * REQUEST handler (design §9): the serve gate decides, then the seal registry serves with a fresh
+ * seal from the requester's held coverage. Refusals are DECLINED so the requester moves to its
+ * next candidate at once; the ACK means "serving", and the serve's OFFER follows.
  */
 internal class FileServeHandler(
     private val ctx: RoutingContext,
     private val requests: FileRequestSource,
-    private val sender: FileSender,
+    private val seals: SealRegistry,
 ) {
-    suspend fun handleRequest(fileEnvelope: FileEnvelope, payload: FilePayload.Request): InboundHandleResult {
-        // Serve-on-REQUEST (design §9): the gate decides, then the pusher serves
-        // with a fresh transfer floor-aligned at the requester's held coverage. Refusals
-        // are DECLINED so the requester moves to its next candidate at once.
-        val requester = ctx.devices.getAccountIdForDevice(fileEnvelope.source)
+    suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
+        val request = try {
+            ctx.envelopeProtections.file.openRequest(env.content, env.source)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ProtectionException) {
+            logInboundProtectionFailure("Failed to open file REQUEST", env.packetId, env.source, e)
+            return inboundResultForProtectionFailure(e)
+        }
+        val requester = ctx.devices.getAccountIdForDevice(env.source)
             ?: return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
-        if (!requests.canServe(payload.fileId, requester)) {
+        if (!requests.canServe(request.fileId, requester)) {
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
-        val served = sender.serveFile(payload.fileId, fileEnvelope.source, payload.contiguousBytes)
-        if (!served) {
-            // Not held (or large, which is never served by transfer): the next candidate is asked.
+        // Not held, or large (never served by transfer): the next candidate is asked.
+        if (!seals.serve(request.fileId, env.source, request.contiguousBytes)) {
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
-        return InboundHandleResult.Success(sourceAuthenticated = true)
+        return InboundHandleResult.Success()
     }
 }

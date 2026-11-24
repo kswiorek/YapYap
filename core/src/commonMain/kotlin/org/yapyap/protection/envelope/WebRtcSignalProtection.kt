@@ -1,235 +1,29 @@
 package org.yapyap.protection.envelope
 
-import org.yapyap.crypto.e2ee.manager.CryptoSessionManager
-import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
-import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protocol.EnvelopeObservability
-import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.uuid.Uuid
+import org.yapyap.protocol.envelopes.WebRtcSignalKind
 
-/**
- * Security boundary for signaling.
- *
- * Real implementations should sign/encrypt payloads before transport and verify/decrypt on receive.
- */
+/** SIGNAL content: a signal's payload ratchet-encrypted to the peer; the kind rides the header. */
 internal interface WebRtcSignalProtection {
-    suspend fun protect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope
+    suspend fun seal(signal: WebRtcSignal): ByteArray
 
-    suspend fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal
+    suspend fun open(content: ByteArray, kind: WebRtcSignalKind, source: PeerId, target: PeerId): WebRtcSignal
 }
 
-/**
- * Test/dev adapter that keeps signaling in plaintext.
- */
-internal class PlaintextWebRtcSignalProtection(
-    private val cryptoProvider: CryptoProvider,
-) :
-    BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>(),
-    WebRtcSignalProtection {
-    override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
-        require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
-            "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextWebRtcSignalProtection but got ${context.securityScheme}"
-        }
-        return WebRtcSignalEnvelope(
-            signalEnvelopeId = Uuid.random(),
-            kind = input.kind,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.PLAINTEXT_TEST_ONLY),
-            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-            signature = null,
-            payload = input.payload,
-        )
-    }
+internal class RatchetWebRtcSignalProtection(private val ratchet: RatchetSealer) : WebRtcSignalProtection {
+    override suspend fun seal(signal: WebRtcSignal): ByteArray =
+        ratchet.seal(signal.payload, signal.target, what = "WebRTC signal")
 
-    override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
-        require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
-            "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
-        }
-        AppLog.debug(
-            component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
-            message = "Opened plaintext WebRTC signal envelope",
-            fields = mapOf("sessionId" to envelope.signalEnvelopeId, "kind" to envelope.kind.name),
-        )
-        return WebRtcSignal(
-            kind = envelope.kind,
-            source = envelope.source,
-            target = envelope.target,
-            payload = envelope.payload,
-        )
-    }
-
-    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
-        envelope.observableHeaderValues()
-
-    override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
-
-    override fun envelopeLabel(): String = "WebRTC signal envelope"
-}
-
-internal class SignedWebRtcSignalProtection(
-    private val signatureProvider: SignatureProvider,
-    private val cryptoProvider: CryptoProvider,
-) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>(), WebRtcSignalProtection {
-    override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
-        require(context.securityScheme == SignalSecurityScheme.SIGNED) {
-            "Context security scheme must be SIGNED for SignedWebRtcSignalProtection but got ${context.securityScheme}"
-        }
-        val unsigned = WebRtcSignalEnvelope(
-            signalEnvelopeId = Uuid.random(),
-            kind = input.kind,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
-            securityScheme = SignalSecurityScheme.SIGNED,
-            signature = null,
-            payload = input.payload,
-        )
-        val signature = signatureProvider.sign(unsigned.encodeForSigning())
-        return unsigned.copy(signature = signature)
-    }
-
-    override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
-        requireValidSignature(
-            expectedScheme = SignalSecurityScheme.SIGNED,
-            actualScheme = envelope.securityScheme,
-            signature = envelope.signature,
-            source = envelope.source,
-            signingBytes = envelope.encodeForSigning(),
-            signatureProvider = signatureProvider,
-        )
-
-        AppLog.debug(
-            component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
-            message = "Verified signed WebRTC signal envelope",
-            fields = mapOf(
-                "sessionId" to envelope.signalEnvelopeId,
-                "source" to envelope.source,
-                "kind" to envelope.kind.name
-            ),
-        )
-        return WebRtcSignal(
-            kind = envelope.kind,
-            source = envelope.source,
-            target = envelope.target,
-            payload = envelope.payload,
-        )
-    }
-
-    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
-        envelope.observableHeaderValues()
-
-    override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
-
-    override fun envelopeLabel(): String = "WebRTC signal envelope"
-}
-
-internal class SignedAndEncryptedWebRtcSignalProtection(
-    private val signatureProvider: SignatureProvider,
-    private val cryptoSessionManager: CryptoSessionManager,
-    private val cryptoProvider: CryptoProvider,
-) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>(), WebRtcSignalProtection {
-    override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
-        require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
-            "Context security scheme must be ENCRYPTED_AND_SIGNED for SignedAndEncryptedWebRtcSignalProtection but got ${context.securityScheme}"
-        }
-
-        val wirePayload = try {
-            cryptoSessionManager.encryptMessage(
-                remoteDeviceId = context.targetDeviceId,
-                bytes = input.payload,
-            )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.ENCRYPTION_FAILED,
-                message = "Failed to encrypt WebRTC signal",
-                throwable = e,
-            )
-            throw ProtectionException.mapEncryptFailure(e)
-        }
-
-        val unsigned = WebRtcSignalEnvelope(
-            signalEnvelopeId = Uuid.random(),
-            kind = input.kind,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAt = context.createdAt,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.ENCRYPTED_AND_SIGNED),
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            signature = null,
-            payload = wirePayload,
-        )
-
-        val signature = signatureProvider.sign(unsigned.encodeForSigning())
-        return unsigned.copy(signature = signature)
-    }
-
-    override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
-        requireValidSignature(
-            expectedScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            actualScheme = envelope.securityScheme,
-            signature = envelope.signature,
-            source = envelope.source,
-            signingBytes = envelope.encodeForSigning(),
-            signatureProvider = signatureProvider,
-        )
-
-        val decryptedInput = try {
-            cryptoSessionManager.decryptMessage(
-                remoteDeviceId = envelope.source,
-                frameBytes = envelope.payload,
-            )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.DECRYPTION_FAILED,
-                message = "Failed to decrypt WebRTC signal",
-                throwable = e,
-            )
-            throw ProtectionException.mapEncryptDecryptFailure(e)
-        }
-
-        val signalPayload = WebRtcSignal(
-            kind = envelope.kind,
-            source = envelope.source,
-            target = envelope.target,
-            payload = decryptedInput,
-        )
-
-        AppLog.debug(
-            component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
-            message = "Verified signed and encrypted Signal envelope",
-            fields = mapOf(
-                "sessionId" to envelope.signalEnvelopeId,
-                "source" to envelope.source,
-                "kind" to envelope.kind.name
-            ),
-        )
-        return signalPayload
-    }
-
-    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
-        envelope.observableHeaderValues()
-
-    override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
-
-    override fun envelopeLabel(): String = "WebRTC signal envelope"
+    override suspend fun open(
+        content: ByteArray,
+        kind: WebRtcSignalKind,
+        source: PeerId,
+        target: PeerId,
+    ): WebRtcSignal = WebRtcSignal(
+        kind = kind,
+        source = source,
+        target = target,
+        payload = ratchet.open(content, source, what = "WebRTC signal"),
+    )
 }

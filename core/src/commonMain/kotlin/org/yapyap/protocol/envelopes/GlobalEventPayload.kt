@@ -1,11 +1,17 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.DagPayloadType
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 
 /**
  * Typed global control event carried inside [DagPayload.GlobalEvent.eventBytes].
  *
- * Two-level dispatch mirrors BinaryEnvelope → BootstrapEnvelope → BootstrapPayload:
+ * Two-level dispatch mirrors BinaryEnvelope → BootstrapHeader → BootstrapPayload:
  * [DagPayloadType.GLOBAL_EVENT] selects the DAG node type, [GlobalEventKind] selects the event.
  *
  * Signature layering (see docs/global events.md §1.5) — three signatures, three jobs:

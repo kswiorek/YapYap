@@ -14,8 +14,15 @@ internal object ConfigInvariants {
         val crypto = config.crypto
         val orchestrator = config.orchestrator
 
-        // A ratchet-sealed OFFER half replayed at the transfer TTL edge must still decrypt
-        // (design §3.3).
+        // Content lives as long as its first hop set and no hop extends it, so ratchet content
+        // arriving at the end of its lifetime must still decrypt (docs/envelope-redesign.md §2):
+        // a relayed message, and a seal carried by a late relay forward.
+        if (router.binaryEnvelopeLifetime >= crypto.supersededSessionRetention) {
+            add(
+                "Envelope lifetime (${router.binaryEnvelopeLifetime}) must be shorter than the superseded " +
+                        "session retention (${crypto.supersededSessionRetention})",
+            )
+        }
         if (router.fileTransferTtl >= crypto.supersededSessionRetention) {
             add(
                 "File transfer TTL (${router.fileTransferTtl}) must be shorter than the superseded " +

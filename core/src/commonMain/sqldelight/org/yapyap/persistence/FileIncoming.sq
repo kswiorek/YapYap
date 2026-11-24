@@ -1,46 +1,64 @@
 import kotlin.time.Instant;
+import org.yapyap.protocol.ContentId;
 import org.yapyap.protocol.FileId;
 import org.yapyap.protocol.PeerId;
 import org.yapyap.protocol.TransferId;
-import org.yapyap.protocol.TransferKey;
 
--- Receiver-side per-transfer rows (design §13): chunk mapping, decryption and COMPLETE
--- targets. Rows end with their transfer — COMPLETE sent, CANCEL either way, or expiry —
--- and are dropped then; a later chunk for the transferId is unknown and gets DECLINED.
-CREATE TABLE file_incoming_transfers (
-    transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
+-- Target side (docs/envelope-redesign.md §5.5): every seal opened here, written as soon as it
+-- opens, so the same seal arriving by another hop is recognised without decrypting it again (a
+-- ratchet frame opens once). [seal] is the opened seal (its key included). Rows live until the
+-- seal expires.
+CREATE TABLE file_incoming_seals (
+    seal_id BLOB AS ContentId NOT NULL PRIMARY KEY,
+    origin_device TEXT AS PeerId NOT NULL,
     file_id TEXT AS FileId NOT NULL,
-    author_device TEXT AS PeerId NOT NULL,
-    key BLOB AS TransferKey NOT NULL,
-    chunk_size_bytes INTEGER NOT NULL,
-    total_bytes INTEGER NOT NULL,
-    start_index INTEGER NOT NULL,
-    created_at INTEGER AS Instant NOT NULL,
+    seal BLOB NOT NULL,
     expires_at INTEGER AS Instant NOT NULL
 );
 
-insertFileIncomingTransfer:
-INSERT INTO file_incoming_transfers (
-    transfer_id, file_id, author_device, key, chunk_size_bytes, total_bytes,
-    start_index, created_at, expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+CREATE INDEX file_incoming_seals_file_idx ON file_incoming_seals(file_id);
 
-selectFileIncomingTransferById:
+-- The hops delivering to us: chunk placement and the sender to answer. Rows end with their hop.
+CREATE TABLE file_incoming_transfers (
+    transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
+    seal_id BLOB AS ContentId NOT NULL,
+    sender_device TEXT AS PeerId NOT NULL,
+    chunk_size INTEGER NOT NULL,
+    byte_from INTEGER NOT NULL,
+    byte_to INTEGER NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL
+);
+
+CREATE INDEX file_incoming_transfers_seal_idx ON file_incoming_transfers(seal_id);
+
+insertFileIncomingSeal:
+INSERT OR IGNORE INTO file_incoming_seals (seal_id, origin_device, file_id, seal, expires_at)
+VALUES (?, ?, ?, ?, ?);
+
+selectFileIncomingSeal:
+SELECT * FROM file_incoming_seals WHERE seal_id = ?;
+
+selectFileIncomingSealsByFile:
+SELECT * FROM file_incoming_seals WHERE file_id = ?;
+
+insertFileIncomingTransfer:
+INSERT OR IGNORE INTO file_incoming_transfers (
+    transfer_id, seal_id, sender_device, chunk_size, byte_from, byte_to, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectFileIncomingTransfer:
 SELECT * FROM file_incoming_transfers WHERE transfer_id = ?;
 
-selectFileIncomingTransfersByFileId:
-SELECT * FROM file_incoming_transfers WHERE file_id = ?;
+selectFileIncomingTransfersByFile:
+SELECT t.* FROM file_incoming_transfers t
+JOIN file_incoming_seals s ON s.seal_id = t.seal_id
+WHERE s.file_id = ?;
 
-deleteFileIncomingTransferById:
+deleteFileIncomingTransfer:
 DELETE FROM file_incoming_transfers WHERE transfer_id = ?;
 
-deleteFileIncomingTransfersByFileId:
-DELETE FROM file_incoming_transfers WHERE file_id = ?;
-
-selectExpiredFileIncomingTransfers:
-SELECT * FROM file_incoming_transfers WHERE expires_at <= ?;
-
-deleteExpiredFileIncomingTransfers:
+deleteFileIncomingTransfersExpiredAt:
 DELETE FROM file_incoming_transfers WHERE expires_at <= ?;
 
-CREATE INDEX file_incoming_transfers_file_idx ON file_incoming_transfers(file_id);
+deleteFileIncomingSealsExpiredAt:
+DELETE FROM file_incoming_seals WHERE expires_at <= ?;

@@ -6,7 +6,6 @@ import org.yapyap.crypto.keys.SigningKeyPair
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.uuid.Uuid
@@ -35,8 +34,6 @@ internal interface CryptoProvider {
     fun toHex(bytes: ByteArray): String = bytes.joinToString(separator = "") { byte ->
         byte.toInt().and(0xff).toString(16).padStart(2, '0')
     }
-
-    fun generateNonce(scheme: SignalSecurityScheme): ByteArray
 
     suspend fun accountIdFromPublicKey(accountSigningKey: SigningPublicKey): AccountId =
         AccountId(toHex(sha256(accountSigningKey.bytes)))

@@ -5,6 +5,7 @@ import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -12,6 +13,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.UnsignedEnvelope
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.transport.tor.transport.TorTransport
@@ -46,7 +48,7 @@ internal data class AccountPushReport(
     val devicesFailed: Int,
 )
 
-/** What the router knows about reaching one account, for display only; see [Router.accountReach]. */
+/** What the router knows about reaching one account, for display only; see [Presence.accountReach]. */
 internal data class AccountReach(
     /** When any of the account's devices was last heard from; null when none ever was. */
     val lastSeen: Instant?,
@@ -97,10 +99,11 @@ internal data class BootstrapPacketEvent(
 )
 
 internal sealed interface InboundSideEffect {
+    /** A relayed message's forward to its final target, signed by us (an `is_relay` outbox row). */
     data class EnqueueForRelay(val envelope: BinaryEnvelope) : InboundSideEffect
 
     /**
-     * Direct reply to the source (FILE COMPLETE/CANCEL): ordinary routable packet, enqueued
+     * Direct reply to the source (FILE ACK/CANCEL/COMPLETE): ordinary routable packet, enqueued
      * untagged with no relay backup — control packets are politeness, bounded by the TTL.
      */
     data class EnqueueDirect(val envelope: BinaryEnvelope) : InboundSideEffect
@@ -115,18 +118,11 @@ internal sealed interface InboundSideEffect {
 internal sealed interface InboundHandleResult {
     val sideEffects: List<InboundSideEffect>
 
-    /**
-     * @param sourceAuthenticated true only when the handler verified the claimed source's
-     *   authenticity while producing this result (signature / AEAD / account-sig open
-     *   succeeded). The inbound processor heals the source's Tor endpoint mapping solely
-     *   on authenticated results — never on arrival alone. Fail-closed: a handler that
-     *   returns Success without authenticating the source (relay transit, stubs) must
-     *   leave this false.
-     */
+    /** Handled: ACKed when the sender asked for a disposition. */
     data class Success(
         override val sideEffects: List<InboundSideEffect> = emptyList(),
-        val sourceAuthenticated: Boolean = false,
     ) : InboundHandleResult
+
     data class Deferred(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
     data class Rejected(
         val reason: PacketNackReason,
@@ -203,6 +199,18 @@ internal interface DeviceDirectory {
     suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint?
 }
 
+/**
+ * Relay admission (docs/envelope-redesign.md §3.2): a device we know, whose own status and whose
+ * account's status are both not BANNED. A relay stores only what such an origin sent it, for such
+ * a final target.
+ */
+internal suspend fun DeviceDirectory.isKnownNonBanned(device: PeerId): Boolean {
+    val deviceStatus = getDeviceStatus(device) ?: return false
+    if (deviceStatus == IdentityStatus.BANNED) return false
+    val account = getAccountIdForDevice(device) ?: return true
+    return getAccountStatus(account) != IdentityStatus.BANNED
+}
+
 /** Where devices can be reached: the router's own state about peers (it is the only writer). */
 internal interface DeviceRouteStore {
     /** The endpoint the router last proved for the device, else the one it declared; null when unknown. */
@@ -215,7 +223,7 @@ internal interface DeviceRouteStore {
 /**
  * The ambient world of a routing component: who we are ([localIdentity], [localDeviceId]), the
  * device world as the orchestrator reports it ([devices]), how we reach peers ([torTransport],
- * [webRtcTransport] and the open [peerLinks]), how we seal envelopes
+ * [webRtcTransport] and the open [peerLinks]), how we sign envelopes and seal content
  * ([envelopeProtections]), the sizes the transports leave us ([transportLimits], [fileLimits]),
  * time and rules ([clock], [routerConfig]).
  *
@@ -234,4 +242,34 @@ internal class RoutingContext(
     val envelopeProtections: EnvelopeProtections,
     val clock: Clock,
     val routerConfig: StateFlow<RouterConfig>,
-)
+) {
+    /**
+     * A new envelope from this device to [target], signed as its hop (every envelope we send,
+     * relay forwards included, is signed by us). [expiresAt] is the content's: a forward copies
+     * the one it received and never extends it.
+     */
+    suspend fun envelope(
+        packetType: PacketType,
+        target: PeerId,
+        routingHeader: ByteArray,
+        content: ByteArray = NO_CONTENT,
+        expiresAt: Instant,
+        dispositionRequested: Boolean,
+    ): BinaryEnvelope = envelopeProtections.hop.sign(
+        UnsignedEnvelope(
+            packetId = Uuid.random(),
+            packetType = packetType,
+            dispositionRequested = dispositionRequested,
+            createdAt = minOf(clock.now(), expiresAt),
+            expiresAt = expiresAt,
+            source = localDeviceId,
+            target = target,
+            routingHeader = routingHeader,
+            content = content,
+        ),
+    )
+
+    private companion object {
+        val NO_CONTENT = ByteArray(0)
+    }
+}

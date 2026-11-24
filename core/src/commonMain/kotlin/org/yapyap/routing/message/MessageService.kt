@@ -10,7 +10,6 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SyncPayload
@@ -18,7 +17,6 @@ import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.InboundHandleResult
@@ -49,14 +47,13 @@ internal class MessageService(
     private val ctx: RoutingContext,
     private val lifecycle: RouterLifecycle,
     private val outboxProcessor: OutboxProcessor,
-    private val systemSender: SystemSender,
-    relaySelection: RelaySelectionPolicy,
-    private val syncAttemptStore: SyncAttemptStore,
+    systemSender: SystemSender,
+    syncAttemptStore: SyncAttemptStore,
     private val syncProvider: SyncPayloadProvider,
     private val peerPolicy: SyncPeerPolicy,
     private val maxIdlePoll: StateFlow<Duration>,
     torLinkKeeper: LinkKeeper,
-    private val webRtcLinkKeeper: LinkKeeper,
+    webRtcLinkKeeper: LinkKeeper,
     override val frontiers: Flow<PingFrontiers>,
 ) : MessageCarrier, MessageInbound {
 
@@ -67,9 +64,6 @@ internal class MessageService(
     private val outcomes = OutcomeMailbox()
 
     private val outboundMessenger = OutboundMessenger(ctx, outboxProcessor, webRtcLinkKeeper)
-    private val relayDepositor = RelayDepositor(ctx, relaySelection) { envelope, at ->
-        outboxProcessor.enqueueAndWake(envelope, at)
-    }
     private val typingDispatcher = TypingIndicatorDispatcher(ctx, systemSender, webRtcLinkKeeper)
     private val pullProcessor = MessagePullProcessor(
         ctx = ctx,
@@ -142,13 +136,10 @@ internal class MessageService(
             // Forwarding in response to a sync request: direct only, no relay deposits needed.
             outboundMessenger.sendMessageToPeer(sourceDevice, message, supplementRelays = false)
         }
-        return InboundHandleResult.Success(sourceAuthenticated = true)
+        return InboundHandleResult.Success()
     }
 
     // --- kernel seams -------------------------------------------------------------------
-
-    /** Store-and-forward copies of a direct message (the outbox's tag-keyed backup). */
-    suspend fun depositToRelays(envelope: BinaryEnvelope): Int = relayDepositor.deposit(envelope)
 
     fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
 
