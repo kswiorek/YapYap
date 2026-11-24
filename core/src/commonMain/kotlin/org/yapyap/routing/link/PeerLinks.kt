@@ -81,6 +81,7 @@ internal class PeerLinks(
     }
 
     /** [TorTransport]'s endpoint-keyed sessions, re-keyed by the peers bound to those endpoints. */
+    //TODO [Finishing touches]: peer keyed sessions for tor transport, keep peerLinks universal
     private inner class TorPeerSessions : SessionTransport<PeerId> {
         override val sessionStates: Flow<Map<PeerId, SessionStatus>> =
             combine(torTransport.sessionStates, torEndpoints) { states, endpoints ->

@@ -1,19 +1,7 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -32,11 +20,7 @@ import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.message.MessageService
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
-import org.yapyap.routing.outbound.EnvelopeDispatcher
-import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.RelayCopies
-import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.outbound.WebRtcSignaler
+import org.yapyap.routing.outbound.*
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
@@ -44,15 +28,7 @@ import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.presence.PingProvider
 import org.yapyap.routing.presence.PresenceService
-import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRequestAttemptStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketDeduplicator
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.PeerAvailabilityStore
-import org.yapyap.routing.store.SyncAttemptStore
+import org.yapyap.routing.store.*
 import org.yapyap.transport.tor.TorSessionState
 import org.yapyap.transport.tor.backend.TorHealth
 import kotlin.coroutines.cancellation.CancellationException
@@ -170,7 +146,7 @@ internal class DefaultRouter(
                         peerAvailabilityRegistry.lastSeen(peer)?.let { now - it < freshness } == true
             }
         },
-        ready = flowOf(true),
+        ready = flowOf(true), //TODO: webrtc health
         config = ctx.routerConfig
             .map { it.webrtcLinkKeeperConfig }
             .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.webrtcLinkKeeperConfig),
@@ -183,6 +159,7 @@ internal class DefaultRouter(
     )
     private val peerPolicy = DefaultSyncPeerPolicy(ctx)
 
+    //TODO: fix nested lambdas, during file system rewrite
     private val outboxProcessor: OutboxProcessor = OutboxProcessor(
         ctx = ctx,
         dispatcher = envelopeDispatcher,
@@ -221,7 +198,7 @@ internal class DefaultRouter(
         lifecycle = lifecycle,
         outboxProcessor = outboxProcessor,
     )
-
+    //TODO: consider webrtc link keeper
     private val presenceService = PresenceService(
         ctx = ctx,
         lifecycle = lifecycle,

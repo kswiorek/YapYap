@@ -107,6 +107,7 @@ private class MessagePullStrategy(
 }
 
 /** Adapts the sync-shaped attempt store to the shared core without touching its shape. */
+//TODO: remove wrapper, update SyncAttemptStore to work with AttemptStore
 private class SyncAttemptDock(
     private val store: SyncAttemptStore,
 ) : CandidateAttemptStore<Uuid> {
