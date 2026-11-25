@@ -1,0 +1,177 @@
+# Maister Init — orchestrator state
+# Workflow: maister-init (fresh project initialization)
+# User input notes:
+#   - Reference the guide (codebase rules) in docs/.
+#   - The "file branch" (file implementation) is NOT yet reviewed by the user and may
+#     contain messes not applicable to the project as a whole — treat with caution.
+#   - The core (excluding file implementation) is the part to be most strictly
+#     reviewed and well implemented.
+#   - sprints.mmd describes the roadmap from early project planning.
+
+currentPhase: 8
+workflowStatus: completed
+initPhases: see `phases` above
+activeSubWorkflow:
+  name: standards-discover
+  invokedBy: maister-init Phase 8
+  options:
+    scope: full
+    confidence: 60
+    autoApply: false
+    skipExternal: false
+    prCount: 20
+  phases:
+    sd-1:
+      name: Plan discovery scope
+      status: completed
+      dependencies: [ ]
+      metadata:
+        userConfirmed: full discovery incl. external analysis
+    sd-2:
+      name: Analyze configuration files
+      status: completed
+      dependencies: [ sd-1 ]
+      metadata: { findings: 17, file: /tmp/opencode/tmp.VzEIWH6tmN/config.yml }
+    sd-3:
+      name: Mine code patterns
+      status: completed
+      dependencies: [ sd-1 ]
+      metadata: { findings: 22, file: /tmp/opencode/tmp.VzEIWH6tmN/code.yml }
+    sd-4:
+      name: Extract documentation standards
+      status: completed
+      dependencies: [ sd-1 ]
+      metadata: { findings: 131, file: /tmp/opencode/tmp.VzEIWH6tmN/docs.yml }
+    sd-5:
+      name: Analyze external sources
+      status: completed
+      dependencies: [ sd-1 ]
+      metadata: { findings: 8, file: /tmp/opencode/tmp.VzEIWH6tmN/external.yml, prs: 0 }
+    sd-6:
+      name: Aggregate & deduplicate findings
+      status: completed
+      dependencies: [ sd-2, sd-3, sd-4, sd-5 ]
+      metadata: { raw: 178, unique: 158, merged: 20, high: 149, medium: 9, low: 0, conflicts: 1 }
+    sd-7:
+      name: Review findings with user
+      status: completed
+      dependencies: [ sd-6 ]
+      metadata:
+        highApproved: all 149
+        mediumApproved: [ m1-kotlin-style, m5-experimental-optins, m8-modern-gradle, m9-sealed-vocabularies ]
+        mediumSkipped: [ m2-editorconfig, m3-androidx, m4-gradle-caches, m6-sqlite-jdbc, m7-packaging ]
+        conflictResolution: record-reality-plus-todo (CI has no test step; build comment inaccurate)
+        baselineCleanup: prune web-only baselines (backend/api.md, frontend/css.md)
+    sd-8:
+      name: Apply approved standards
+      status: completed
+      dependencies: [ sd-7 ]
+      metadata:
+        docsOperatorSession: ses_dec78bef9ffeIkbj6ONXMuSnPP
+        created: 32 files
+        updated: 5 files + INDEX.md
+        pruned: 2 files
+        activeFiles: 45
+        standardsApplied: 153
+        leftoverUnreviewed: platform-abstraction finding (code, conf 78)
+    sd-9:
+      name: Generate summary report
+      status: completed
+      dependencies: [ sd-8 ]
+      metadata:
+        standardsApplied: 154 (153 + 1 approved leftover)
+        activeFiles: 45
+        categories:
+          7 (3 new: architecture, protocol, build)
+        declinedMedium: 5 (detail preserved in /tmp/opencode/tmp.VzEIWH6tmN/)
+        conflictsResolved: 1 (CI gating — recorded with TODO)
+    sd-8:
+      name: Apply approved standards
+      status: pending
+      dependencies: [ sd-7 ]
+    sd-9:
+      name: Generate summary report
+      status: pending
+      dependencies: [ sd-8 ]
+phases:
+  1:
+    name: Pre-flight checks
+    status: completed
+    dependencies: [ ]
+  2:
+    name: Analyze project codebase
+    status: completed
+    dependencies: [ 1 ]
+    metadata:
+      analyzerSession: ses_dec98b097ffeeVgOdRoTvrjeBo
+      projectArchitectureType: monorepo
+      primaryLanguage: Kotlin 2.3.20 (KMP)
+  3:
+    name: Present findings & gather context
+    status: completed
+    dependencies: [ 2 ]
+    metadata:
+      analysisConfirmed: accurate
+      descriptionVariant: 20-40 people (README-based)
+      goals: [ review-and-finalize-file-branch, wire-gui-file-surface ]
+      docsToGenerate: [ vision, roadmap, tech-stack, architecture ]
+  4:
+    name: Select standards to initialize
+    status: completed
+    dependencies: [ 3 ]
+    metadata:
+      selection: smart-defaults
+      categories: [ global, frontend, backend, testing ]
+  5:
+    name: Initialize documentation structure
+    status: completed
+    dependencies: [ 4 ]
+    metadata:
+      docsOperatorSession: ses_dec91bebcffeTOe6iJasIcI8sb
+      created: 4 standards categories (16 files), empty project/, INDEX.md
+      warning: CLAUDE.md does not exist — ask user in Phase 7
+  6:
+    name: Generate project documentation
+    status: completed
+    dependencies: [ 5 ]
+    metadata:
+      generated: [ vision.md, roadmap.md, tech-stack.md, architecture.md ]
+  7:
+    name: Validate
+    status: completed
+    dependencies: [ 6 ]
+    metadata:
+      docsOperatorSession: ses_dec8d6c82ffegUEm2YiwpnBXqP
+      indexRegenerated: true
+      claudeMdCreated: user-confirmed, reference verified
+      verification: all checks passed (20 docs, bidirectional index, no placeholders)
+  8:
+    name: Discover coding standards
+    status: completed
+    dependencies: [ 7 ]
+    metadata:
+      scope: full
+      rawFindings: 178 (config 17, code 22, docs 131, external 8)
+      uniqueStandards: 159 (154 applied, 5 declined)
+      docsOperatorSessions: [ ses_dec78bef9ffeIkbj6ONXMuSnPP, ses_dec6e9d0dffeZe72BsTnZVbcIL ]
+      standardsFiles: 45 across global/frontend/backend/testing + new architecture/protocol/build
+  4:
+    name: Select standards to initialize
+    status: pending
+    dependencies: [ 3 ]
+  5:
+    name: Initialize documentation structure
+    status: pending
+    dependencies: [ 4 ]
+  6:
+    name: Generate project documentation
+    status: pending
+    dependencies: [ 5 ]
+  7:
+    name: Validate
+    status: pending
+    dependencies: [ 6 ]
+  8:
+    name: Discover coding standards
+    status: pending
+    dependencies: [ 7 ]
