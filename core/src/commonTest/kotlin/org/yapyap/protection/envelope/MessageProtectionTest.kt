@@ -11,6 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class MessageProtectionTest {
 
@@ -66,8 +67,9 @@ class MessageProtectionTest {
         assertContentEquals(payload.encode(), pair.receiver.open(content, pair.sourcePeer).encode())
         // The ratchet frame must not contain the cleartext message.
         val textBytes = payload.text.encodeToByteArray()
-        assert(!content.toList().windowed(textBytes.size).any { it == textBytes.toList() }) {
-            "sealed content must not contain the plaintext"
-        }
+        assertTrue(
+            !content.toList().windowed(textBytes.size).any { it == textBytes.toList() },
+            "sealed content must not contain the plaintext",
+        )
     }
 }

@@ -225,7 +225,7 @@ class CandidateCoreTest {
             }
             release.complete(Unit)
             withTimeout(10.seconds) {
-                while (h.attempts.contains(first) || h.attempts.contains(second)) delay(20)
+                while (h.attempts.contains(first) || h.attempts.contains(second)) delay(20.milliseconds)
             }
         } finally {
             h.stop()
@@ -253,12 +253,12 @@ class CandidateCoreTest {
             repeat(3) {
                 h.clock.advanceBy(61.seconds)
                 h.core.wake()
-                delay(200)
+                delay(200.milliseconds)
             }
             assertEquals(1, runs, "a running row is skipped by the due loop")
             release.complete(Unit)
             withTimeout(10.seconds) {
-                while (h.attempts.contains(id)) delay(20)
+                while (h.attempts.contains(id)) delay(20.milliseconds)
             }
         } finally {
             h.stop()
@@ -270,7 +270,7 @@ class CandidateCoreTest {
         val h = coreHarness { _, _ -> CallOutcome.Satisfied }
         try {
             h.start()
-            delay(500)
+            delay(500.milliseconds)
             // maxIdlePoll is 50 ms: about ten passes. A loop that re-wakes itself runs thousands.
             assertTrue(h.attempts.findDueCalls < 50, "idle loop ran ${h.attempts.findDueCalls} passes")
         } finally {

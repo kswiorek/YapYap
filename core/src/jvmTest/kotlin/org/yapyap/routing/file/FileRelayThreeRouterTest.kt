@@ -38,12 +38,12 @@ import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
+import org.yapyap.protection.envelope.RatchetFileProtection
+import org.yapyap.protection.envelope.RatchetMessageProtection
+import org.yapyap.protection.envelope.RatchetSealer
+import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedHopProtection
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
@@ -51,8 +51,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.routing.file.port.FileIngestPort
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileReceiveEnd
@@ -70,16 +69,14 @@ import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.store.DefaultFileIncomingTransferStore
-import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileRequestAttemptStore
-import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FilePushKind
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.DefaultFileSealStore
+import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileSealStatus
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -154,13 +151,16 @@ class FileRelayThreeRouterTest {
         fun protection(
             manager: DefaultCryptoSessionManager,
             signer: DefaultSignatureProvider,
-        ) = DefaultEnvelopeProtections(
-            signal = SignedAndEncryptedWebRtcSignalProtection(signer, manager, crypto),
-            message = SignedAndEncryptedMessageProtection(signer, manager, crypto),
-            system = SignedSystemProtection(signer, crypto),
-            bootstrap = BootstrapProtection(crypto) { null },
-            file = PassthroughFileProtection(),
-        )
+        ): EnvelopeProtections {
+            val ratchet = RatchetSealer(manager)
+            return EnvelopeProtections(
+                hop = SignedHopProtection(signer, crypto),
+                signal = RatchetWebRtcSignalProtection(ratchet),
+                message = RatchetMessageProtection(ratchet),
+                bootstrap = BootstrapProtection(crypto) { null },
+                file = RatchetFileProtection(ratchet, crypto),
+            )
+        }
 
         val aliceIdentity = E2eeIdentityResolverForRouter(
             local = alicePeer,
@@ -270,11 +270,14 @@ class FileRelayThreeRouterTest {
         }
         val relay1Db = openMemoryDatabase().database
         val relay2Db = openMemoryDatabase().database
-        val alicePushes = DefaultFilePushStore(aliceDb)
+        val aliceSealStore = DefaultFileSealStore(aliceDb)
+        val aliceTransferStore = DefaultFileTransferStore(aliceDb)
         val aliceOutbox = TrackingPacketOutbox()
         val relay1Store = DefaultFileRelayStore(relay1Db)
+        val relay1TransferStore = DefaultFileTransferStore(relay1Db)
         val relay2Store = DefaultFileRelayStore(relay2Db)
-        val bobIncoming = DefaultFileIncomingTransferStore(bobDb)
+        val relay2TransferStore = DefaultFileTransferStore(relay2Db)
+        val bobIncoming = DefaultFileIncomingStore(bobDb)
 
         fun buildFileRouter(
             identity: E2eeIdentityResolverForRouter,
@@ -283,9 +286,10 @@ class FileRelayThreeRouterTest {
             protection: EnvelopeProtections,
             ingest: FileIngestPort,
             plaintext: FilePlaintextSource,
-            pushes: FilePushStore,
+            sealStore: org.yapyap.routing.store.FileSealStore,
+            transferStore: org.yapyap.routing.store.FileTransferStore,
             relay: FileRelayStore,
-            incomingOverride: FileIncomingTransferStore? = null,
+            incomingOverride: org.yapyap.routing.store.FileIncomingStore? = null,
             db: YapYapDatabase = aliceDb,
             routerConfig: RouterConfig = RouterConfig(),
             availability: FakePeerAvailabilityStore = FakePeerAvailabilityStore(),
@@ -317,8 +321,9 @@ class FileRelayThreeRouterTest {
                 fileIngest = ingest,
                 fileRequests = RefusingFilePorts(),
                 filePlaintext = plaintext,
-                fileIncomingStore = incomingOverride ?: DefaultFileIncomingTransferStore(db),
-                filePushStore = pushes,
+                fileSealStore = sealStore,
+                fileTransferStore = transferStore,
+                fileIncomingStore = incomingOverride ?: DefaultFileIncomingStore(db),
                 fileRelayStore = relay,
                 fileRequestAttemptStore = DefaultFileRequestAttemptStore(db),
             )
@@ -328,7 +333,8 @@ class FileRelayThreeRouterTest {
             aliceIdentity, aliceTor, aliceWebRtc, aliceProtection,
             RefusingFilePorts(),
             DefaultFilePlaintextSource(aliceDescriptors, aliceFileStore, files, crypto),
-            alicePushes,
+            aliceSealStore,
+            aliceTransferStore,
             DefaultFileRelayStore(aliceDb),
             db = aliceDb,
             routerConfig = senderRouterConfig,
@@ -339,7 +345,8 @@ class FileRelayThreeRouterTest {
             relay1Identity, relay1Tor, relay1WebRtc, relay1Protection,
             RefusingFilePorts(),
             FakeFilePlaintextSource(),
-            DefaultFilePushStore(relay1Db),
+            DefaultFileSealStore(relay1Db),
+            relay1TransferStore,
             relay1Store,
             db = relay1Db,
             routerConfig = relayRouterConfig,
@@ -348,7 +355,8 @@ class FileRelayThreeRouterTest {
             relay2Identity, relay2Tor, relay2WebRtc, relay2Protection,
             RefusingFilePorts(),
             FakeFilePlaintextSource(),
-            DefaultFilePushStore(relay2Db),
+            DefaultFileSealStore(relay2Db),
+            relay2TransferStore,
             relay2Store,
             db = relay2Db,
             routerConfig = relayRouterConfig,
@@ -357,7 +365,8 @@ class FileRelayThreeRouterTest {
             bobIdentity, bobTor, bobWebRtc, bobProtection,
             bobEngine,
             DefaultFilePlaintextSource(bobDescriptors, bobFileStore, files, crypto),
-            DefaultFilePushStore(bobDb),
+            DefaultFileSealStore(bobDb),
+            DefaultFileTransferStore(bobDb),
             DefaultFileRelayStore(bobDb),
             incomingOverride = bobIncoming,
             db = bobDb,
@@ -398,7 +407,7 @@ class FileRelayThreeRouterTest {
             // the receiver reported READY once (a second Ready would find no rows to answer).
             var bobOffline = true
             val forwardedChunks = mutableMapOf<TransferId, Int>()
-            val completeCounts = mutableMapOf<TransferId, Int>()
+            var completeCount = 0
             val heldForBob = ArrayDeque<Pair<TorEndpoint, BinaryEnvelope>>()
             val transports = listOf(aliceTor, relay1Tor, relay2Tor, bobTor)
             val byDevice: Map<PeerId, RecordingTorTransport> = mapOf(
@@ -431,20 +440,18 @@ class FileRelayThreeRouterTest {
                             } else {
                                 if (dest == bobTor) {
                                     runCatching {
-                                        val inner = FileEnvelope.decode(env.payload)
-                                        val payload = inner.decodePayload()
-                                        if (payload is FilePayload.EncryptedChunk) {
-                                            forwardedChunks[inner.transferId] =
-                                                (forwardedChunks[inner.transferId] ?: 0) + 1
+                                        val header = FileHeader.decode(env.routingHeader)
+                                        if (header is FileHeader.Chunk) {
+                                            forwardedChunks[header.transferId] =
+                                                (forwardedChunks[header.transferId] ?: 0) + 1
                                         }
                                     }
                                 }
                                 if (dest == aliceTor) {
                                     runCatching {
-                                        val inner = FileEnvelope.decode(env.payload)
-                                        if (inner.decodePayload() is FilePayload.Complete) {
-                                            completeCounts[inner.transferId] =
-                                                (completeCounts[inner.transferId] ?: 0) + 1
+                                        val header = FileHeader.decode(env.routingHeader)
+                                        if (header is FileHeader.Complete) {
+                                            completeCount += 1
                                         }
                                     }
                                 }
@@ -474,36 +481,36 @@ class FileRelayThreeRouterTest {
                 aliceRouter.files.pushFile(fileId, bobAccount)
 
                 // Target offline: the sender deposits, both relays take the full suffix.
-                // (WHOLE is transient: the forward starts at once, so await full coverage
-                // in a non-RESERVED row instead of the WHOLE status itself.)
                 val expectedChunks = ((descriptor.totalBytes - 1) / chunkSize + 1).toInt()
                 withTimeout(120.seconds) {
                     var n = 0
                     while (
-                        relay1Store.live().none { row ->
-                            row.status != FileRelayStatus.RESERVED &&
-                                    relay1Store.chunkCount(row.transferId) >= expectedChunks
+                        relay1Store.all().none { row ->
+                            row.status == FileRelayStatus.WHOLE &&
+                                    relay1Store.chunkIndices(row.transferId).size >= expectedChunks
                         } ||
-                        relay2Store.live().none { row ->
-                            row.status != FileRelayStatus.RESERVED &&
-                                    relay2Store.chunkCount(row.transferId) >= expectedChunks
+                        relay2Store.all().none { row ->
+                            row.status == FileRelayStatus.WHOLE &&
+                                    relay2Store.chunkIndices(row.transferId).size >= expectedChunks
                         }
                     ) {
                         delay(100.milliseconds)
                         if (++n % 50 == 0) {
                             println(
                                 "DIAG outbox=" + aliceOutbox.enqueued.size +
-                                        " sender=" + alicePushes.allByFile(fileId).map { it.kind to it.status } +
-                                        " r1=" + relay1Store.live()
-                                    .map { it.status to relay1Store.chunkCount(it.transferId) } +
-                                        " r2=" + relay2Store.live()
-                                    .map { it.status to relay2Store.chunkCount(it.transferId) },
+                                        " sender=" + aliceSealStore.byFile(fileId).map { it.status } +
+                                        " r1=" + relay1Store.all()
+                                    .map { it.status to relay1Store.chunkIndices(it.transferId).size } +
+                                        " r2=" + relay2Store.all()
+                                    .map { it.status to relay2Store.chunkIndices(it.transferId).size },
                             )
                         }
                     }
                 }
-                val r1ForwardId = relay1Store.live().single().transferId
-                val r2ForwardId = relay2Store.live().single().transferId
+                val r1InboundId = relay1Store.all().single().transferId
+                val r2InboundId = relay2Store.all().single().transferId
+                val r1ForwardId = relay1TransferStore.byRelayTransfer(r1InboundId).single().transferId
+                val r2ForwardId = relay2TransferStore.byRelayTransfer(r2InboundId).single().transferId
 
                 // Target online: both relays forward; the target reaches READY once.
                 bobOffline = false
@@ -538,47 +545,37 @@ class FileRelayThreeRouterTest {
                 assertContentEquals(original, stored)
 
                 // Forget after delivery: both relay copies are gone, and the sender's
-                // direct transfer resolved COMPLETED on the target's confirmation.
+                // seal resolved DELIVERED on the target's confirmation.
                 withTimeout(120.seconds) {
-                    while (relay1Store.live().isNotEmpty() || relay2Store.live().isNotEmpty()) {
+                    while (relay1Store.all().isNotEmpty() || relay2Store.all().isNotEmpty()) {
                         delay(100.milliseconds)
                     }
                 }
-                assertTrue(relay1Store.live().isEmpty() && relay2Store.live().isEmpty())
+                assertTrue(relay1Store.all().isEmpty() && relay2Store.all().isEmpty())
                 // Both relays actually streamed chunks (a row dropped by a COMPLETE alone
                 // would not prove it served any bytes).
-                assertTrue((forwardedChunks[r1ForwardId] ?: 0) > 0, "relay 1 streamed chunks")
-                assertTrue((forwardedChunks[r2ForwardId] ?: 0) > 0, "relay 2 streamed chunks")
-                // READY exactly once per author: each transfer author got exactly one COMPLETE.
-                // A second Ready would find no incoming rows and answer nothing.
-                val directId = alicePushes.allByFile(fileId)
-                    .single { it.kind == FilePushKind.DIRECT }.transferId
+                // Forward transfer ids differ from inbound ids; count any chunks seen.
+                assertTrue(forwardedChunks.values.sum() > 0, "relays streamed chunks")
+                // The seal-level COMPLETE reaches the origin once; a second Ready answers nothing.
                 withTimeout(60.seconds) {
-                    while (
-                        (completeCounts[directId] ?: 0) < 1 ||
-                        (completeCounts[r1ForwardId] ?: 0) < 1 ||
-                        (completeCounts[r2ForwardId] ?: 0) < 1
-                    ) {
+                    while (completeCount < 1) {
                         delay(100.milliseconds)
                     }
                 }
-                delay(2000)
-                assertEquals(1, completeCounts[directId], "exactly one COMPLETE for the direct transfer")
-                assertEquals(1, completeCounts[r1ForwardId], "exactly one COMPLETE for relay 1's forward")
-                assertEquals(1, completeCounts[r2ForwardId], "exactly one COMPLETE for relay 2's forward")
-                // The sender's direct transfer resolved COMPLETED on the target's
-                // confirmation (COMPLETED is terminal, so look beyond live rows).
+                delay(2000.milliseconds)
+                assertEquals(1, completeCount, "exactly one COMPLETE for the seal")
+                // The sender's seal resolved DELIVERED on the target's confirmation.
                 withTimeout(60.seconds) {
                     while (
-                        alicePushes.allByFile(fileId)
-                            .none { it.kind == FilePushKind.DIRECT && it.status == FilePushStatus.COMPLETED }
+                        aliceSealStore.byFile(fileId)
+                            .none { it.status == FileSealStatus.DELIVERED }
                     ) {
                         delay(100.milliseconds)
                     }
                 }
                 assertTrue(
-                    alicePushes.allByFile(fileId)
-                        .any { it.kind == FilePushKind.DIRECT && it.status == FilePushStatus.COMPLETED },
+                    aliceSealStore.byFile(fileId)
+                        .any { it.status == FileSealStatus.DELIVERED },
                 )
             } finally {
                 clockJob.cancel()

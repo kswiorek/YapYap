@@ -77,7 +77,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun openSession_connects_andCarriesEnvelopesBothWays() = runBlocking<Unit> {
+    fun openSession_connects_andCarriesEnvelopesBothWays(): Unit = runBlocking {
         val a = transport()
         val b = transport()
         try {
@@ -113,7 +113,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun inboundStream_isNoSession_untilAdopted() = runBlocking<Unit> {
+    fun inboundStream_isNoSession_untilAdopted(): Unit = runBlocking {
         val a = transport()
         val b = transport()
         try {
@@ -135,7 +135,7 @@ class TorSessionLoopbackTest {
                 "only for the endpoint it claims"
             )
 
-            assertTrue(b.adoptInbound(atB.link!!, endpointA))
+            assertTrue(b.adoptInbound(atB.link, endpointA))
             assertTrue(b.hasSession(endpointA))
             assertEquals(SessionPhase.CONNECTED, b.sessionStates.value[endpointA]?.phase)
 
@@ -154,7 +154,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun farEndStopping_closesTheSession() = runBlocking<Unit> {
+    fun farEndStopping_closesTheSession() = runBlocking {
         val a = transport()
         val b = transport()
         try {
@@ -172,7 +172,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun dialToNobody_fails() = runBlocking<Unit> {
+    fun dialToNobody_fails() = runBlocking {
         val a = transport()
         try {
             a.start()
@@ -188,7 +188,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun silentFarEnd_isClosedAfterTheIdleTimeout() = runBlocking<Unit> {
+    fun silentFarEnd_isClosedAfterTheIdleTimeout() = runBlocking {
         val fast = MutableStateFlow(
             TorBackendConfig(
                 sessionKeepaliveInterval = 100.milliseconds,
@@ -226,7 +226,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun farEndThatStopsAnswering_isClosedSoonAfterASend_notAfterTheIdleTimeout() = runBlocking<Unit> {
+    fun farEndThatStopsAnswering_isClosedSoonAfterASend_notAfterTheIdleTimeout() = runBlocking {
         val fast = MutableStateFlow(
             TorBackendConfig(
                 sessionKeepaliveInterval = 10.seconds,
@@ -263,7 +263,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun liveFarEnd_answersTheEcho_andTheSessionStays() = runBlocking<Unit> {
+    fun liveFarEnd_answersTheEcho_andTheSessionStays() = runBlocking {
         val fast = MutableStateFlow(
             TorBackendConfig(
                 sessionKeepaliveInterval = 10.seconds,
@@ -281,7 +281,7 @@ class TorSessionLoopbackTest {
 
             // B never sends an envelope back (no ACK at this layer): only its echo answer.
             a.send(endpointB, envelope())
-            delay(1_500)
+            delay(1_500.milliseconds)
             assertTrue(a.hasSession(endpointB), "the echo answer counts")
         } finally {
             stopAll(a, b)
@@ -289,7 +289,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun bothSidesDialing_endUpOnOneStream_andStayConnected() = runBlocking<Unit> {
+    fun bothSidesDialing_endUpOnOneStream_andStayConnected(): Unit = runBlocking {
         val a = transport()
         val b = transport()
         try {
@@ -319,7 +319,7 @@ class TorSessionLoopbackTest {
             }
             adoptFrom(b, a, endpointA, endpointB)
             adoptFrom(a, b, endpointB, endpointA)
-            delay(300)
+            delay(300.milliseconds)
 
             assertTrue(a.hasSession(endpointB))
             assertTrue(b.hasSession(endpointA))
@@ -336,7 +336,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun sendWithoutASession_dialsAStream_andTheReplyRidesIt() = runBlocking<Unit> {
+    fun sendWithoutASession_dialsAStream_andTheReplyRidesIt(): Unit = runBlocking {
         val a = transport()
         val b = transport()
         try {
@@ -366,7 +366,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun sendToNobody_throwsTheDialFailure() = runBlocking<Unit> {
+    fun sendToNobody_throwsTheDialFailure() = runBlocking {
         val a = transport()
         try {
             a.start()
@@ -379,7 +379,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun linksNobodyAskedFor_closeOnceUnused_requestedOnesStay() = runBlocking<Unit> {
+    fun linksNobodyAskedFor_closeOnceUnused_requestedOnesStay() = runBlocking {
         val fast = MutableStateFlow(
             TorBackendConfig(
                 sessionKeepaliveInterval = 100.milliseconds,
@@ -412,7 +412,7 @@ class TorSessionLoopbackTest {
 
             val closed = a.awaitPhase(endpointB, SessionPhase.CLOSED)
             assertTrue(closed.reason.orEmpty().contains("transient"), "closed as unused: ${closed.reason}")
-            delay(1_000)
+            delay(1_000.milliseconds)
             assertTrue(a.hasSession(endpointC), "a requested session outlives the transient timeout")
         } finally {
             stopAll(a, b, c)
@@ -420,7 +420,7 @@ class TorSessionLoopbackTest {
     }
 
     @Test
-    fun unadoptedInboundStreams_areCapped() = runBlocking<Unit> {
+    fun unadoptedInboundStreams_areCapped(): Unit = runBlocking {
         val capped = MutableStateFlow(TorBackendConfig(maxUnadoptedInbound = 2))
         val hub = transport(capped)
         val dialers = List(3) { transport() }
@@ -445,7 +445,7 @@ class TorSessionLoopbackTest {
      * in about one write each, and the dead ones cost nothing at send time.
      */
     @Test
-    fun fanOutToFortyPeers_withDeadOnesMixedIn_isNotHeldUp() = runBlocking<Unit> {
+    fun fanOutToFortyPeers_withDeadOnesMixedIn_isNotHeldUp() = runBlocking {
         val hub = transport()
         val peers = List(30) { transport() }
         try {

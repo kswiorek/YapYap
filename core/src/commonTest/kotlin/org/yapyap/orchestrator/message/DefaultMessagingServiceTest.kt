@@ -60,7 +60,6 @@ import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.DeviceRouteStore
@@ -68,7 +67,6 @@ import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
-import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.NoopMessageCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.BeforeTest
@@ -79,6 +77,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -204,7 +203,7 @@ class DefaultMessagingServiceTest {
             ),
         )
 
-        val preparing = assertIs<SendMessageResult.Preparing>(result)
+        assertIs<SendMessageResult.Preparing>(result)
         advanceUntilIdle()
         assertTrue(service.preparingSends.value.isEmpty(), "preparing cleared after land")
         // The message carries the imported attachment.
@@ -275,7 +274,7 @@ class DefaultMessagingServiceTest {
         val result = service.sendMessage(roomId, Message("too many", pickedFiles = tooMany))
 
         assertIs<SendMessageResult.Refused>(result)
-        assertEquals(SendRefusal.TooLarge, (result as SendMessageResult.Refused).reason)
+        assertEquals(SendRefusal.TooLarge, result.reason)
         assertFalse(prepared, "count checked before any import")
     }
 
@@ -358,7 +357,7 @@ class DefaultMessagingServiceTest {
                                 FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                                 f.fileName, f.mimeType, 1024L,
                             )
-                        }), null)
+                        })) { _, _, _ -> }
                     }
                 }
             },
@@ -386,8 +385,8 @@ class DefaultMessagingServiceTest {
     fun sendMessage_cancelMidHash_leavesNoCopy() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
         val fileSendService = FakeFileSendService(
-            prepareResult = { files ->
-                kotlinx.coroutines.delay(10_000)
+            prepareResult = { _ ->
+                kotlinx.coroutines.delay(10_000.milliseconds)
                 PrepareResult.Ready(emptyList())
             },
         )
@@ -1474,8 +1473,6 @@ private class FakeIdentityResolver(
     override suspend fun getLocalAccountIdentity(): AccountIdentity = error("not used")
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used")
-    suspend fun isLocalAccountAdmin(): Boolean = error("not used")
-    suspend fun isLocalAccountOwner(): Boolean = error("not used")
     override suspend fun localDeviceSigningKey(): SigningPrivateKey = error("not used")
 
     override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = error("not used")
@@ -1485,7 +1482,7 @@ private class FakeIdentityResolver(
     override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity = error("not used")
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
-    suspend fun getAllPeers(): List<PeerId> = error("not used")
+    fun getAllPeers(): List<PeerId> = error("not used")
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
     override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
     override suspend fun resolvePeerPreKeyBundle(deviceId: PeerId, signedPreKeyId: SignedPreKeyId?): PeerPreKeyBundle =
@@ -1504,17 +1501,9 @@ private class FakeIdentityResolver(
     override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
-private class RecordingFileCarrier : NoopFileCarrier() {
-    val pushed = mutableListOf<Pair<FileId, AccountId>>()
-
-    override suspend fun pushFile(fileId: FileId, target: AccountId) {
-        pushed += fileId to target
-    }
-}
-
 private class FakeFileSendService(
     var prepareResult: suspend (List<PickedFile>) -> PrepareResult = { files ->
-        PrepareResult.Ready(files.mapIndexed { i, f ->
+        PrepareResult.Ready(files.mapIndexed { _, f ->
             DagPayload.Attachment(
                 FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                 f.fileName, f.mimeType, 1024L,
@@ -1541,9 +1530,9 @@ private class FakeFileSendService(
         attachments: List<DagPayload.Attachment>,
         members: Collection<AccountId>,
     ) {
-        for (a in attachments) {
-            if (a.totalBytes > SMALL_FILE_MAX_BYTES) continue
-            for (m in members) pushed += a.fileId to m
+        for ((fileId, _, _, totalBytes) in attachments) {
+            if (totalBytes > SMALL_FILE_MAX_BYTES) continue
+            for (m in members) pushed += fileId to m
         }
     }
 
@@ -1566,8 +1555,6 @@ private class RecordingRouter {
             return super.sendMessage(target, payload)
         }
     }
-    var files: FileCarrier = NoopFileCarrier()
-
     suspend fun emitIncoming(payload: DagPayload) {
         _incomingMessages.emit(payload)
     }

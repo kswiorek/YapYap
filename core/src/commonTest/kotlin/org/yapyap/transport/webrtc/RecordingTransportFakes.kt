@@ -174,8 +174,6 @@ internal class RecordingWebRtcTransport : WebRtcTransport {
 
     fun tryEmitFileChannelEvent(event: WebRtcFileChannelEvent): Boolean = fileChannelEventsMutable.tryEmit(event)
 
-    fun tryEmitIncomingEnvelope(e: WebRtcIncomingEnvelope): Boolean = incomingEnvelopesMutable.tryEmit(e)
-
     /** Records the last-known session state for [state]'s peer, mirroring the real transport. */
     fun setSessionState(state: WebRtcSessionState) {
         sessionStatesMutable.update { it + (state.peerId to state) }
@@ -227,8 +225,8 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
         stopCalls.add(Unit)
     }
 
-    override suspend fun openSession(key: PeerId) {
-        openSessionCalls.add(key)
+    override suspend fun openSession(target: PeerId) {
+        openSessionCalls.add(target)
     }
 
     /** Simulates the envelope data channel reaching OPEN for [peer]; hasSession(peer) becomes true. */
@@ -291,11 +289,7 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
         awaitBufferedCalls.add(channel to thresholdBytes)
     }
 
-    fun tryEmitOutgoingSignal(s: WebRtcSignal): Boolean = outgoingSignalsMutable.tryEmit(s)
-
     fun tryEmitSessionEvent(e: WebRtcSessionEvent): Boolean = sessionEventsMutable.tryEmit(e)
-
-    fun tryEmitFileChannelEvent(e: WebRtcFileChannelEvent): Boolean = fileChannelEventsMutable.tryEmit(e)
 
     fun tryEmitFileFrame(frame: WebRtcFileFrame): Boolean = incomingFileFramesMutable.tryEmit(frame)
 

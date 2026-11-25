@@ -2,22 +2,29 @@ package org.yapyap.gui.screens.shell
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.Icon
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerButton
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
@@ -39,7 +46,23 @@ import org.yapyap.orchestrator.runtime.room.RoomDetails
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
-import yapyap.composeapp.generated.resources.* // Res + generated string accessors
+import yapyap.composeapp.generated.resources.Res
+import yapyap.composeapp.generated.resources.desc_close_panel
+import yapyap.composeapp.generated.resources.desc_copy_room
+import yapyap.composeapp.generated.resources.member_device_count
+import yapyap.composeapp.generated.resources.member_role_admin
+import yapyap.composeapp.generated.resources.member_role_owner
+import yapyap.composeapp.generated.resources.member_you_suffix
+import yapyap.composeapp.generated.resources.presence_offline
+import yapyap.composeapp.generated.resources.presence_online
+import yapyap.composeapp.generated.resources.presence_unknown
+import yapyap.composeapp.generated.resources.room_add_members
+import yapyap.composeapp.generated.resources.room_manage_member
+import yapyap.composeapp.generated.resources.room_members_title
+import yapyap.composeapp.generated.resources.room_offline_count
+import yapyap.composeapp.generated.resources.room_online_count
+import yapyap.composeapp.generated.resources.room_profile_title
+import yapyap.composeapp.generated.resources.room_unknown_user
 
 @Composable
 fun RightPanel(
@@ -234,7 +257,6 @@ private fun SectionHeader(text: String) {
     )
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun MemberRow(
     view: AccountView?,
@@ -254,18 +276,7 @@ private fun MemberRow(
                     Modifier.clickable { onManage() }
                         // Desktop right-click opens the same manage sheet;
                         // touch/long-press users get it via the left-click path.
-                        .pointerInput(onManage) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    if (event.type == PointerEventType.Press &&
-                                        event.button == PointerButton.Secondary
-                                    ) {
-                                        onManage()
-                                    }
-                                }
-                            }
-                        }
+                        .secondaryClick(onManage)
                 } else Modifier
             )
             .padding(horizontal = 8.dp, vertical = 6.dp),

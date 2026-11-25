@@ -3,16 +3,27 @@ package org.yapyap.transport.tor
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
-import kotlinx.coroutines.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.io.files.Path
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TOR_TRANSPORT_FRAME_MAGIC
 import org.yapyap.transport.tor.backend.TorBackendConfig
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -62,7 +73,7 @@ class KmpTorBackendInboundFrameTest {
             peerOut.writeInt(TOR_TRANSPORT_FRAME_MAGIC)
             peerOut.flush()
             val reader = async(Dispatchers.IO) { backend.handleInboundConnection(serverSide) }
-            delay(500)
+            delay(500.milliseconds)
             reader.cancel()
             // await() rethrows the child's failure untouched: raw cancellation passes
             // through, while a wrapped TransportFrameError would surface here instead.

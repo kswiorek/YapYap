@@ -67,7 +67,7 @@ class DefaultIdentityOrchestrationTest {
         // Responder paths (X3DH bootstrap) sign/decrypt with this key: the DB row
         // never carries private material, so the resolver must attach the keystore key.
         assertNotNull(localSpk.privateKey)
-        val storedSpkPrivate = assertNotNull(store.getKey(KeySlot.SignedPreKeyPrivate(device.signedPreKey!!.id)))
+        val storedSpkPrivate = assertNotNull(store.getKey(KeySlot.SignedPreKeyPrivate(device.signedPreKey.id)))
         assertContentEquals(storedSpkPrivate, localSpk.privateKey.bytes)
         val direct = resolver.resolveLocalSignedPreKey(localSpk.id)
         assertEquals(localSpk.privateKey, direct.privateKey)
@@ -126,7 +126,7 @@ class DefaultIdentityOrchestrationTest {
     @Test
     fun repository_insertPeerDevice_then_resolveTor_and_listPeers() = runTest {
         val (repo, _, triple) = stack()
-        val (resolver, provisioning) = triple
+        val (_, provisioning) = triple
 
         val account = provisioning.createNewAccountIdentity("Acc")
         val localDevice = provisioning.createNewDeviceIdentity()
@@ -223,10 +223,10 @@ class DefaultIdentityOrchestrationTest {
 
     @Test
     fun recoveryKeyCodec_rejectsMalformedInput() {
-        assertFailsWith<org.yapyap.crypto.CryptoException.InvalidRecoveryKey> {
+        assertFailsWith<CryptoException.InvalidRecoveryKey> {
             AccountRecoveryKeyCodec.decode("not-a-recovery-key")
         }
-        assertFailsWith<org.yapyap.crypto.CryptoException.InvalidRecoveryKey> {
+        assertFailsWith<CryptoException.InvalidRecoveryKey> {
             AccountRecoveryKeyCodec.decode("YYR1.only-one-part")
         }
     }

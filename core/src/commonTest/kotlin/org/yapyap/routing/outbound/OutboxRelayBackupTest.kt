@@ -157,8 +157,10 @@ class OutboxRelayBackupTest {
         h.enqueue(msg)
         runCurrent()
 
-        assertEquals(0, h.tor.sends.size)
+        // No link to the peer: the direct copy waits, the relay copy goes (relay is linked).
         assertEquals(1, h.backedUp.size)
+        assertEquals(1, h.tor.sends.size, "the relay copy goes while the direct waits")
+        assertEquals(relay, h.tor.sends.single().second.target)
     }
 
     @Test

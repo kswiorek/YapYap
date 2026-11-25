@@ -38,12 +38,12 @@ import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtections
+import org.yapyap.protection.envelope.RatchetFileProtection
+import org.yapyap.protection.envelope.RatchetMessageProtection
+import org.yapyap.protection.envelope.RatchetSealer
+import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedHopProtection
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
@@ -64,10 +64,11 @@ import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.store.DefaultFileIncomingTransferStore
-import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileRequestAttemptStore
+import org.yapyap.routing.store.DefaultFileSealStore
+import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -153,13 +154,16 @@ class FileSmallPushLiveIntegrationTest {
         fun protection(
             manager: DefaultCryptoSessionManager,
             signer: DefaultSignatureProvider,
-        ) = DefaultEnvelopeProtections(
-            signal = SignedAndEncryptedWebRtcSignalProtection(signer, manager, crypto),
-            message = SignedAndEncryptedMessageProtection(signer, manager, crypto),
-            system = SignedSystemProtection(signer, crypto),
-            bootstrap = BootstrapProtection(crypto) { null },
-            file = PassthroughFileProtection(),
-        )
+        ): EnvelopeProtections {
+            val ratchet = RatchetSealer(manager)
+            return EnvelopeProtections(
+                hop = SignedHopProtection(signer, crypto),
+                signal = RatchetWebRtcSignalProtection(ratchet),
+                message = RatchetMessageProtection(ratchet),
+                bootstrap = BootstrapProtection(crypto) { null },
+                file = RatchetFileProtection(ratchet, crypto),
+            )
+        }
 
         val aliceIdentity = E2eeIdentityResolverForRouter(
             local = alicePeer,
@@ -257,8 +261,9 @@ class FileSmallPushLiveIntegrationTest {
                 fileIngest = ingest,
                 fileRequests = RefusingFilePorts(),
                 filePlaintext = plaintext,
-                fileIncomingStore = DefaultFileIncomingTransferStore(db),
-                filePushStore = DefaultFilePushStore(db),
+                fileSealStore = DefaultFileSealStore(db),
+                fileTransferStore = DefaultFileTransferStore(db),
+                fileIncomingStore = DefaultFileIncomingStore(db),
                 fileRelayStore = DefaultFileRelayStore(db),
                 fileRequestAttemptStore = DefaultFileRequestAttemptStore(db),
             )

@@ -25,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -268,12 +269,12 @@ class SyncRetryProcessorTest {
         val syncId = h.pendingSync()
         val scope = CoroutineScope(SupervisorJob())
         h.processor.runIn(scope)
-        delay(500)
+        delay(500.milliseconds)
         assertTrue(h.stack.outbox.enqueued.isEmpty(), "nobody is asked without a link")
         assertEquals(now + 30.seconds, h.attempts.nextAttemptAt(syncId))
 
         h.stack.tor.setSessionState(TorEndpoint("${remoteDevice.id}.onion", 80), SessionPhase.CONNECTED)
-        delay(500)
+        delay(500.milliseconds)
         scope.cancel()
 
         assertEquals(listOf(remoteDevice), h.stack.outbox.enqueued.map { it.target }, "asked as soon as linked")

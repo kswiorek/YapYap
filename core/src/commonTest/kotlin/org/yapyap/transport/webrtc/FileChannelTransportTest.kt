@@ -27,6 +27,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -141,16 +142,16 @@ class FileChannelTransportTest {
             val channel2 = transport.openFileChannel(peer)
             withTimeout(5.seconds) {
                 while (backend.openFileChannelCalls.size < 2) {
-                    delay(10)
+                    delay(10.milliseconds)
                 }
             }
-            delay(50)
+            delay(50.milliseconds)
 
             // Closing the session drops both file channels (one Removed per channel).
             backend.closeSession(peer)
             withTimeout(5.seconds) {
                 while (removed.size < 2) {
-                    delay(10)
+                    delay(10.milliseconds)
                 }
             }
             job.cancel()
@@ -186,7 +187,7 @@ class FileChannelTransportTest {
         try {
             backend.simulateEnvelopeChannelOpen(peer)
             val channel = transport.openFileChannel(peer)
-            delay(50)
+            delay(50.milliseconds)
 
             // A file consumer that takes one frame and then never returns: the transport's file
             // collector backs up behind it until the backend's file buffer is full.
@@ -197,7 +198,7 @@ class FileChannelTransportTest {
                     awaitCancellation()
                 }
             }
-            delay(50)
+            delay(50.milliseconds)
             var refused = 0
             repeat(2_000) { i ->
                 if (!backend.tryEmitFileFrame(WebRtcFileFrame(channel, byteArrayOf(i.toByte())))) refused++

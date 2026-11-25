@@ -1,4 +1,4 @@
-package org.yapyap.routing.file.push
+package org.yapyap.routing.file
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -12,11 +12,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileHeader
-import org.yapyap.routing.file.IdentityFileProtection
-import org.yapyap.routing.file.InMemoryPacketOutbox
-import org.yapyap.routing.file.JvmRouterIdentity
-import org.yapyap.routing.file.ScriptablePlaintext
-import org.yapyap.routing.file.jvmProtections
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.PlaintextRead
@@ -46,6 +41,7 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -57,7 +53,7 @@ internal val peerB = PeerId("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 internal val relay1 = PeerId("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
 internal val relay2 = PeerId("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 
-internal data class PushHarness(
+internal class SealTransferHarness(
     val engine: TransferEngine,
     val seals: SealRegistry,
     val plaintext: ScriptablePlaintext,
@@ -75,15 +71,15 @@ internal data class PushHarness(
 )
 
 /** Currently queued outbox rows as (envelope, tag) pairs. */
-internal suspend fun PushHarness.sent(): List<Pair<BinaryEnvelope, OutboxTag?>> = outbox.sent()
+internal suspend fun SealTransferHarness.sent(): List<Pair<BinaryEnvelope, OutboxTag?>> = outbox.sent()
 
-internal fun pushHarness(
+internal fun sealTransferHarness(
     totalBytes: Long = 1024L * 1024,
     chunkSize: Int = 220 * 1024,
     now: Long = 10_000L,
     relaySelection: RelaySelectionPolicy = NoRelaySelection,
     routerConfig: RouterConfig = RouterConfig(),
-): PushHarness {
+): SealTransferHarness {
     val bytes = ByteArray(totalBytes.toInt()) { (it * 7).toByte() }
     val identity = JvmRouterIdentity(localPeerId, mapOf(fixtureAccount to listOf(peerA, peerB)))
     val protection = IdentityFileProtection()
@@ -122,7 +118,7 @@ internal fun pushHarness(
     val clock = FakeClock(epochSeconds(now))
     val tor = RecordingTorTransport()
     val webRtc = RecordingWebRtcTransport()
-    val ctx = org.yapyap.routing.file.jvmRoutingContext(
+    val ctx = jvmRoutingContext(
         identity = identity,
         tor = tor,
         webRtc = webRtc,
@@ -173,7 +169,7 @@ internal fun pushHarness(
         relaySelection = relaySelection,
         events = fileEvents,
     )
-    return PushHarness(
+    return SealTransferHarness(
         engine = engine,
         seals = seals,
         plaintext = plaintext,
@@ -192,44 +188,44 @@ internal fun pushHarness(
 }
 
 /** Chunk indices of currently queued FILE_TRANSFER rows, in queue order. */
-internal suspend fun PushHarness.chunkIndices(): List<Int> = sent().mapNotNull { (env, _) ->
+internal suspend fun SealTransferHarness.chunkIndices(): List<Int> = sent().mapNotNull { (env, _) ->
     (FileHeader.decode(env.routingHeader) as? FileHeader.Chunk)?.chunkIndex
 }
 
 /** Offer envelopes currently queued. */
-internal suspend fun PushHarness.offerHeaders(): List<FileHeader.Offer> = sent().mapNotNull { (env, _) ->
+internal suspend fun SealTransferHarness.offerHeaders(): List<FileHeader.Offer> = sent().mapNotNull { (env, _) ->
     FileHeader.decode(env.routingHeader) as? FileHeader.Offer
 }
 
 /** Live outgoing transfers to [device]. */
-internal suspend fun PushHarness.transfersFor(device: PeerId): List<OutgoingTransfer> =
+internal suspend fun SealTransferHarness.transfersFor(device: PeerId): List<OutgoingTransfer> =
     sealStore.byFile(fixtureFileId).flatMap { transferStore.bySeal(it.sealId) }
         .filter { it.peer == device && it.status.isLive }
 
 /** All transfers of the fixture file (live and ended). */
-internal suspend fun PushHarness.allTransfers(): List<OutgoingTransfer> =
+internal suspend fun SealTransferHarness.allTransfers(): List<OutgoingTransfer> =
     sealStore.byFile(fixtureFileId).flatMap { transferStore.bySeal(it.sealId) }
 
-internal suspend fun PushHarness.offerPacketOf(transferId: TransferId): Uuid {
-    withTimeout(5_000) {
+internal suspend fun SealTransferHarness.offerPacketOf(transferId: TransferId): Uuid {
+    withTimeout(5_000.milliseconds) {
         while (transferStore.find(transferId)?.offerPacketId == null) {
-            kotlinx.coroutines.delay(10)
+            kotlinx.coroutines.delay(10.milliseconds)
         }
     }
     return requireNotNull(transferStore.find(transferId)?.offerPacketId)
 }
 
-internal suspend fun PushHarness.ackOffer(transferId: TransferId, target: PeerId): OutboxOutcome.Acked =
+internal suspend fun SealTransferHarness.ackOffer(transferId: TransferId, target: PeerId): OutboxOutcome.Acked =
     OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferId.value), target, offerPacketOf(transferId))
 
-internal suspend fun PushHarness.awaitStatus(transferId: TransferId, vararg want: FileTransferStatus) {
+internal suspend fun SealTransferHarness.awaitStatus(transferId: TransferId, vararg want: FileTransferStatus) {
     withTimeout(5.seconds) {
-        while (transferStore.find(transferId)?.status !in want) kotlinx.coroutines.delay(10)
+        while (transferStore.find(transferId)?.status !in want) kotlinx.coroutines.delay(10.milliseconds)
     }
 }
 
-internal suspend fun PushHarness.awaitOffers(count: Int) {
-    withTimeout(5_000) {
-        while (offerHeaders().size < count) kotlinx.coroutines.delay(10)
+internal suspend fun SealTransferHarness.awaitOffers(count: Int) {
+    withTimeout(5_000.milliseconds) {
+        while (offerHeaders().size < count) kotlinx.coroutines.delay(10.milliseconds)
     }
 }

@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 package org.yapyap.orchestrator.message
 
 import kotlinx.coroutines.flow.Flow

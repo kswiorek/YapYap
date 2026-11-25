@@ -1,17 +1,18 @@
 package org.yapyap.routing.store
 
-import org.yapyap.persistence.DatabaseConnection
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import org.yapyap.persistence.DatabaseConnection
 import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.testfixtures.FakeClock
+import org.yapyap.protocol.envelopes.TransferShape
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -23,14 +24,12 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
  * Contract tests for the routing file stores on real in-memory SQLite: the exact semantics
- * the push engine and the relay door depend on — atomic deposit claims, chunk-index
- * recovery, atomic relay admission, and outbox tag queries. The engine tests run against
- * these same implementations.
+ * the seal registry, the transfer engine and the relay door depend on — atomic deposit claims,
+ * chunk-index recovery, atomic relay admission, and outbox tag queries.
  */
 class FileStoreSemanticsJvmTest {
 
@@ -49,21 +48,36 @@ class FileStoreSemanticsJvmTest {
     private val relay = PeerId("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     private val now = epochSeconds(10_000L)
 
-    private fun pushRow(
-        transferId: TransferId = TransferId(Uuid.random()),
-        status: FilePushStatus = FilePushStatus.IN_FLIGHT,
-    ) = FilePush(
-        transferId = transferId,
+    private fun sealRow(
+        sealId: ContentId = ContentId(ByteArray(32) { 1 }),
+        status: FileSealStatus = FileSealStatus.SENDING,
+        expiresAt: kotlin.time.Instant = now + 2.days,
+    ) = OutgoingSeal(
+        sealId = sealId,
         fileId = fileId,
         targetDevice = device,
-        kind = FilePushKind.DIRECT,
+        kind = FileSealKind.PUSH,
+        sealBytes = byteArrayOf(9),
+        key = SealKey(ByteArray(32) { 2 }),
         totalBytes = 10_000L,
-        key = TransferKey(ByteArray(32) { it.toByte() }),
-        chunkSizeBytes = 32 * 1024,
-        startIndex = 0,
+        status = status,
+        createdAt = now,
+        expiresAt = expiresAt,
+    )
+
+    private fun transferRow(
+        transferId: TransferId = TransferId(Uuid.random()),
+        sealId: ContentId = ContentId(ByteArray(32) { 1 }),
+        status: FileTransferStatus = FileTransferStatus.OFFERED,
+    ) = OutgoingTransfer(
+        transferId = transferId,
+        sealId = sealId,
+        relayTransferId = null,
+        peer = device,
+        shape = TransferShape(32 * 1024, 0, 10_000L),
         nextChunkIndex = 1,
         contiguousAcked = -1,
-        markerPacketId = null,
+        offerPacketId = null,
         status = status,
         createdAt = now,
         expiresAt = now + 2.days,
@@ -71,164 +85,150 @@ class FileStoreSemanticsJvmTest {
 
     private fun relayRow(
         transferId: TransferId = TransferId(Uuid.random()),
-        source: PeerId = device,
-        target: PeerId = relay,
+        origin: PeerId = device,
+        finalTarget: PeerId = relay,
         reserved: Long = 3000L,
-        lastChunkAt: Instant = now,
-    ) = FileRelayTransfer(
+        lastChunkAt: kotlin.time.Instant = now,
+    ) = RelayTransfer(
         transferId = transferId,
-        sourceDevice = source,
-        targetDevice = target,
-        chunkSizeBytes = 1000,
-        totalBytes = 3000L,
-        startIndex = 0,
-        offerPayload = byteArrayOf(9),
+        sealId = ContentId(ByteArray(32) { 3 }),
+        origin = origin,
+        finalTarget = finalTarget,
+        shape = TransferShape(1000, 0, 3000L),
+        sealBytes = byteArrayOf(9),
         status = FileRelayStatus.RESERVED,
         reservedBytes = reserved,
-        markerPacketId = null,
         createdAt = now,
         lastChunkAt = lastChunkAt,
         expiresAt = now + 2.days,
     )
 
     @Test
-    fun claimDeposited_exactlyOnceAcrossConcurrentClaimants() = runTest {
-        val pushes = DefaultFilePushStore(db())
-        val id = TransferId(Uuid.random())
-        pushes.insert(pushRow(id))
+    fun claimDeposit_exactlyOnceAcrossConcurrentClaimants() = runTest {
+        val seals = DefaultFileSealStore(db())
+        val sealId = ContentId(ByteArray(32) { 7 })
+        seals.insert(sealRow(sealId))
 
         // Ten concurrent claims: exactly one wins, even though all read-then-write.
         val results = (1..10).map {
-            async { pushes.claimDeposited(id, now) }
+            async { seals.claimDeposit(sealId, now) }
         }.awaitAll()
         assertEquals(1, results.count { it }, "exactly one claimant wins the round")
-        assertFalse(pushes.claimDeposited(id, now), "a second round is never claimable")
+        assertFalse(seals.claimDeposit(sealId, now), "a second round is never claimable")
     }
 
     @Test
-    fun pushChunks_recordAndRecoverAndCleanup() = runTest {
-        val pushes = DefaultFilePushStore(db())
+    fun transferChunks_recordAndRecoverAndCleanup() = runTest {
+        val transfers = DefaultFileTransferStore(db())
+        val sealId = ContentId(ByteArray(32) { 7 })
         val id = TransferId(Uuid.random())
-        pushes.insert(pushRow(id))
+        transfers.insert(transferRow(id, sealId))
         val p0 = Uuid.random()
         val p1 = Uuid.random()
-        pushes.recordChunk(id, 0, p0)
-        pushes.recordChunk(id, 1, p1)
+        transfers.recordChunk(id, 0, p0)
+        transfers.recordChunk(id, 1, p1)
 
-        assertEquals(mapOf(0 to p0, 1 to p1), pushes.chunksByTransfer(id))
-        assertEquals(id to 1, pushes.chunkByPacket(p1))
+        assertEquals(mapOf(0 to p0, 1 to p1), transfers.chunks(id))
+        assertEquals(id to 1, transfers.chunkByPacket(p1))
 
-        pushes.deleteChunkByPacket(p0)
-        assertEquals(mapOf(1 to p1), pushes.chunksByTransfer(id))
+        transfers.deleteChunk(p0)
+        assertEquals(mapOf(1 to p1), transfers.chunks(id))
 
-        // Deleting the row cascades to its chunk mappings (no orphan rows).
-        pushes.delete(id)
-        assertTrue(pushes.chunksByTransfer(id).isEmpty())
+        // Deleting the transfer drops its chunk mappings (explicit cleanup).
+        transfers.deleteChunks(id)
+        transfers.delete(id)
+        assertTrue(transfers.chunks(id).isEmpty())
     }
 
     @Test
-    fun allByFileAndTerminalHygiene() = runTest {
-        val pushes = DefaultFilePushStore(db())
-        val live = TransferId(Uuid.random())
-        val dead = TransferId(Uuid.random())
-        pushes.insert(pushRow(live, FilePushStatus.IN_FLIGHT))
-        pushes.insert(pushRow(dead, FilePushStatus.ENDED).copy(expiresAt = now - 1.days))
-        pushes.insert(pushRow(status = FilePushStatus.COMPLETED))
+    fun sealLiveAndExpiredHygiene() = runTest {
+        val seals = DefaultFileSealStore(db())
+        val live = ContentId(ByteArray(32) { 11 })
+        val dead = ContentId(ByteArray(32) { 12 })
+        seals.insert(sealRow(live, FileSealStatus.SENDING))
+        seals.insert(sealRow(dead, FileSealStatus.ENDED, expiresAt = now - 1.days))
+        seals.insert(sealRow(ContentId(ByteArray(32) { 13 }), FileSealStatus.DELIVERED))
 
-        val all = pushes.allByFile(fileId)
+        val all = seals.byFile(fileId)
         assertEquals(3, all.size, "live and terminal rows alike are visible by file")
-        val terminal = pushes.terminalBefore(now)
-        assertEquals(listOf(dead), terminal.map { it.transferId })
+        val expired = seals.expiredAt(now)
+        assertEquals(listOf(dead), expired.map { it.sealId })
     }
 
     @Test
     fun relayAdmit_evictsOldestFirst() = runTest {
-        val relay = DefaultFileRelayStore(db())
+        val store = DefaultFileRelayStore(db())
         val first = TransferId(Uuid.random())
-        relay.admit(relayRow(first, reserved = 3000L), 3000L, 4000L).let {
-            assertTrue(it.admitted)
-        }
+        val admission = store.admit(relayRow(first, reserved = 3000L), 3000L)
+        assertTrue(admission.admitted)
         val second = TransferId(Uuid.random())
-        val result = relay.admit(relayRow(second, reserved = 3000L), 3000L, 4000L)
+        val result = store.admit(relayRow(second, reserved = 3000L), 3000L)
         assertTrue(result.admitted)
         assertEquals(listOf(first), result.evicted)
-        assertNull(relay.find(first), "the evicted mid-deposit transfer is gone")
-        assertNotNull(relay.find(second))
+        assertNull(store.find(first), "the evicted mid-deposit transfer is gone")
+        assertNotNull(store.find(second))
     }
 
     @Test
     fun relayAdmit_evictsAsManyAsItTakes() = runTest {
-        val relay = DefaultFileRelayStore(db())
-        // Thirty small deposits fill the budget; one large OFFER needs twenty of them gone,
-        // more than any fixed candidate page would offer.
+        val store = DefaultFileRelayStore(db())
+        // Thirty small deposits fill the budget; one large OFFER needs twenty of them gone.
         val small = (0 until 30).map { i ->
             TransferId(Uuid.random()).also { id ->
-                relay.admit(relayRow(id, reserved = 300L, lastChunkAt = now + i.seconds), 300L, 9_000L)
+                val row = relayRow(id, reserved = 300L, lastChunkAt = now + i.seconds)
+                store.admit(row, 9_000L)
             }
         }
         val large = TransferId(Uuid.random())
-        val result = relay.admit(relayRow(large, reserved = 6_000L), 6_000L, 9_000L)
+        val result = store.admit(relayRow(large, reserved = 6_000L), 9_000L)
         assertTrue(result.admitted, "evicting twenty of thirty makes room")
         assertEquals(small.take(20), result.evicted, "oldest fed first, exactly as many as needed")
-        assertNotNull(relay.find(large))
-        assertEquals(10, relay.live().size - 1, "the ten newest deposits stay")
+        assertNotNull(store.find(large))
+        assertEquals(10, store.all().size - 1, "the ten newest deposits stay")
     }
 
     @Test
     fun relayStoreChunk_forGoneRow_writesNothing() = runTest {
-        val relay = DefaultFileRelayStore(db())
+        val store = DefaultFileRelayStore(db())
         val id = TransferId(Uuid.random())
-        relay.admit(relayRow(id), 3000L, 100L * 1024 * 1024)
-        relay.delete(id)
+        store.admit(relayRow(id), 100L * 1024 * 1024)
+        store.delete(id)
         // An eviction or drop raced the door's read: no foreign-key failure, no write.
-        assertNull(relay.storeChunk(id, 0, byteArrayOf(1), now))
-        assertEquals(0L, relay.chunkCount(id))
+        assertNull(store.storeChunk(id, 0, byteArrayOf(1), now))
+        assertEquals(listOf(), store.chunkIndices(id))
     }
 
     @Test
     fun relayAdmit_refusedOversizeWritesNothing() = runTest {
-        val relay = DefaultFileRelayStore(db())
+        val store = DefaultFileRelayStore(db())
         val first = TransferId(Uuid.random())
-        relay.admit(relayRow(first, reserved = 3000L), 3000L, 4000L)
+        store.admit(relayRow(first, reserved = 3000L), 4000L)
         // 5000 bytes fit nowhere, even after evicting everything on offer.
         val huge = TransferId(Uuid.random())
-        val result = relay.admit(relayRow(huge, reserved = 5000L), 5000L, 4000L)
+        val result = store.admit(relayRow(huge, reserved = 5000L), 4000L)
         assertFalse(result.admitted)
         assertTrue(result.evicted.isEmpty(), "a refused admission evicts nothing")
-        assertNotNull(relay.find(first), "the held deposit is untouched")
-        assertNull(relay.find(huge))
+        assertNotNull(store.find(first), "the held deposit is untouched")
+        assertNull(store.find(huge))
     }
 
     @Test
     fun relayStoreChunk_promotesWholeAtomically() = runTest {
-        val relay = DefaultFileRelayStore(db())
+        val store = DefaultFileRelayStore(db())
         val id = TransferId(Uuid.random())
-        relay.admit(relayRow(id), 3000L, 100L * 1024 * 1024)
+        store.admit(relayRow(id), 100L * 1024 * 1024)
 
-        assertEquals(FileRelayStatus.RESERVED, relay.storeChunk(id, 0, byteArrayOf(1), now))
-        assertEquals(FileRelayStatus.RESERVED, relay.storeChunk(id, 1, byteArrayOf(2), now))
+        assertEquals(FileRelayStatus.RESERVED, store.storeChunk(id, 0, byteArrayOf(1), now))
+        assertEquals(FileRelayStatus.RESERVED, store.storeChunk(id, 1, byteArrayOf(2), now))
         // Duplicate chunk stores are no-ops (PK dedup), not double counts.
-        assertEquals(FileRelayStatus.RESERVED, relay.storeChunk(id, 0, byteArrayOf(1), now))
-        assertEquals(FileRelayStatus.WHOLE, relay.storeChunk(id, 2, byteArrayOf(3), now))
-        assertTrue(relay.promoteIfWhole(id))
-    }
-
-    @Test
-    fun relaySetStatus_doesNotTouchLastChunkAt() = runTest {
-        val relay = DefaultFileRelayStore(db())
-        val id = TransferId(Uuid.random())
-        relay.admit(relayRow(id), 3000L, 100L * 1024 * 1024)
-        val before = relay.find(id)!!.lastChunkAt
-        relay.setStatus(id, FileRelayStatus.WHOLE)
-        // A status change is not activity: the idle TTL still measures chunk arrivals.
-        assertEquals(before, relay.find(id)!!.lastChunkAt)
+        assertEquals(FileRelayStatus.RESERVED, store.storeChunk(id, 0, byteArrayOf(1), now))
+        assertEquals(FileRelayStatus.WHOLE, store.storeChunk(id, 2, byteArrayOf(3), now))
     }
 
     @Test
     fun packetOutbox_packetIdsByTagAndDeleteByTag() = runTest {
         val outbox = DefaultPacketOutbox(db())
-        val tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, Uuid.random())
-        val clock = FakeClock(now)
+        val tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random())
         fun envelope(): BinaryEnvelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.FILE,
@@ -237,7 +237,9 @@ class FileStoreSemanticsJvmTest {
             expiresAt = now + 2.days,
             source = device,
             target = device,
-            payload = byteArrayOf(1, 2, 3),
+            routingHeader = byteArrayOf(1, 2, 3),
+            content = ByteArray(0),
+            signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
 
         val e1 = envelope()
@@ -249,31 +251,47 @@ class FileStoreSemanticsJvmTest {
         assertEquals(setOf(e1.packetId, e2.packetId), outbox.packetIdsByTag(tag).toSet())
         outbox.deleteByTag(tag)
         assertTrue(outbox.packetIdsByTag(tag).isEmpty())
-        assertTrue(outbox.getByPacketId(e1.packetId) == null)
+        assertNull(outbox.getByPacketId(e1.packetId))
     }
 
     @Test
     fun incomingTransfer_pruneExpired() = runTest {
-        val incoming = DefaultFileIncomingTransferStore(db())
+        val incoming = DefaultFileIncomingStore(db())
+        val sealId = ContentId(ByteArray(32) { 21 })
+        // Seed an incoming seal so transfers can reference the file.
+        incoming.insertSeal(
+            IncomingSeal(
+                sealId = sealId,
+                origin = device,
+                seal = org.yapyap.protocol.envelopes.FileSeal(
+                    fileId = fileId,
+                    totalBytes = 1000L,
+                    blockSize = 1024,
+                    blockHashes = listOf(ByteArray(32)),
+                    fileName = "f",
+                    mimeType = null,
+                    key = SealKey(ByteArray(32)),
+                ),
+                expiresAt = now + 2.days,
+            )
+        )
         val live = TransferId(Uuid.random())
         val dead = TransferId(Uuid.random())
-        suspend fun insert(id: TransferId, expiresAt: Instant) =
-            incoming.insert(
-                FileIncomingTransfer(
+        suspend fun insert(id: TransferId, expiresAt: kotlin.time.Instant) {
+            incoming.insertTransfer(
+                IncomingTransfer(
                     transferId = id,
-                    fileId = fileId,
-                    authorDevice = device,
-                    key = TransferKey(ByteArray(32)),
-                    chunkSizeBytes = 1024,
-                    totalBytes = 1000L,
-                    startIndex = 0,
-                    createdAt = now,
+                    sealId = sealId,
+                    sender = device,
+                    shape = TransferShape(1024, 0, 1000L),
                     expiresAt = expiresAt,
                 ),
             )
+        }
         insert(live, now + 2.days)
         insert(dead, now - 1.hours)
-        assertEquals(listOf(dead), incoming.pruneExpired(now).map { it.transferId })
-        assertNotNull(incoming.find(live))
+        incoming.pruneExpired(now)
+        assertNull(incoming.findTransfer(dead))
+        assertNotNull(incoming.findTransfer(live))
     }
 }

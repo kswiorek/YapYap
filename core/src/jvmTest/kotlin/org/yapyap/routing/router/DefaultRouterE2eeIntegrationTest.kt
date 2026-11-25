@@ -11,10 +11,9 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessageHeader
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -97,12 +96,12 @@ class DefaultRouterE2eeIntegrationTest {
         binaryEnvelope: org.yapyap.protocol.envelopes.BinaryEnvelope,
         outbound: DagPayload.Text,
     ) {
-        val messageEnvelope = MessageEnvelope.decode(binaryEnvelope.payload)
-        assertEquals(SignalSecurityScheme.ENCRYPTED_AND_SIGNED, messageEnvelope.securityScheme)
-        assertNotNull(messageEnvelope.signature)
+        val header = MessageHeader.decode(binaryEnvelope.routingHeader)
+        assertNotNull(header.origin)
+        assertNotNull(header.finalTarget)
         assertTrue(
-            !messageEnvelope.payload.contentEquals(outbound.encode()),
-            "wire payload must not be cleartext MessagePayload bytes",
+            !binaryEnvelope.content.contentEquals(outbound.encode()),
+            "wire content must not be cleartext MessagePayload bytes",
         )
     }
 

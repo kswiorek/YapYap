@@ -56,7 +56,6 @@ internal class DefaultRecoveryResponder(
         val ownDevice = identityReader.getLocalDeviceIdentity()
             ?: error("responder has no local device")
         val torEndpoint = presence.localTorEndpoint()
-            ?: error("responder has no tor endpoint")
         bootstrapCarrier.sendBootstrap(
             Intro(
                 account = ownAccount,

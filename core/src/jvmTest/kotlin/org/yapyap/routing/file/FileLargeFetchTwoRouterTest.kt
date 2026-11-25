@@ -352,7 +352,7 @@ class FileLargeFetchTwoRouterTest {
             val frame = FileFetchFrame.decode(payload)
             if (frame is FileFetchFrame.Fetch) fetchFromOffsets += frame.fromOffset
             val incoming = WebRtcFileFrame(FileChannelId(peer = fromDevice, label = channel.label), payload)
-            while (!to.tryEmitFileFrame(incoming)) delay(2)
+            while (!to.tryEmitFileFrame(incoming)) delay(2.milliseconds)
         }
     }
 
@@ -543,7 +543,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             try {
                 withTimeout(90.seconds) {
-                    while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100)
+                    while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100.milliseconds)
                 }
             } catch (e: TimeoutCancellationException) {
                 val row = mesh.bob.receives.find(fileId)
@@ -601,7 +601,7 @@ class FileLargeFetchTwoRouterTest {
             val payload = mesh.publishLargeFile()
             val fileId = payload.attachments.single().fileId
             mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
-            delay(3000)
+            delay(3000.milliseconds)
             // Gated: local DECLINED, no request, no fetch frames anywhere.
             assertEquals(FileReceiveStatus.DECLINED, mesh.bob.receives.find(fileId)?.status)
             assertNull(mesh.bob.pending.find(fileId))
@@ -611,7 +611,7 @@ class FileLargeFetchTwoRouterTest {
             // Accept re-opens the pull and the fetch completes end to end.
             mesh.bob.facade.acceptFile(fileId)
             withTimeout(90.seconds) {
-                while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100)
+                while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100.milliseconds)
             }
             val stored = readFinal(mesh.bob, fileId, fileBytesTotal.toInt())
             assertContentEquals(ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() }, stored)
@@ -631,7 +631,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             // Drop the channel mid-fetch (after progress, long before done).
             withTimeout(30.seconds) {
-                while ((mesh.bob.receives.find(fileId)?.contiguousBytes ?: 0L) < 65_536L) delay(50)
+                while ((mesh.bob.receives.find(fileId)?.contiguousBytes ?: 0L) < 65_536L) delay(50.milliseconds)
             }
             if (mesh.bob.receives.find(fileId)?.status == FileReceiveStatus.READY) {
                 // Fetch outran the drop window: still a valid end-to-end pass.
@@ -643,11 +643,11 @@ class FileLargeFetchTwoRouterTest {
             mesh.bob.webRtc.closeFileChannel(channel)
             // A fresh fetch names the checkpointed P as its offset.
             withTimeout(90.seconds) {
-                while (mesh.fetchFromOffsets.size < 2) delay(100)
+                while (mesh.fetchFromOffsets.size < 2) delay(100.milliseconds)
             }
             assertTrue(mesh.fetchFromOffsets[1] > 0, "resume starts at P, got ${mesh.fetchFromOffsets}")
             withTimeout(90.seconds) {
-                while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100)
+                while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100.milliseconds)
             }
             val stored = readFinal(mesh.bob, fileId, fileBytesTotal.toInt())
             assertContentEquals(ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() }, stored)
@@ -666,7 +666,7 @@ class FileLargeFetchTwoRouterTest {
             val payload = mesh.publishLargeFile()
             val fileId = payload.attachments.single().fileId
             mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
-            delay(2000)
+            delay(2000.milliseconds)
             // Nobody to ask: PENDING, no session, no fetch.
             assertNotNull(mesh.bob.pending.find(fileId))
             assertTrue(mesh.bob.webRtc.openSessionCalls.isEmpty(), "unreachable candidate is not asked")
@@ -675,7 +675,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.bob.tor.unlinkedEndpoints.remove(aliceEndpoint)
             mesh.bob.tor.setSessionState(aliceEndpoint, SessionPhase.CONNECTED)
             withTimeout(90.seconds) {
-                while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100)
+                while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100.milliseconds)
             }
             val stored = readFinal(mesh.bob, fileId, fileBytesTotal.toInt())
             assertContentEquals(ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() }, stored)
@@ -694,7 +694,7 @@ class FileLargeFetchTwoRouterTest {
             val seen = mutableListOf<FileEvent>()
             val collect = launch { mesh.bob.router.files.fileEvents.collect { seen += it } }
             withTimeout(20.seconds) {
-                while (seen.none { it is FileEvent.NoDirectConnection }) delay(100)
+                while (seen.none { it is FileEvent.NoDirectConnection }) delay(100.milliseconds)
             }
             collect.cancel()
             // Online-but-unconnectable is never a decline and never falls back to Tor.
@@ -808,7 +808,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             // The fetch is retried from the checkpointed prefix; it never reaches READY.
             withTimeout(60.seconds) {
-                while (mesh.fetchFromOffsets.size < 2) delay(200)
+                while (mesh.fetchFromOffsets.size < 2) delay(200.milliseconds)
             }
             val row = mesh.bob.receives.find(fileId)
             assertTrue(row?.status != FileReceiveStatus.READY, "corrupt source must not complete")
@@ -853,7 +853,7 @@ class FileLargeFetchTwoRouterTest {
             withTimeout(120.seconds) {
                 while (mesh.bob.receives.find(fileA)?.status != FileReceiveStatus.READY ||
                     mesh.bob.receives.find(descB.fileId)?.status != FileReceiveStatus.READY
-                ) delay(200)
+                ) delay(200.milliseconds)
             }
             assertContentEquals(
                 ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() },

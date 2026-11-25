@@ -52,8 +52,7 @@ internal class InMemoryKeyStore : KeyStore {
 }
 
 /**
- * Minimal [IdentityStore] backing store for [org.yapyap.crypto.identity.DefaultIdentityResolver] /
- * [org.yapyap.crypto.identity.DefaultIdentityProvisioning] contract tests.
+ * Minimal in-memory [IdentityStore] backing store for identity contract tests.
  */
 internal class InMemoryIdentityStore(
     private val defaultLocalTor: TorEndpoint = TorEndpoint(onionAddress = "unknown.onion", port = 80),
@@ -320,11 +319,6 @@ internal class InMemoryIdentityStore(
         activeSignedPreKeyByDevice[signedPreKey.deviceId.id] = signedPreKey.id
     }
 
-    /** Seeds Tor for a device already stored (e.g. after [insertLocalDevice]). */
-    fun seedTorEndpoint(deviceId: PeerId, endpoint: TorEndpoint) {
-        torForDevice[deviceId.id] = endpoint
-    }
-
 
     override suspend fun seedProvisionalPeerDevice(
         accountId: AccountId,
@@ -367,32 +361,32 @@ internal class InMemoryOpkRepository(
 
     override suspend fun allocate(): LocalOneTimePreKey {
         val keyPair = crypto.generateEncryptionKeyPair()
-        val opkId = OneTimePreKeyId("opk-test-${++counter}")
+        val id = OneTimePreKeyId("opk-test-${++counter}")
         val opk = LocalOneTimePreKey(
-            id = opkId,
+            id = id,
             publicKey = keyPair.publicKey,
             privateKey = keyPair.privateKey,
         )
-        keys[opkId] = OpkEntry(opk = opk, status = OpkStatus.ALLOCATED)
+        keys[id] = OpkEntry(opk = opk, status = OpkStatus.ALLOCATED)
         return opk
     }
 
-    override suspend fun markOffered(opkId: OneTimePreKeyId) {
-        val entry = keys[opkId] ?: error("Unknown OPK id=$opkId")
-        require(entry.status == OpkStatus.ALLOCATED) { "OPK $opkId is not ALLOCATED" }
+    override suspend fun markOffered(id: OneTimePreKeyId) {
+        val entry = keys[id] ?: error("Unknown OPK id=$id")
+        require(entry.status == OpkStatus.ALLOCATED) { "OPK $id is not ALLOCATED" }
         entry.status = OpkStatus.OFFERED
         entry.offeredAt = clock.now()
     }
 
-    override suspend fun consume(opkId: OneTimePreKeyId): LocalOneTimePreKey? {
-        val entry = keys[opkId] ?: return null
+    override suspend fun consume(id: OneTimePreKeyId): LocalOneTimePreKey? {
+        val entry = keys[id] ?: return null
         if (entry.status != OpkStatus.OFFERED) return null
         entry.status = OpkStatus.CONSUMED
         return entry.opk
     }
 
-    override suspend fun loadOffered(opkId: OneTimePreKeyId): LocalOneTimePreKey? {
-        val entry = keys[opkId] ?: return null
+    override suspend fun loadOffered(id: OneTimePreKeyId): LocalOneTimePreKey? {
+        val entry = keys[id] ?: return null
         return when (entry.status) {
             OpkStatus.ALLOCATED, OpkStatus.OFFERED -> entry.opk
             OpkStatus.CONSUMED -> null
@@ -405,15 +399,15 @@ internal class InMemoryOpkRepository(
                     it.offeredAt != null &&
                     it.offeredAt!! < cutoff
         }.keys.toList()
-        for (opkId in expired) {
-            keys.remove(opkId)
+        for (id in expired) {
+            keys.remove(id)
         }
         return expired
     }
 
     override suspend fun opkIds(): List<OneTimePreKeyId> = keys.keys.sortedBy { it.value }
 
-    fun status(opkId: OneTimePreKeyId): OpkStatus? = keys[opkId]?.status
+    fun status(id: OneTimePreKeyId): OpkStatus? = keys[id]?.status
 }
 
 /** [OpkRepository] that fails allocation for fail-soft offer tests. */
@@ -421,11 +415,11 @@ internal class FailingAllocateOpkRepository : OpkRepository {
     override suspend fun allocate(): LocalOneTimePreKey =
         throw IllegalStateException("OPK pool exhausted")
 
-    override suspend fun markOffered(opkId: OneTimePreKeyId) = Unit
+    override suspend fun markOffered(id: OneTimePreKeyId) = Unit
 
-    override suspend fun consume(opkId: OneTimePreKeyId): LocalOneTimePreKey? = null
+    override suspend fun consume(id: OneTimePreKeyId): LocalOneTimePreKey? = null
 
-    override suspend fun loadOffered(opkId: OneTimePreKeyId): LocalOneTimePreKey? = null
+    override suspend fun loadOffered(id: OneTimePreKeyId): LocalOneTimePreKey? = null
 
     override suspend fun pruneExpiredOffers(cutoff: Instant): List<OneTimePreKeyId> = emptyList()
 

@@ -157,8 +157,9 @@ class DefaultRouterLiveIntegrationTest {
                 fileIngest = RefusingFilePorts(),
                 fileRequests = RefusingFilePorts(),
                 filePlaintext = FakeFilePlaintextSource(),
-                fileIncomingStore = InMemoryFileIncomingTransferStore(),
-                filePushStore = InMemoryFilePushStore(),
+                fileSealStore = InMemoryFileSealStore(),
+                fileTransferStore = InMemoryFileTransferStore(),
+                fileIncomingStore = InMemoryFileIncomingStore(),
                 fileRelayStore = InMemoryFileRelayStore(),
                 fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
             )

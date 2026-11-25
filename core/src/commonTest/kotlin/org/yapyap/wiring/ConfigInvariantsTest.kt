@@ -26,10 +26,14 @@ class ConfigInvariantsTest {
     }
 
     @Test
-    fun transferTtl_mustBeShorterThanSupersededSessionRetention() = assertBreaksOne(
-        defaults.copy(crypto = defaults.crypto.copy(supersededSessionRetention = defaults.router.fileTransferTtl)),
-        "superseded session retention",
-    )
+    fun transferTtl_mustBeShorterThanSupersededSessionRetention() {
+        val config =
+            defaults.copy(crypto = defaults.crypto.copy(supersededSessionRetention = defaults.router.fileTransferTtl))
+        val violations = ConfigInvariants.violations(config)
+        assertEquals(2, violations.size, "expected two violations, got $violations")
+        assertTrue(violations.any { "File transfer TTL" in it }, "expected file TTL violation in $violations")
+        assertTrue(violations.any { "Envelope lifetime" in it }, "expected envelope lifetime violation in $violations")
+    }
 
     @Test
     fun unreferencedRetention_mustCoverTheTransferTtl() = assertBreaksOne(

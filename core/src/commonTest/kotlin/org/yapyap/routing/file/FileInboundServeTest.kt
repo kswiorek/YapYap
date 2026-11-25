@@ -105,7 +105,7 @@ class FileInboundServeTest {
         assertEquals(holderDevice, offer.target)
         val header = assertIs<FileHeader.Offer>(FileHeader.decode(offer.routingHeader))
         assertEquals(transfer.transferId, header.transferId)
-        assertEquals(localDevice, header.finalTarget)
+        assertEquals(holderDevice, header.finalTarget)
     }
 
     @Test

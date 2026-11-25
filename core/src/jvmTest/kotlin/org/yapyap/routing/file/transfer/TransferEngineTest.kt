@@ -1,16 +1,32 @@
-package org.yapyap.routing.file.push
+package org.yapyap.routing.file.transfer
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.routing.file.ackOffer
+import org.yapyap.routing.file.allTransfers
+import org.yapyap.routing.file.awaitOffers
+import org.yapyap.routing.file.awaitStatus
+import org.yapyap.routing.file.chunkIndices
+import org.yapyap.routing.file.fixtureAccount
+import org.yapyap.routing.file.fixtureFileId
+import org.yapyap.routing.file.offerPacketOf
+import org.yapyap.routing.file.peerA
+import org.yapyap.routing.file.peerB
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.relay1
+import org.yapyap.routing.file.relay2
+import org.yapyap.routing.file.sealTransferHarness
+import org.yapyap.routing.file.sent
+import org.yapyap.routing.file.transfersFor
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.store.FileTransferStatus
@@ -21,22 +37,23 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /** The transfer engine over a seal registry: offers, windows, outcomes and completion. */
-class FilePushEngineTest {
+class TransferEngineTest {
 
     @Test
     fun offerAck_startsWindow_countingQueuedRows() = runTest {
-        val h = pushHarness(totalBytes = 1024L * 1024, chunkSize = 220 * 1024)
+        val h = sealTransferHarness(totalBytes = 1024L * 1024, chunkSize = 220 * 1024)
 
         h.seals.push(fixtureFileId, fixtureAccount)
         h.awaitOffers(2)
         val transfer = h.transfersFor(peerA).single()
 
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
-        withTimeout(5.seconds) { while (h.chunkIndices().size < 5) delay(10) }
+        withTimeout(5.seconds) { while (h.chunkIndices().size < 5) delay(10.milliseconds) }
 
         val row = h.transferStore.find(transfer.transferId)!!
         assertEquals(FileTransferStatus.STREAMING, row.status)
@@ -48,12 +65,12 @@ class FilePushEngineTest {
     @Test
     fun coverageAck_movesResume_notWindow() = runTest {
         // More chunks than the window (16), so a coverage-driven window would show.
-        val h = pushHarness(totalBytes = 32L * 220 * 1024)
+        val h = sealTransferHarness(totalBytes = 32L * 220 * 1024)
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
-        withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10) }
+        withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10.milliseconds) }
 
         // ACK one chunk's outbox row (transport ACK), then the coverage ACK.
         val chunkPackets = h.transferStore.chunks(transfer.transferId)
@@ -65,13 +82,13 @@ class FilePushEngineTest {
                 firstPacket,
             ),
         )
-        delay(100)
+        delay(100.milliseconds)
         val queuedBefore = h.chunkIndices().size
         h.engine.onAck(transfer.transferId, peerA, highestContiguousIndex = 2)
         withTimeout(5.seconds) {
-            while (h.transferStore.find(transfer.transferId)?.contiguousAcked != 2) delay(10)
+            while (h.transferStore.find(transfer.transferId)?.contiguousAcked != 2) delay(10.milliseconds)
         }
-        delay(100)
+        delay(100.milliseconds)
 
         val row = h.transferStore.find(transfer.transferId)!!
         assertEquals(2, row.contiguousAcked)
@@ -79,23 +96,23 @@ class FilePushEngineTest {
         // slot (refilled with the next index), coverage alone queued nothing.
         assertEquals(queuedBefore, h.chunkIndices().size, "coverage alone queued more chunks")
         val indices = h.chunkIndices()
-        assertTrue(indices.toSet().size == indices.size, "no chunk index enqueued twice")
+        assertEquals(indices.toSet().size, indices.size, "no chunk index enqueued twice")
     }
 
     @Test
     fun restart_rebuildsQueued_withoutNewSeals() = runTest {
-        val h = pushHarness(totalBytes = 3L * 1024 * 1024, chunkSize = 100 * 1024)
+        val h = sealTransferHarness(totalBytes = 3L * 1024 * 1024, chunkSize = 100 * 1024)
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerB).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerB))
-        withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10) }
+        withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10.milliseconds) }
         val sealsBefore = h.sealStore.byFile(fixtureFileId).size
 
         // Restart: new engine over copies of the same rows. The outbox is a table, so its
         // rows survive the restart; the engine rebuilds `queued` from them plus the chunk
         // mappings and never re-seals (only the registry makes seals, and it isn't rerun).
-        val h2 = pushHarness(totalBytes = 3L * 1024 * 1024, chunkSize = 100 * 1024)
+        val h2 = sealTransferHarness(totalBytes = 3L * 1024 * 1024, chunkSize = 100 * 1024)
         for (seal in h.sealStore.byFile(fixtureFileId)) h2.sealStore.insert(seal)
         for (row in h.allTransfers()) h2.transferStore.insert(row)
         for ((index, packetId) in h.transferStore.chunks(transfer.transferId)) {
@@ -113,7 +130,7 @@ class FilePushEngineTest {
         val replayedChunks = h2.chunkIndices().size
         h2.engine.runIn(backgroundScope)
         // A full rebuilt window sends nothing new and makes no seals.
-        delay(300)
+        delay(300.milliseconds)
         assertEquals(replayedChunks, h2.chunkIndices().size, "a full rebuilt window sends nothing new")
         assertEquals(sealsBefore, h2.sealStore.byFile(fixtureFileId).size, "no new seals on restart")
 
@@ -124,7 +141,7 @@ class FilePushEngineTest {
         h2.engine.onOutcome(OutboxOutcome.Acked(ackTag, peerB, queuedPackets.getValue(0)))
         h2.engine.onOutcome(OutboxOutcome.Acked(ackTag, peerB, queuedPackets.getValue(1)))
         withTimeout(5.seconds) {
-            while (h2.chunkIndices().size < replayedChunks + 2) delay(10)
+            while (h2.chunkIndices().size < replayedChunks + 2) delay(10.milliseconds)
         }
         val fresh = h2.chunkIndices().drop(replayedChunks)
         assertEquals(listOf(16, 17), fresh.sorted(), "the window refills forward after restart")
@@ -132,11 +149,11 @@ class FilePushEngineTest {
 
     @Test
     fun targetDeclined_onOffer_isTerminalForThatDevice() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
 
         val seen = mutableListOf<FileEvent>()
-        backgroundScope.launch { h.seals.runIn(backgroundScope) }
-        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        backgroundScope.launch(Dispatchers.Unconfined) { h.seals.runIn(backgroundScope) }
+        backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
 
@@ -167,7 +184,7 @@ class FilePushEngineTest {
             ),
         )
         withTimeout(5.seconds) {
-            while (seen.filterIsInstance<FileEvent.Failed>().isEmpty()) delay(10)
+            while (seen.filterIsInstance<FileEvent.Failed>().isEmpty()) delay(10.milliseconds)
         }
         val failed = seen.filterIsInstance<FileEvent.Failed>()
         assertEquals(1, failed.size)
@@ -176,12 +193,12 @@ class FilePushEngineTest {
 
     @Test
     fun declinedChunk_endsTransferQuietly() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
-        withTimeout(5.seconds) { while (h.chunkIndices().isEmpty()) delay(10) }
+        withTimeout(5.seconds) { while (h.chunkIndices().isEmpty()) delay(10.milliseconds) }
         val chunkPacket = h.sent().map { it.first }.first { env ->
             val header = FileHeader.decode(env.routingHeader)
             header is FileHeader.Chunk && header.transferId == transfer.transferId
@@ -205,7 +222,7 @@ class FilePushEngineTest {
 
     @Test
     fun otherTerminalNack_endsTransfer() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
@@ -226,35 +243,37 @@ class FilePushEngineTest {
         val relays = object : RelaySelectionPolicy {
             override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1, relay2)
         }
-        val h = pushHarness(relaySelection = relays)
+        val h = sealTransferHarness(relaySelection = relays)
 
         val seen = mutableListOf<FileEvent>()
         h.engine.runIn(backgroundScope)
         h.seals.runIn(backgroundScope)
-        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
-        withTimeout(5.seconds) { while (h.chunkIndices().isEmpty()) delay(10) }
+        withTimeout(5.seconds) { while (h.chunkIndices().isEmpty()) delay(10.milliseconds) }
         // No link to the target: the tick reports the direct transfer gone and one deposit
         // round carries the same seal to both relays.
         withTimeout(30.seconds) {
-            while (h.transfersFor(relay1).isEmpty() || h.transfersFor(relay2).isEmpty()) delay(50)
+            while (h.transfersFor(relay1).isEmpty() || h.transfersFor(relay2).isEmpty()) delay(50.milliseconds)
         }
-        // The target got the file and COMPLETEs the seal (seal-level, by seal id).
-        val sealId = h.sealStore.byFileAndTarget(fixtureFileId, peerA).single().sealId
-        h.seals.onComplete(sealId, peerA)
+        // The targets got the file and COMPLETE their seals (seal-level, by seal id).
+        val sealA = h.sealStore.byFileAndTarget(fixtureFileId, peerA).single().sealId
+        val sealB = h.sealStore.byFileAndTarget(fixtureFileId, peerB).single().sealId
+        h.seals.onComplete(sealA, peerA)
+        h.seals.onComplete(sealB, peerB)
         withTimeout(5.seconds) {
-            while (h.sealStore.find(sealId)?.status !=
+            while (h.sealStore.find(sealA)?.status !=
                 org.yapyap.routing.store.FileSealStatus.DELIVERED
-            ) delay(10)
+            ) delay(10.milliseconds)
         }
         withTimeout(5.seconds) {
-            while (h.allTransfers().any { it.status.isLive }) delay(10)
+            while (h.allTransfers().any { it.status.isLive }) delay(10.milliseconds)
         }
         // Its COMPLETE arriving again changes nothing: DELIVERED once overall.
-        h.seals.onComplete(sealId, peerA)
-        delay(200)
+        h.seals.onComplete(sealA, peerA)
+        delay(200.milliseconds)
         assertEquals(1, seen.filterIsInstance<FileEvent.OutgoingComplete>().size)
     }
 
@@ -263,17 +282,17 @@ class FilePushEngineTest {
         val relays = object : RelaySelectionPolicy {
             override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1)
         }
-        val h = pushHarness(relaySelection = relays)
+        val h = sealTransferHarness(relaySelection = relays)
 
         val seen = mutableListOf<FileEvent>()
-        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         val sealId = h.sealStore.byFileAndTarget(fixtureFileId, peerA).single().sealId
         // Only the seal's target device authors COMPLETE: a relay cannot claim delivery.
         h.seals.onComplete(sealId, relay1)
-        delay(200)
-        assertTrue(h.transferStore.find(transfer.transferId)?.status?.isLive == true)
+        delay(200.milliseconds)
+        assertEquals(true, h.transferStore.find(transfer.transferId)?.status?.isLive)
         assertTrue(seen.none { it is FileEvent.OutgoingComplete })
     }
 
@@ -282,47 +301,49 @@ class FilePushEngineTest {
         val relays = object : RelaySelectionPolicy {
             override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1)
         }
-        val h = pushHarness(relaySelection = relays)
+        val h = sealTransferHarness(relaySelection = relays)
 
         h.engine.runIn(backgroundScope)
         h.seals.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
-        withTimeout(30.seconds) { while (h.transfersFor(relay1).isEmpty()) delay(50) }
-        val deposit = h.transfersFor(relay1).single()
-        // The depositor ends its deposit: the relay's copy is forgotten, the seal settles.
-        h.engine.onCancelled(deposit.transferId, relay1, FileCancelReason.ABORT)
+        withTimeout(30.seconds) { while (h.transfersFor(relay1).isEmpty()) delay(50.milliseconds) }
+        val deposits = h.transfersFor(relay1)
+        // One deposit per device seal; cancel each (the relay's copy is forgotten, the seal settles).
+        for ((transferId) in deposits) {
+            h.engine.onCancelled(transferId, relay1, FileCancelReason.ABORT)
+        }
         withTimeout(5.seconds) {
-            while (h.transferStore.find(deposit.transferId)?.status?.isLive == true) delay(10)
+            while (deposits.any { h.transferStore.find(it.transferId)?.status?.isLive == true }) delay(10.milliseconds)
         }
     }
 
     @Test
     fun cancelledFromWrongSource_isIgnored() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
 
         // A CANCEL whose source is not the transfer's peer is ignored.
         h.engine.onCancelled(transfer.transferId, relay1, FileCancelReason.ABORT)
-        delay(200)
+        delay(200.milliseconds)
 
-        assertTrue(h.transferStore.find(transfer.transferId)?.status?.isLive == true)
+        assertEquals(true, h.transferStore.find(transfer.transferId)?.status?.isLive)
     }
 
     @Test
     fun fiftyConcurrentCoverageAcks_neverDuplicateChunk() = runTest {
-        val h = pushHarness(totalBytes = 10L * 1024 * 1024, chunkSize = 220 * 1024)
+        val h = sealTransferHarness(totalBytes = 10L * 1024 * 1024, chunkSize = 220 * 1024)
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
-        withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10) }
+        withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10.milliseconds) }
 
         repeat(50) { i ->
             launch { h.engine.onAck(transfer.transferId, peerA, highestContiguousIndex = i % 5) }
         }
-        delay(500)
+        delay(500.milliseconds)
 
         val indices = h.chunkIndices()
         assertEquals(indices.toSet().size, indices.size, "50 concurrent ACKs never enqueue a chunk twice")
@@ -330,7 +351,7 @@ class FilePushEngineTest {
 
     @Test
     fun expiredTransfer_isTerminal() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
 
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
@@ -338,9 +359,6 @@ class FilePushEngineTest {
         // expire the row itself (correct behavior — an unoffered transfer never starts).
         val offer = h.offerPacketOf(transfer.transferId)
         h.clock.advanceTo(epochSeconds(10_000L) + 3.days)
-        val seen = mutableListOf<FileEvent>()
-        backgroundScope.launch { h.fileEvents.collect { seen += it } }
-        h.seals.runIn(backgroundScope)
         h.engine.onOutcome(
             OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value), peerA, offer),
         )
@@ -350,20 +368,20 @@ class FilePushEngineTest {
 
     @Test
     fun complete_fromWrongSource_isIgnored() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
         h.seals.push(fixtureFileId, fixtureAccount)
         val sealId = h.sealStore.byFileAndTarget(fixtureFileId, peerA).single().sealId
 
         // A COMPLETE from anyone but the seal's target device is ignored.
         h.seals.onComplete(sealId, relay1)
-        delay(200)
+        delay(200.milliseconds)
 
-        assertTrue(h.sealStore.find(sealId)?.status?.isLive == true)
+        assertEquals(true, h.sealStore.find(sealId)?.status?.isLive)
     }
 
     @Test
     fun expiredOffer_reArmsWhileLive() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         val oldOffer = h.offerPacketOf(transfer.transferId)
@@ -374,7 +392,7 @@ class FilePushEngineTest {
             OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value), peerA, oldOffer),
         )
         withTimeout(5.seconds) {
-            while (h.transferStore.find(transfer.transferId)?.offerPacketId == oldOffer) delay(10)
+            while (h.transferStore.find(transfer.transferId)?.offerPacketId == oldOffer) delay(10.milliseconds)
         }
 
         val row = h.transferStore.find(transfer.transferId)!!
@@ -384,7 +402,7 @@ class FilePushEngineTest {
 
     @Test
     fun complete_emittedOncePerAccount() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
         // Unconfined subscription: the collector subscribes synchronously at launch, before
         // the synchronous seals.onComplete calls below emit. A test-scheduler collector would
         // only start on the first yield, racing the buffered events.
@@ -403,7 +421,7 @@ class FilePushEngineTest {
 
     @Test
     fun resendAfterComplete_makesFreshSeal_completionStaysSingle() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
         val seen = mutableListOf<FileEvent>()
         backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
         h.seals.push(fixtureFileId, fixtureAccount)
@@ -424,7 +442,7 @@ class FilePushEngineTest {
 
     @Test
     fun unknownTransfer_outcomeIgnored() = runTest {
-        val h = pushHarness()
+        val h = sealTransferHarness()
 
         h.engine.onOutcome(
             OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()), peerA, Uuid.random()),

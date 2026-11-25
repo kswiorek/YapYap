@@ -159,17 +159,14 @@ class FileFetchStrategyTest {
         override suspend fun getDeclaredTorEndpoint(deviceId: PeerId) = null
     }
 
-    private data class Fixture(
+    private class Fixture(
         val scope: CoroutineScope,
         val processor: FileRequestProcessor,
         val attempts: InMemoryFileRequestAttemptStore,
         val events: MutableSharedFlow<FileEvent>,
-        val holderEvents: MutableSharedFlow<FileEvent>,
         val requesterWebRtc: RecordingWebRtcTransport,
         val requesterTor: RecordingTorTransport,
-        val holderTransports: Map<PeerId, RecordingWebRtcTransport>,
         val requesterGate: CompletingSource,
-        val holderData: ByteArray,
         val jobs: List<Job>,
     ) {
         fun stop() {
@@ -305,7 +302,7 @@ class FileFetchStrategyTest {
             var requesterClosed = 0
             val holderClosed = mutableMapOf<PeerId, Int>()
             while (true) {
-                delay(10)
+                delay(10.milliseconds)
                 val reqSends = requesterWebRtc.sendFileFrameCalls.toList()
                 while (requesterSent < reqSends.size) {
                     val (channel, payload) = reqSends[requesterSent++]
@@ -314,22 +311,22 @@ class FileFetchStrategyTest {
                         FileChannelId(peer = localDevice, label = channel.label),
                         payload,
                     )
-                    while (!holderTransport.tryEmitFileFrame(forHolder)) delay(5)
+                    while (!holderTransport.tryEmitFileFrame(forHolder)) delay(5.milliseconds)
                 }
                 for ((device, transport) in holderTransports) {
                     val sends = transport.sendFileFrameCalls.toList()
-                    var done = holderSent.getOrDefault(device, 0)
+                    var done = holderSent.getOrElse(device) { 0 }
                     while (done < sends.size) {
                         val (channel, payload) = sends[done++]
                         val forRequester = WebRtcFileFrame(
                             FileChannelId(peer = device, label = channel.label),
                             payload,
                         )
-                        while (!requesterWebRtc.tryEmitFileFrame(forRequester)) delay(5)
+                        while (!requesterWebRtc.tryEmitFileFrame(forRequester)) delay(5.milliseconds)
                     }
                     holderSent[device] = done
                     val closes = transport.closeFileChannelCalls.toList()
-                    var closedDone = holderClosed.getOrDefault(device, 0)
+                    var closedDone = holderClosed.getOrElse(device) { 0 }
                     while (closedDone < closes.size) {
                         val channel = closes[closedDone++]
                         requesterWebRtc.tryEmitFileChannelEvent(
@@ -356,7 +353,7 @@ class FileFetchStrategyTest {
             jobs += scope.launch {
                 val simulated = mutableSetOf<PeerId>()
                 while (true) {
-                    delay(10)
+                    delay(10.milliseconds)
                     for (peer in requesterWebRtc.openSessionCalls.toList()) {
                         if (simulated.add(peer)) {
                             requesterWebRtc.setSessionState(WebRtcSessionState(peer, SessionPhase.CONNECTED))
@@ -371,7 +368,7 @@ class FileFetchStrategyTest {
             // clock: advance it in real time so timeouts can fire in tests.
             jobs += scope.launch {
                 while (true) {
-                    delay(50)
+                    delay(50.milliseconds)
                     clock.advanceBy(100.milliseconds)
                 }
             }
@@ -381,12 +378,9 @@ class FileFetchStrategyTest {
             processor,
             attempts,
             events,
-            holderEvents,
             requesterWebRtc,
             requesterTor,
-            holderTransports,
             requesterGate,
-            dataBytes,
             jobs
         )
     }
@@ -397,7 +391,7 @@ class FileFetchStrategyTest {
         try {
             f.processor.start(fileId, now)
             withTimeout(20.seconds) {
-                while (f.attempts.findById(fileId) != null) delay(50)
+                while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
             assertNull(f.attempts.findById(fileId), "satisfied fetch drops the row")
             assertEquals(11L * 1024L * 1024L, f.requesterGate.ingestedBytes, "all bytes ingested")
@@ -416,7 +410,7 @@ class FileFetchStrategyTest {
         try {
             f.processor.start(fileId, now)
             withTimeout(20.seconds) {
-                while (f.attempts.findById(fileId) != null) delay(50)
+                while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
             assertTrue(holderDevice in f.attempts.declinedDevices(fileId) || f.attempts.findById(fileId) == null)
             assertNull(f.attempts.findById(fileId), "second candidate satisfies")
@@ -433,7 +427,7 @@ class FileFetchStrategyTest {
             val collect = launch { f.events.collect { seen += it } }
             f.processor.start(fileId, now)
             withTimeout(5.seconds) {
-                while (seen.none { it is FileEvent.NoDirectConnection }) delay(50)
+                while (seen.none { it is FileEvent.NoDirectConnection }) delay(50.milliseconds)
             }
             collect.cancel()
             assertNotNull(f.attempts.findById(fileId), "unreachable candidate is not a decline")
@@ -451,7 +445,7 @@ class FileFetchStrategyTest {
             val collect = launch { f.events.collect { seen += it } }
             f.processor.start(fileId, now)
             withTimeout(10.seconds) {
-                while (f.attempts.findById(fileId) != null) delay(50)
+                while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
             collect.cancel()
             assertTrue(seen.any { it is FileEvent.RequestUnavailable && it.fileId == fileId })
@@ -466,7 +460,7 @@ class FileFetchStrategyTest {
         f.requesterGate.defaultTotalBytes = 1_000L
         try {
             f.processor.start(fileId, now)
-            delay(500)
+            delay(500.milliseconds)
             // Core owns small files: a sealed REQUEST went through the outbox.
             assertTrue(f.requesterWebRtc.openSessionCalls.isEmpty(), "large path never opens sessions for small files")
         } finally {
@@ -481,7 +475,7 @@ class FileFetchStrategyTest {
         try {
             f.processor.start(fileId, now)
             withTimeout(20.seconds) {
-                while (f.attempts.findById(fileId) != null) delay(50)
+                while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
             assertNull(f.attempts.findById(fileId), "NO_SPACE drops the row")
             assertTrue(
@@ -510,7 +504,7 @@ class FileFetchStrategyTest {
         try {
             f.processor.start(fileId, now)
             withTimeout(60.seconds) {
-                while (f.attempts.findById(fileId) != null) delay(50)
+                while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
             assertNull(f.attempts.findById(fileId), "mismatch eventually completes")
             assertTrue(

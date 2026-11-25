@@ -352,7 +352,7 @@ class UnknownDevicePolicyTest {
     }
 
     @Test
-    fun relayTransit_unauthenticatedSuccess_doesNotOverwriteMapping() = runBlocking {
+    fun relayTransit_verifiedSuccess_healsMapping() = runBlocking {
         val storedTor = TorEndpoint("sender-real.onion", 80)
         val transitTor = TorEndpoint("transit-arrival.onion", 80)
         val peer2Tor = TorEndpoint("peer2.onion", 80)
@@ -366,9 +366,9 @@ class UnknownDevicePolicyTest {
         router.start()
 
         // Relay transit: binary target is local (passes the gate) but the inner
-        // message is for another peer. The handler returns Success + EnqueueForRelay
-        // without authenticating the claimed source — the sender's mapping must not
-        // move, even though the arrival onion differs from the stored one.
+        // message is for another peer. The hop signature verified the outer source,
+        // so endpoint healing applies to relayed traffic as well (envelope-redesign §3.1):
+        // the sender's mapping moves to the arrival onion.
         val innerText = DagPayload.Text(
             messageId = Uuid.random(),
             roomId = RoomId(Uuid.random()),
@@ -397,7 +397,7 @@ class UnknownDevicePolicyTest {
         )
         delay(400.milliseconds)
 
-        assertTrue(identity.torUpdates.none { it.first == knownPeer })
+        assertTrue(identity.torUpdates.any { it.first == knownPeer }, "hop-verified relay transit heals the mapping")
 
         router.stop()
     }

@@ -27,15 +27,22 @@ class OutboxSchedulingJvmTest {
         connection = null
     }
 
-    private fun envelope(packetId: Uuid, target: PeerId, now: Long): BinaryEnvelope = BinaryEnvelope(
+    private fun envelope(
+        packetId: Uuid,
+        target: PeerId,
+        now: Long,
+        type: PacketType = PacketType.MESSAGE
+    ): BinaryEnvelope = BinaryEnvelope(
         packetId = packetId,
-        packetType = PacketType.MESSAGE,
+        packetType = type,
         dispositionRequested = true,
         createdAt = epochSeconds(now),
         expiresAt = epochSeconds(now + 3_600),
         source = PeerId("r23localaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         target = target,
-        payload = ByteArray(16) { 7 },
+        routingHeader = ByteArray(16) { 7 },
+        content = ByteArray(0),
+        signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
     @Test
@@ -66,9 +73,9 @@ class OutboxSchedulingJvmTest {
         repeat(16) {
             val id = Uuid.random()
             outbox.enqueue(
-                envelope(id, peer, 10_000L).copy(packetType = PacketType.FILE),
+                envelope(id, peer, 10_000L, PacketType.FILE),
                 nextRetryAt = now,
-                tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, Uuid.random()),
+                tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()),
                 retryClass = RetryClass.FLAT,
             )
         }
@@ -104,16 +111,16 @@ class OutboxSchedulingJvmTest {
         )
         val markerId = Uuid.random()
         outbox.enqueue(
-            envelope(markerId, peer, 10_000L).copy(packetType = PacketType.FILE),
+            envelope(markerId, peer, 10_000L, PacketType.FILE),
             nextRetryAt = now,
-            tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, Uuid.random()),
+            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()),
             retryClass = RetryClass.STANDARD,
         )
         val chunkId = Uuid.random()
         outbox.enqueue(
-            envelope(chunkId, peer, 10_000L).copy(packetType = PacketType.FILE),
+            envelope(chunkId, peer, 10_000L, PacketType.FILE),
             nextRetryAt = now,
-            tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, Uuid.random()),
+            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()),
             retryClass = RetryClass.FLAT,
         )
         // First attempt to record baseline, then retry to observe the delay branch.

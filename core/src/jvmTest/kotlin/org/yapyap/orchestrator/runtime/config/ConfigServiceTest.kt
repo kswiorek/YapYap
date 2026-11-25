@@ -1,7 +1,12 @@
 package org.yapyap.orchestrator.runtime.config
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.io.Buffer
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -11,12 +16,21 @@ import org.yapyap.config.ConfigValue
 import org.yapyap.config.NumberSetting
 import org.yapyap.config.PeriodSetting
 import org.yapyap.config.UpdateResult
-import org.yapyap.wiring.*
+import org.yapyap.wiring.ConfigStore
+import org.yapyap.wiring.FIELDS
+import org.yapyap.wiring.Field
+import org.yapyap.wiring.FieldSource
+import org.yapyap.wiring.NumberField
+import org.yapyap.wiring.Overrides
+import org.yapyap.wiring.PeriodField
+import org.yapyap.wiring.RuntimeConfig
+import org.yapyap.wiring.toTomlText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -48,7 +62,7 @@ class ConfigServiceTest {
         (service.settings.value.first { it.id == id } as NumberSetting).value
 
     private suspend fun awaitNumber(service: ConfigService, id: String, expected: Long) {
-        withTimeout(10_000) {
+        withTimeout(10_000.milliseconds) {
             service.settings.first { settings ->
                 (settings.first { it.id == id } as NumberSetting).value == expected
             }
@@ -56,7 +70,7 @@ class ConfigServiceTest {
     }
 
     private suspend fun awaitPeriod(service: ConfigService, id: String, expected: Duration) {
-        withTimeout(10_000) {
+        withTimeout(10_000.milliseconds) {
             service.settings.first { settings ->
                 (settings.first { it.id == id } as PeriodSetting).value == expected
             }

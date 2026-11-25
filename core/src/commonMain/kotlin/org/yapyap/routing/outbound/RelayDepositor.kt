@@ -12,6 +12,7 @@ import org.yapyap.routing.router.RoutingContext
  * online at the same time. When copies are made is the outbox's call
  * ([OutboxProcessor.backUpToRelays]); only messages ask for them.
  */
+//TODO: only used in OutboxProcessor, can be private or moved there
 internal class RelayDepositor(
     private val ctx: RoutingContext,
     private val relaySelection: RelaySelectionPolicy,

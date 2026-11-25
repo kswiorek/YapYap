@@ -25,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -109,10 +110,10 @@ class FileChannelInboxTest {
         val waiting = async(Dispatchers.Default) {
             inbox.awaitBufferedBelow(channel(0), threshold = 1_000) { live0.get() }
         }
-        delay(50)
+        delay(50.milliseconds)
         live0.set(2_000)
         inbox.bufferedAmountChanged(channel(0), 2_000)
-        delay(50)
+        delay(50.milliseconds)
         assertFalse(waiting.isCompleted, "still above the threshold")
         thread {
             live0.set(900)
@@ -123,7 +124,7 @@ class FileChannelInboxTest {
         val closing = async(Dispatchers.Default) {
             inbox.awaitBufferedBelow(channel(1), threshold = 1_000) { 4_000 }
         }
-        delay(50)
+        delay(50.milliseconds)
         inbox.close(channel(1))
         withTimeout(5.seconds) { closing.await() }
         // A closed channel never parks a waiter.
@@ -140,7 +141,7 @@ class FileChannelInboxTest {
         val waiting = async(Dispatchers.Default) {
             inbox.awaitBufferedBelow(channel(0), threshold = 1_000) { live.get() }
         }
-        delay(50)
+        delay(50.milliseconds)
         live.set(0)
         withTimeout(5.seconds) { waiting.await() }
     }

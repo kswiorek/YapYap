@@ -41,6 +41,7 @@ import org.yapyap.transport.webrtc.types.WebRtcFileFrame
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -176,18 +177,18 @@ class FileFetchServiceTest {
         var aClosed = 0
         var bClosed = 0
         while (true) {
-            delay(10)
+            delay(10.milliseconds)
             val aSends = a.sendFileFrameCalls.toList()
             while (aSent < aSends.size) {
                 val (channel, payload) = aSends[aSent++]
                 val forB = WebRtcFileFrame(FileChannelId(peer = aLocal, label = channel.label), payload)
-                while (!b.tryEmitFileFrame(forB)) delay(5)
+                while (!b.tryEmitFileFrame(forB)) delay(5.milliseconds)
             }
             val bSends = b.sendFileFrameCalls.toList()
             while (bSent < bSends.size) {
                 val (channel, payload) = bSends[bSent++]
                 val forA = WebRtcFileFrame(FileChannelId(peer = bLocal, label = channel.label), payload)
-                while (!a.tryEmitFileFrame(forA)) delay(5)
+                while (!a.tryEmitFileFrame(forA)) delay(5.milliseconds)
             }
             val aCloses = a.closeFileChannelCalls.toList()
             while (aClosed < aCloses.size) {
@@ -371,11 +372,11 @@ class FileFetchServiceTest {
                 result = requester.fetch(aliceDevice, fileId, 0L)
             }
             withTimeout(10.seconds) {
-                while (holder.activeCount() == 0 && requester.activeCount() == 0) delay(10)
+                while (holder.activeCount() == 0 && requester.activeCount() == 0) delay(10.milliseconds)
             }
             // Drop while stalled on Defer (the stall keeps the 256KB fetch live);
             // the close drains once the defers expire and the fetch returns.
-            delay(50)
+            delay(50.milliseconds)
             assertTrue(holder.activeCount() > 0 || requester.activeCount() > 0, "fetch must be live before the drop")
             for (ch in bobTransport.openedChannels.toList()) {
                 bobTransport.tryEmitFileChannelEvent(WebRtcFileChannelEvent.Removed(ch))
@@ -391,7 +392,7 @@ class FileFetchServiceTest {
                 fetchJob.join()
             }
             withTimeout(5.seconds) {
-                while (holder.activeCount() != 0 || requester.activeCount() != 0) delay(20)
+                while (holder.activeCount() != 0 || requester.activeCount() != 0) delay(20.milliseconds)
             }
             assertEquals(0, holder.activeCount())
             assertEquals(0, requester.activeCount())
@@ -454,8 +455,8 @@ class FileFetchServiceTest {
             }
             // The holder must actually fill its window (a holder that sent nothing would pass a
             // bound alone), then stay within it while P does not move.
-            withTimeout(10.seconds) { while (sentBytes() < window) delay(20) }
-            delay(400)
+            withTimeout(10.seconds) { while (sentBytes() < window) delay(20.milliseconds) }
+            delay(400.milliseconds)
             val sent = sentBytes()
             assertTrue(sent <= window + chunk, "holder bounded at window, sent $sent")
             // The holder parks via the callback-backed backpressure path, not polling.
@@ -689,7 +690,7 @@ class FileFetchServiceTest {
         fetchWith(gate) { requester ->
             coroutineScope {
                 val result = async { requester.fetch(aliceDevice, fileId, 0L) }
-                withTimeout(10.seconds) { while (gate.appendCalls == 0) delay(10) }
+                withTimeout(10.seconds) { while (gate.appendCalls == 0) delay(10.milliseconds) }
                 requester.abortFetch(fileId, FileFetchAbortReason.CANCELLED)
                 // The retry loop sees the abort; the fetch is bounded even while the engine defers.
                 assertEquals(FetchResult.UNANSWERED, withTimeout(10.seconds) { result.await() })
@@ -714,7 +715,7 @@ class FileFetchServiceTest {
             coroutineScope {
                 val result = async { requester.fetch(aliceDevice, fileId, 0L) }
                 val channel = withTimeout(10.seconds) {
-                    while (bobTransport.sendFileFrameCalls.isEmpty()) delay(10)
+                    while (bobTransport.sendFileFrameCalls.isEmpty()) delay(10.milliseconds)
                     bobTransport.sendFileFrameCalls.first().first
                 }
                 val ok = FileFetchFrame.FetchOk(1024 * 1024L, 1024 * 1024, emptyList(), "big.bin", null)
@@ -728,7 +729,7 @@ class FileFetchServiceTest {
                             )
                         )
                     ) {
-                        delay(5)
+                        delay(5.milliseconds)
                     }
                 }
                 assertEquals(FetchResult.UNANSWERED, withTimeout(10.seconds) { result.await() })

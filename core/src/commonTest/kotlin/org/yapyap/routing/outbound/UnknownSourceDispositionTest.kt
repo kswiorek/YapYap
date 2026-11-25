@@ -2,6 +2,7 @@ package org.yapyap.routing.outbound
 
 
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -118,9 +119,9 @@ class UnknownSourceDispositionTest {
         )
     }
 
-    private suspend fun Setup.deliver(envelope: TorIncomingEnvelope) {
+    private suspend fun Setup.deliver(envelope: TorIncomingEnvelope) = coroutineScope {
         router.start()
-        val collector = kotlinx.coroutines.GlobalScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
             router.bootstrap.deliveries.collect { d -> delivered += d.packetId }
         }
         tor.tryEmitIncoming(envelope)

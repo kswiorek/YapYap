@@ -187,7 +187,7 @@ class FileEnvelopeCodecTest {
             fileName = "empty",
             mimeType = null,
         )
-        val decoded = FileFetchFrame.FetchOk.decode(original.encode()) as FileFetchFrame.FetchOk
+        val decoded = FileFetchFrame.FetchOk.decode(original.encode())
         assertEquals(0L, decoded.totalBytes)
         assertTrue(decoded.blockHashes.isEmpty())
     }
@@ -366,7 +366,6 @@ class FileEnvelopeCodecTest {
     fun seal_longFileName_rejectedBeforeAllocating() {
         val wire = sealPrefix().apply {
             writeInt(0)
-            writeByteArray(ByteArray(32) { 3 })
             writeShort(0xfffe)
         }.toByteArray()
         assertRejectedByBound("exceeds max 255") { FileSeal.decode(wire) }

@@ -52,9 +52,12 @@ class FileInboundHandlerTest {
     private val chunkSize = 220 * 1024
     private val fileTotal = 1000L
 
-    private fun harness(ports: ScriptedFilePorts = ScriptedFilePorts()) = fileInboundHarness(
+    private fun harness(
+        ports: ScriptedFilePorts = ScriptedFilePorts(),
+        plaintext: ScriptedPlaintext? = null,
+    ) = fileInboundHarness(
         ports = ports,
-        plaintext = ScriptedPlaintext(describeImpl = { id ->
+        plaintext = plaintext ?: ScriptedPlaintext(describeImpl = { id ->
             if (id == fileId) {
                 org.yapyap.routing.file.port.FileManifest(
                     fileId = fileId,
@@ -163,7 +166,7 @@ class FileInboundHandlerTest {
         val headers = replies.map { FileHeader.decode(it.envelope.routingHeader) }
         val ack = headers.filterIsInstance<FileHeader.Ack>().single()
         assertEquals(transferId, ack.transferId)
-        assertEquals(-1, ack.highestContiguousIndex, "nothing was ours to skip")
+        assertEquals(0, ack.highestContiguousIndex, "READY file covers its single chunk")
         val complete = headers.filterIsInstance<FileHeader.Complete>().single()
         assertContentEquals(sealIdOf(h).bytes, complete.sealId.bytes)
     }
@@ -250,7 +253,13 @@ class FileInboundHandlerTest {
         h.handler.handle(offerEnvelope(h, transferId))
         // A 1000-byte file in 220 KiB chunks has exactly one chunk: index 7 is outside the
         // transfer's shape and is DECLINED before any decrypt is burned.
-        val result = h.handler.handle(chunkEnvelope(h, transferId, 7))
+        val shape = TransferShape(chunkSize, 0, fileTotal)
+        val plaintext = ByteArray(shape.chunkLength(0)) { 3 }
+        val sealId = h.hopProtection.contentId(h.fileProtection.seal(seal(totalBytes = shape.byteTo), h.localId))
+        val key = SealKey(ByteArray(32) { it.toByte() })
+        val ciphertext = h.fileProtection.encryptChunk(sealId, key, shape.chunkOffset(0), plaintext)
+        val env = envelope(h, FileHeader.Chunk(transferId, 7), ciphertext)
+        val result = h.handler.handle(env)
         val rejected = assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
         assertTrue(h.ports.ingests.isEmpty())
@@ -490,7 +499,10 @@ class FileInboundHandlerTest {
 
     @Test
     fun request_notHeld_isDeclined() = runTest {
-        val h = harness()
+        val h = harness(
+            ports = ScriptedFilePorts(),
+            plaintext = ScriptedPlaintext(describeImpl = { null }),
+        )
         val requestSeal = FileHeader.Request
         val content = h.fileProtection.sealRequest(
             org.yapyap.protocol.envelopes.FileRequest(fileId, 0L, emptyList()),

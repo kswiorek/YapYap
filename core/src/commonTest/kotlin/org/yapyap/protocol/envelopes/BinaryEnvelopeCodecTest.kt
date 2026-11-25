@@ -137,7 +137,7 @@ class BinaryEnvelopeCodecTest {
             signature = signature,
         ).encode()
         val tampered = good.copyOf()
-        tampered[4] = 2
+        tampered[4] = 1
         assertFailsWith<IllegalArgumentException> {
             BinaryEnvelope.decode(tampered)
         }

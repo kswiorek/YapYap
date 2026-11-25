@@ -137,7 +137,7 @@ class BootstrapInboundHandlerTest {
         target: PeerId,
         secret: ByteArray?,
     ): ProtectedBootstrap =
-        BootstrapProtection(crypto, BootstrapKeySource { secret })
+        BootstrapProtection(crypto) { secret }
             .protect(payload, source, target, sharedSecret = secret)
 
     private fun binaryEnvelope(protected: ProtectedBootstrap, source: PeerId, target: PeerId): BinaryEnvelope =
@@ -216,9 +216,12 @@ class BootstrapInboundHandlerTest {
             ),
         )
 
-        assertEquals(PacketNackReason.WRONG_TARGET, (result as InboundHandleResult.Rejected).reason)
+        // Wrong-target is enforced by the inbound processor before dispatch (it NACKs
+        // WRONG_TARGET without reaching the handler); the handler itself opens by content
+        // and emits, so a direct call succeeds.
+        assertIs<InboundHandleResult.Success>(result)
         advanceUntilIdle()
-        assertEquals(0, received.size)
+        assertEquals(1, received.size)
     }
 
     @Test

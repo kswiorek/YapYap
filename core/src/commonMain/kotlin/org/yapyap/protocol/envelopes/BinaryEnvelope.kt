@@ -69,6 +69,8 @@ internal class BinaryEnvelope(
         Fields.EXPIRES_AT to expiresAt,
         Fields.SOURCE to source,
         Fields.TARGET to target,
+        Fields.ROUTING_HEADER to routingHeader,
+        Fields.SIGNATURE to signature,
     )
 
     companion object {

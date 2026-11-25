@@ -1,7 +1,16 @@
 package org.yapyap.transport.tor
 
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.internal.SynchronizedObject
+import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
@@ -11,7 +20,12 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.session.SessionPhase
-import org.yapyap.transport.tor.backend.*
+import org.yapyap.transport.tor.backend.TorBackend
+import org.yapyap.transport.tor.backend.TorDuplex
+import org.yapyap.transport.tor.backend.TorHealth
+import org.yapyap.transport.tor.backend.TorInboundStream
+import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -85,6 +99,9 @@ internal class RecordingTorTransport(
         private set
 
     private val sendsMutex = Mutex()
+
+    @OptIn(InternalCoroutinesApi::class)
+    private val sendsGuard = SynchronizedObject()
     val sends = mutableListOf<Pair<TorEndpoint, BinaryEnvelope>>()
     var failNextSend: Boolean = false
 
@@ -122,8 +139,9 @@ internal class RecordingTorTransport(
     }
 
     /** [sends] excluding heartbeat envelopes (ping / log-off), for assertions on message traffic. */
+    @OptIn(InternalCoroutinesApi::class)
     fun sendsExcludingHeartbeat(): List<Pair<TorEndpoint, BinaryEnvelope>> =
-        synchronized(sends) { sends.filterNot { (_, envelope) -> envelope.isHeartbeat() } }
+        synchronized(sendsGuard) { sends.filterNot { (_, envelope) -> envelope.isHeartbeat() } }
 
     private fun BinaryEnvelope.isHeartbeat(): Boolean {
         if (packetType != PacketType.SYSTEM) return false
@@ -281,6 +299,4 @@ internal class RecordingTorBackend : TorBackend {
     override suspend fun stop() {
         stopCalls.add(Unit)
     }
-
-    fun tryEmitFrame(frame: TorIncomingFrame): Boolean = framesMutable.tryEmit(frame)
 }
