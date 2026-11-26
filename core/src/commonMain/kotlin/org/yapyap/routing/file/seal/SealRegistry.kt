@@ -1,42 +1,22 @@
 package org.yapyap.routing.file.seal
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.ContentId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.TransferShape
-import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.file.port.FileFailureReason
-import org.yapyap.routing.file.port.FileManifest
-import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileSendState
-import org.yapyap.routing.file.port.FileSendStatus
+import org.yapyap.routing.file.port.*
 import org.yapyap.routing.file.transfer.TransferEngine
 import org.yapyap.routing.file.transfer.TransferEvent
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileSealKind
-import org.yapyap.routing.store.FileSealStatus
-import org.yapyap.routing.store.FileSealStore
-import org.yapyap.routing.store.FileTransferStatus
-import org.yapyap.routing.store.FileTransferStore
-import org.yapyap.routing.store.OutgoingSeal
-import org.yapyap.routing.store.OutgoingTransfer
+import org.yapyap.routing.store.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -67,7 +47,7 @@ internal class SealRegistry(
 ) {
     /** Serialises seal state changes, so an account's aggregate is computed once per change. */
     private val mutex = Mutex()
-
+    //TODO: async fanouts
     /** Seals [fileId] for every device of [target] that has no live seal of it and pushes it. */
     suspend fun push(fileId: FileId, target: AccountId) {
         val manifest = plaintext.describe(fileId) ?: run {
@@ -121,6 +101,7 @@ internal class SealRegistry(
     }
 
     /** User cancel: every live push seal of [fileId] to [target]'s devices ends with its transfers. */
+    //TODO: async fanout
     suspend fun cancel(fileId: FileId, target: AccountId) {
         mutex.withLock {
             for (device in peerDevices(target)) {

@@ -11,6 +11,7 @@ import kotlin.time.Instant
  * A header-only FILE packet (ACK, CANCEL, COMPLETE) from us to [peer]. Control packets are
  * politeness: ordinary routable packets, never relay-backed, bounded by [expiresAt].
  */
+//TODO: no extensions for types we control, seems the context was hijacked to pass the file control function around
 internal suspend fun RoutingContext.fileControl(peer: PeerId, header: FileHeader, expiresAt: Instant): BinaryEnvelope =
     envelope(
         packetType = PacketType.FILE,

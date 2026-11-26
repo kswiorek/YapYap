@@ -23,14 +23,7 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileSealStore
-import org.yapyap.routing.store.FileTransferStatus
-import org.yapyap.routing.store.FileTransferStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.OutgoingTransfer
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.RetryClass
+import org.yapyap.routing.store.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -61,6 +54,7 @@ internal sealed interface TransferEvent {
  * them, so a restart resumes and never re-sends what is still queued. Each transfer is handled
  * under its own lock; the events flow is unbounded, so reporting never waits on an owner.
  */
+//TODO: logic seems ok, but messy, to be rewritten
 internal class TransferEngine(
     private val ctx: RoutingContext,
     private val transfers: FileTransferStore,
@@ -89,6 +83,7 @@ internal class TransferEngine(
     /** Inserts [transfer] and sends its OFFER (re-armed by the tick if it can't go now). */
     suspend fun start(transfer: OutgoingTransfer) {
         transfers.insert(transfer)
+        //TODO: untangle nested lambdas: we insert transfer, check some things and look it up in the db again, messy
         guarded("offer") { withLive(transfer.transferId) { current, run -> sendOffer(current, run) } }
     }
 

@@ -14,13 +14,7 @@ import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.inbound.FileInboundHandler
 import org.yapyap.routing.file.inbound.FileServeHandler
 import org.yapyap.routing.file.inbound.TargetSide
-import org.yapyap.routing.file.port.FileCarrier
-import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.file.port.FileIngestPort
-import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReceiveEnd
-import org.yapyap.routing.file.port.FileRequestSource
-import org.yapyap.routing.file.port.FileSendState
+import org.yapyap.routing.file.port.*
 import org.yapyap.routing.file.relay.RelayDoor
 import org.yapyap.routing.file.relay.RelayForwards
 import org.yapyap.routing.file.seal.SealRegistry
@@ -33,13 +27,7 @@ import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.OutcomeMailbox
 import org.yapyap.routing.router.RouterLifecycle
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileIncomingStore
-import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRequestAttemptStore
-import org.yapyap.routing.store.FileSealStore
-import org.yapyap.routing.store.FileTransferStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.*
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -80,6 +68,7 @@ internal class FileService(
 
     private val engine =
         TransferEngine(ctx, transferStore, sealStore, relayStore, plaintext, outboxProcessor, packetOutbox)
+    //TODO: seals object both here and inside the SealRegistry, confusing
     private val seals = SealRegistry(ctx, sealStore, transferStore, engine, plaintext, relaySelection, events)
     private val forwards = RelayForwards(ctx, relayStore, transferStore, engine)
     private val relayDoor = RelayDoor(ctx, relayStore, forwards)
@@ -150,6 +139,7 @@ internal class FileService(
         target.endReceive(fileId, end)
     }
 
+    //TODO: why not override?
     fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
 
     /**
