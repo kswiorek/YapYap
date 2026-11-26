@@ -60,7 +60,7 @@ Evidence:
 Before writing or changing any code — even quick requests — read .maister/docs/INDEX.md, then the specific files it
 points to that are relevant to the task (standards AND project/domain docs; the index alone is not enough). Follow the
 standards; if one conflicts with the task, ask the user. Suggest adding a standard when a recurring
-pattern/fix/convention isn't yet captured (then `/maister/standards-update` on approval). When any `/maister/*` command
+pattern/fix/convention isn't yet captured (then `/maister:standards-update` (Claude Code) or `/maister/standards-update` (OpenCode) on approval). When any `/maister:*` (Claude Code) or `/maister/*` (OpenCode) command
 is invoked, execute it via the skill tool immediately — never skip workflows for "straightforward" tasks.
 
 Sources: docs (CLAUDE.md) · confidence 89.
@@ -69,7 +69,7 @@ Evidence:
 - CLAUDE.md: "Before writing or changing any code … ground yourself in the project's documentation: 1. Read
   @.maister/docs/INDEX.md … 2. Then open and read the specific files it points to … The index alone is not enough."
 - CLAUDE.md (Standards Evolution): "When you notice recurring patterns, fixes, or conventions during implementation that
-  aren't yet captured in standards — suggest adding them … If approved, invoke `/maister/standards-update` with the
+  aren't yet captured in standards — suggest adding them … If approved, invoke `/maister:standards-update` (Claude Code) or `/maister/standards-update` (OpenCode) with the
   identified pattern."
-- CLAUDE.md (Maister Workflows): "When any `/maister/*` command is invoked, execute it via the skill tool immediately —
+- CLAUDE.md (Maister Workflows): "When any `/maister:*` (Claude Code) or `/maister/*` (OpenCode) command is invoked, execute it via the skill tool immediately —
   do not skip workflows for 'straightforward' tasks."

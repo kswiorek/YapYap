@@ -1,6 +1,6 @@
 ## Project Documentation & Standards
 
-Before writing or changing any code — even for quick, direct requests that don't go through a `/maister/*` workflow —
+Before writing or changing any code — even for quick, direct requests that don't go through a `/maister:*` (Claude Code) or `/maister/*` (OpenCode) workflow —
 ground yourself in the project's documentation:
 
 1. Read @.maister/docs/INDEX.md to see what's documented. It is the map to everything the team maintains — coding
@@ -21,11 +21,10 @@ suggest adding them. Examples:
 - The same type of fix is needed across multiple files
 - A new library/pattern is adopted that should be documented
 
-When this happens, briefly suggest the standard to the user. If approved, invoke `/maister/standards-update` with the
-identified pattern.
+When this happens, briefly suggest the standard to the user. If approved, invoke `/maister:standards-update` (Claude Code) or `/maister/standards-update` (OpenCode) with the identified pattern.
 
 ## Maister Workflows
 
-This project uses the maister plugin for structured development workflows. When any `/maister/*` command is invoked,
+This project uses the maister plugin for structured development workflows. When any `/maister:*` (Claude Code) or `/maister/*` (OpenCode) command is invoked,
 execute it via the skill tool immediately — do not skip workflows for "straightforward" tasks. The user chose the
 workflow intentionally; complexity assessment is the workflow's job.

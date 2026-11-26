@@ -148,38 +148,6 @@ re-attach until reply, wire metadata cross-validation, OPK lifecycle, device-id 
 transactional ratchet decrypt, decode bounds as protocol constants, immutable device identity, cleartext outerHandshake
 as a conscious choice.
 
-### Build Standards
-
-Located in `.maister/docs/standards/build/`
-
-Gradle build-system conventions — in this project the build scripts are the linter config: explicitApi, check-task
-gates, conditional targets.
-
-#### Toolchain (`standards/build/toolchain.md`)
-
-JVM 11 bytecode everywhere with Temurin JDK 21 toolchain and auto-provisioned JDKs, official Kotlin code style,
-project-wide experimental opt-ins (ExperimentalUuidApi, -Xexpect-actual-classes).
-
-#### Gradle Conventions (`standards/build/gradle-conventions.md`)
-
-Single-source version catalog (libs.versions.toml via libs.* accessors), typesafe project accessors, Foojay toolchain
-auto-provisioning, configuration-cache-compatible build logic (explicit opt-out with justification).
-
-#### Android (`standards/build/android.md`)
-
-Conditional Android target — SDK-free by default (applied only when an SDK is configured or -PenableAndroid=true),
-manifest in a non-conventional path for SDK-free IDE sync.
-
-#### Dev Environments (`standards/build/dev-environments.md`)
-
-Isolated multi-instance dev runs: dedicated --data-dir under working-dir/ plus --keyring-ns namespace, --loopback for
-local-only runs.
-
-#### Release (`standards/build/release.md`)
-
-Tag-driven multi-OS desktop release (v* tag, ubuntu+windows matrix, jpackage, GitHub Release with notes);
-packaging-build-only gate recorded truthfully with a TODO to add a ./gradlew check step before the next tagged release.
-
 ### Global Standards
 
 Located in `.maister/docs/standards/global/`
@@ -377,7 +345,7 @@ and frontend/gui-boundary.md.
     - Architecture for understanding system design
 3. **Standards**: This index only points to the standards — open and follow the specific standard files relevant to your
    task; don't rely on the index alone
-    - Architecture/protocol/build standards are project-specific and binding
+    - Architecture/protocol standards are project-specific and binding
     - Global standards apply to all code
     - Domain-specific standards (frontend/backend/testing) apply to relevant code
 4. **Keep Updated**: Update documentation when making significant changes
@@ -400,7 +368,7 @@ and frontend/gui-boundary.md.
 
 1. Edit the relevant documentation file directly
 2. Update INDEX.md if the file's purpose or description changes
-3. Ensure CLAUDE.md still references this INDEX.md
+3. Ensure AGENTS.md and CLAUDE.md still reference this INDEX.md
 4. Commit changes to version control
 
 ---
