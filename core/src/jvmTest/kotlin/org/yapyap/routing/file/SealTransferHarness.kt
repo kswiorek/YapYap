@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeout
 import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -57,7 +58,6 @@ internal class SealTransferHarness(
     val engine: TransferEngine,
     val seals: SealRegistry,
     val plaintext: ScriptablePlaintext,
-    val protection: IdentityFileProtection,
     val sealStore: FileSealStore,
     val transferStore: FileTransferStore,
     val outbox: InMemoryPacketOutbox,
@@ -79,10 +79,11 @@ internal fun sealTransferHarness(
     now: Long = 10_000L,
     relaySelection: RelaySelectionPolicy = NoRelaySelection,
     routerConfig: RouterConfig = RouterConfig(),
+    fileProtection: FileProtection = IdentityFileProtection(),
 ): SealTransferHarness {
     val bytes = ByteArray(totalBytes.toInt()) { (it * 7).toByte() }
     val identity = JvmRouterIdentity(localPeerId, mapOf(fixtureAccount to listOf(peerA, peerB)))
-    val protection = IdentityFileProtection()
+    val protection = fileProtection
     val plaintext = ScriptablePlaintext()
     plaintext.describeImpl = { _ ->
         FileManifest(
@@ -174,7 +175,6 @@ internal fun sealTransferHarness(
         engine = engine,
         seals = seals,
         plaintext = plaintext,
-        protection = protection,
         sealStore = sealStore,
         transferStore = transferStore,
         outbox = outbox,

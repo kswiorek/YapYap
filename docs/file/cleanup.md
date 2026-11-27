@@ -209,18 +209,27 @@ Lands in steps 1, 4 and 7 (the split below follows from it).
 Agreed: **plan under the mutex, execute outside it, per device, in guarded coroutines.** The mutex keeps
 only the serialized reads: `push` decides which (file, device) pairs need a seal (the live-seal check)
 and marks them in an in-memory in-flight set; `serve` collects the transfers to cancel and decides
-under-way-ness; `cancel` collects the seals to end; `deposit` keeps its existing durable claim
-(`claimDeposit`) — it already had the right shape. The heavy work — `createSeal` (crypto, store insert,
-`engine.start`) and `engine.cancel` — runs outside the lock, one guarded launch per device, so a
-10-device push stops blocking every serve, COMPLETE and settle.
+under-way-ness; `cancel` collects the seals to end; `deposit` keeps its existing durable claim (`claimDeposit`) under
+the lock and plans its relay set there. The heavy work — `createSeal` (crypto,
+store insert, `engine.start`), the deposit's per-relay `engine.start`s, and `engine.cancel` — runs
+outside the lock, one guarded launch per device/relay/transfer, joined before the entry point returns,
+so a 10-device push stops blocking every serve, COMPLETE and settle. `settle`/`cancel`/`onComplete`
+return the transfer ids to end and the caller fans them out outside the lock.
 
 Two correctness details from the review, agreed as part of this:
 
 - **The in-flight guard is in-memory, not a placeholder row.** Two overlapping pushes of the same
   (file, device) would both plan "no live seal" before either lands; the mutex-computed plan guards this
-  with a cheap in-flight set cleared when the seal row lands. The alternative — inserting a placeholder
-  seal row under the lock to make the guard durable — was rejected: it drags the store back into the
-  critical section the two-phase split exists to empty.
+  with a cheap in-flight map, keyed by (file, device), holding a per-operation lease that only its taker
+  releases (an outer clear cannot delete a lease taken later). It is cleared once the seal's row and first
+  transfer land, and it covers `serve` too (a serve racing a push, or another serve): the operation for a
+  pair already in flight plans nothing, `push` skipping that device and `serve` declining. The alternative
+  — inserting a placeholder seal row under the lock to make the guard durable — was rejected: it drags the
+  store back into the critical section the two-phase split exists to empty.
+- **Cancel is a plan-time decision.** A `cancel` that runs after a push has planned but before its seal
+  row lands cannot see it: the push still lands and may deliver. Accepted as the price of freeing the lock (the old
+  shape serialised the whole push); a user cancel can simply be repeated, and the pull path is
+  unaffected.
 - **No per-call timeouts on top.** Everything in the execute phase is local CPU and DB (no network);
   the existing backstops already recover a mid-flight death: the sweep settles a seal whose transfers
   never started, expiry bounds everything, the durable rows rebuild, and the pull path covers the device.

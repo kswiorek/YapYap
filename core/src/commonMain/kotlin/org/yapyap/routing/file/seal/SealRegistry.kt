@@ -3,11 +3,16 @@ package org.yapyap.routing.file.seal
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -55,6 +60,12 @@ import kotlin.uuid.Uuid
  *
  * A serve answers a REQUEST with a fresh seal, always (a seal the requester cannot open again must
  * never be offered twice). Account-level events report the aggregate of an account's devices.
+ *
+ * The mutex only plans: it decides what needs a seal (and reserves it in [inFlight]), which
+ * transfers to cancel, or which relays a deposit goes to. The expensive part — crypto, store
+ * inserts, `TransferEngine.start` and `TransferEngine.cancel` — runs outside it in guarded launches
+ * (one per device, relay or transfer, joined before the entry point returns), so a multi-device
+ * push never blocks every serve, COMPLETE and settle behind it.
  */
 internal class SealRegistry(
     private val ctx: RoutingContext,
@@ -65,9 +76,47 @@ internal class SealRegistry(
     private val relaySelection: RelaySelectionPolicy,
     private val events: MutableSharedFlow<FileEvent>,
 ) {
-    /** Serialises seal state changes, so an account's aggregate is computed once per change. */
+    /** Serialises seal decisions, so an account's aggregate is computed once per change. */
     private val mutex = Mutex()
-    //TODO: async fanouts
+
+    /**
+     * (file, device) pairs whose seal is being made right now, each with its lease. A second
+     * push/serve of the same pair plans nothing: the live-seal check cannot see a row that has not
+     * landed yet. A lease is released only by the operation that took it.
+     */
+    private val inFlight = mutableMapOf<Pair<FileId, PeerId>, Lease>()
+
+    /** Identity token for one in-flight seal; the map guards that only its taker releases it. */
+    private class Lease
+
+    /** One seal to make outside the mutex, for one target device. */
+    private data class SealPlan(
+        val manifest: FileManifest,
+        val device: PeerId,
+        val kind: FileSealKind,
+        val byteFrom: Long,
+        val lease: Lease,
+    ) {
+        val key: Pair<FileId, PeerId> get() = manifest.fileId to device
+    }
+
+    /** The serve decision taken under the mutex. */
+    private sealed interface ServePlan {
+        /** A serve of the same file to the device is already under way: answer success. */
+        data object AlreadyServing : ServePlan
+
+        /** Make the seal; these transfers are superseded and end first. */
+        data class Make(val plan: SealPlan, val cancel: List<TransferId>) : ServePlan
+    }
+
+    /** The deposit plan taken under the mutex: the claimed round, its relays and covered shape. */
+    private data class DepositPlan(
+        val seal: OutgoingSeal,
+        val relays: List<PeerId>,
+        val shape: TransferShape,
+        val byteFrom: Long,
+    )
+
     /** Seals [fileId] for every device of [target] that has no live seal of it and pushes it. */
     suspend fun push(fileId: FileId, target: AccountId) {
         val manifest = plaintext.describe(fileId) ?: run {
@@ -81,13 +130,22 @@ internal class SealRegistry(
             return
         }
         if (manifest.totalBytes > SMALL_FILE_MAX_BYTES) return
-        mutex.withLock {
-            for (device in peerDevices(target)) {
+        val devices = peerDevices(target)
+        val plans = mutex.withLock {
+            val planned = mutableListOf<SealPlan>()
+            for (device in devices) {
+                val key = fileId to device
+                if (key in inFlight) continue
                 val live =
                     sealStore.byFileAndTarget(fileId, device).any { it.kind == FileSealKind.PUSH && it.status.isLive }
-                if (!live) createSeal(manifest, device, FileSealKind.PUSH, byteFrom = 0)
+                if (live) continue
+                planned += SealPlan(manifest, device, FileSealKind.PUSH, byteFrom = 0, lease = Lease())
             }
+            // Mark only after every suspending read: a cancellation mid-plan leaves no leases.
+            planned.forEach { inFlight[it.key] = it.lease }
+            planned
         }
+        makeSeals(plans)
         report(fileId, target)
     }
 
@@ -95,44 +153,69 @@ internal class SealRegistry(
      * Serves [fileId] to [device] from the chunk boundary at or below [fromOffset], with a fresh
      * seal. A REQUEST repeated within one attempt is answered by the serve already under way, and
      * any other live transfer of the file to that device is cancelled: one transfer of a file
-     * from us to one device at a time.
+     * from us to one device at a time. A request that arrives while a seal for the same pair is
+     * still being made is declined: that in-flight seal (push or serve) covers the device.
      */
     suspend fun serve(fileId: FileId, device: PeerId, fromOffset: Long): Boolean {
         val manifest = plaintext.describe(fileId) ?: return false
         if (manifest.totalBytes > SMALL_FILE_MAX_BYTES) return false
         val chunkSize = ctx.fileLimits.value.chunkSizeBytes
         val byteFrom = (fromOffset.coerceIn(0, manifest.totalBytes) / chunkSize) * chunkSize
-        mutex.withLock {
-            val now = ctx.clock.now()
-            val direct = sealStore.byFileAndTarget(fileId, device).filter { it.status.isLive }
-                .flatMap { seal ->
-                    transferStore.bySeal(seal.sealId).filter { it.peer == device && it.status.isLive }
-                        .map { seal to it }
+        val key = fileId to device
+        val started = when (
+            val decision = mutex.withLock {
+                if (key in inFlight) return@withLock null
+                val now = ctx.clock.now()
+                val direct = sealStore.byFileAndTarget(fileId, device).filter { it.status.isLive }
+                    .flatMap { seal ->
+                        transferStore.bySeal(seal.sealId).filter { it.peer == device && it.status.isLive }
+                            .map { seal to it }
+                    }
+                val underWay = direct.any { (seal, transfer) ->
+                    seal.kind == FileSealKind.SERVE && transfer.shape.byteFrom <= byteFrom &&
+                            now - transfer.createdAt < ctx.routerConfig.value.fileRequestAttemptTimeout
                 }
-            val underWay = direct.any { (seal, transfer) ->
-                seal.kind == FileSealKind.SERVE && transfer.shape.byteFrom <= byteFrom &&
-                        now - transfer.createdAt < ctx.routerConfig.value.fileRequestAttemptTimeout
+                if (underWay) return@withLock ServePlan.AlreadyServing
+                val lease = Lease()
+                inFlight[key] = lease
+                ServePlan.Make(
+                    plan = SealPlan(manifest, device, FileSealKind.SERVE, byteFrom, lease),
+                    cancel = direct.map { it.second.transferId },
+                )
             }
-            if (underWay) return true
-            direct.forEach { (_, transfer) -> engine.cancel(transfer.transferId) }
-            if (!createSeal(manifest, device, FileSealKind.SERVE, byteFrom)) return false
+        ) {
+            null -> return false
+            ServePlan.AlreadyServing -> return true
+            is ServePlan.Make -> {
+                val plan = decision.plan
+                try {
+                    cancelTransfers(decision.cancel)
+                    makeSeal(plan)
+                } finally {
+                    release(plan)
+                }
+            }
         }
+        if (!started) return false
         ctx.devices.getAccountIdForDevice(device)?.let { events.emit(FileEvent.ServeStarted(fileId, it)) }
         return true
     }
 
     /** User cancel: every live push seal of [fileId] to [target]'s devices ends with its transfers. */
-    //TODO: async fanout
     suspend fun cancel(fileId: FileId, target: AccountId) {
-        mutex.withLock {
-            for (device in peerDevices(target)) {
+        val devices = peerDevices(target)
+        val toCancel = mutex.withLock {
+            val ids = mutableListOf<TransferId>()
+            for (device in devices) {
                 for (seal in sealStore.byFileAndTarget(fileId, device)) {
                     if (seal.kind != FileSealKind.PUSH || !seal.status.isLive) continue
                     sealStore.setStatus(seal.sealId, FileSealStatus.CANCELLED)
-                    endLiveTransfers(seal)
+                    ids += liveTransferIds(seal.sealId)
                 }
             }
+            ids
         }
+        cancelTransfers(toCancel)
         report(fileId, target)
     }
 
@@ -140,13 +223,16 @@ internal class SealRegistry(
     suspend fun onComplete(sealId: ContentId, from: PeerId) {
         val seal = sealStore.find(sealId) ?: return
         if (from != seal.targetDevice) return
-        mutex.withLock {
-            val current = sealStore.find(sealId) ?: return
-            if (current.status != FileSealStatus.DELIVERED) {
+        val toCancel = mutex.withLock {
+            val current = sealStore.find(sealId) ?: return@withLock emptyList()
+            if (current.status == FileSealStatus.DELIVERED) {
+                emptyList()
+            } else {
                 sealStore.setStatus(sealId, FileSealStatus.DELIVERED)
-                endLiveTransfers(current)
+                liveTransferIds(sealId)
             }
         }
+        cancelTransfers(toCancel)
         report(seal)
     }
 
@@ -178,7 +264,7 @@ internal class SealRegistry(
             is TransferEvent.Progress -> if (event.transfer.peer == seal.targetDevice) report(seal)
             is TransferEvent.Gone -> if (event.transfer.peer == seal.targetDevice) deposit(seal, event.transfer)
             is TransferEvent.Ended -> {
-                mutex.withLock { settle(seal.sealId) }
+                cancelTransfers(settle(seal.sealId))
                 report(seal)
             }
         }
@@ -187,34 +273,51 @@ internal class SealRegistry(
     /**
      * One deposit round per seal (claimed durably): one transfer to each relay the policy picks,
      * carrying the same seal and the remainder after the target's ACKed prefix. Relays are picked
-     * before the claim, so an empty choice never burns the round.
+     * before the claim, so an empty choice never burns the round; the transfers start outside the
+     * lock, one guarded launch per relay.
      */
     private suspend fun deposit(seal: OutgoingSeal, direct: OutgoingTransfer) {
-        mutex.withLock {
-            val current = sealStore.find(seal.sealId) ?: return
-            if (current.status != FileSealStatus.SENDING) return
+        val plan = mutex.withLock {
+            val current = sealStore.find(seal.sealId) ?: return@withLock null
+            if (current.status != FileSealStatus.SENDING) return@withLock null
             val shape = direct.shape
             val byteFrom = shape.chunkOffset(direct.contiguousAcked + 1).coerceAtMost(shape.byteTo)
-            if (byteFrom >= shape.byteTo && shape.chunkCount > 0) return
+            if (byteFrom >= shape.byteTo && shape.chunkCount > 0) return@withLock null
             val relays = relaySelection.selectRelays(seal.targetDevice).filter { it != seal.targetDevice }
-            if (relays.isEmpty()) return
-            if (!sealStore.claimDeposit(seal.sealId, ctx.clock.now())) return
-            for (relay in relays) {
-                engine.start(newTransfer(seal, relay, TransferShape(shape.chunkSizeBytes, byteFrom, shape.byteTo)))
-            }
-            AppLog.info(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_DEPOSITED,
-                message = "Deposited a seal's remainder at relays",
-                fields = mapOf("sealId" to seal.sealId, "relays" to relays.size, "byteFrom" to byteFrom),
-            )
+            if (relays.isEmpty()) return@withLock null
+            if (!sealStore.claimDeposit(seal.sealId, ctx.clock.now())) return@withLock null
+            DepositPlan(current, relays, TransferShape(shape.chunkSizeBytes, byteFrom, shape.byteTo), byteFrom)
+        } ?: return
+        val started = coroutineScope {
+            plan.relays.map { relay ->
+                async {
+                    guarded("deposit", fields = mapOf("sealId" to plan.seal.sealId, "relay" to relay)) {
+                        engine.start(newTransfer(plan.seal, relay, plan.shape))
+                    } != null
+                }
+            }.awaitAll().count { it }
         }
+        AppLog.info(
+            component = LogComponent.FILE,
+            event = LogEvent.FILE_DEPOSITED,
+            message = "Deposited a seal's remainder at relays",
+            fields = mapOf(
+                "sealId" to plan.seal.sealId,
+                "relays" to plan.relays.size,
+                "started" to started,
+                "byteFrom" to plan.byteFrom,
+            ),
+        )
     }
 
-    /** Derives the seal's state from its transfers (see the class doc) and acts on the change. */
-    private suspend fun settle(sealId: ContentId) {
-        val seal = sealStore.find(sealId) ?: return
-        if (!seal.status.isLive) return
+    /**
+     * Derives the seal's state from its transfers (see the class doc) and returns the transfers
+     * that must end with it. The status write stays atomic with the decision; the cancellations
+     * run outside the lock.
+     */
+    private suspend fun settle(sealId: ContentId): List<TransferId> = mutex.withLock {
+        val seal = sealStore.find(sealId) ?: return@withLock emptyList()
+        if (!seal.status.isLive) return@withLock emptyList()
         val all = transferStore.bySeal(sealId)
         val direct = all.filter { it.peer == seal.targetDevice }
         val deposits = all - direct.toSet()
@@ -226,25 +329,26 @@ internal class SealRegistry(
             all.none { it.status.isLive } -> FileSealStatus.ENDED
             else -> FileSealStatus.SENDING
         }
-        if (next == seal.status) return
+        if (next == seal.status) return@withLock emptyList()
         sealStore.setStatus(sealId, next)
         when (next) {
-            FileSealStatus.DELIVERED, FileSealStatus.DECLINED -> endLiveTransfers(seal)
+            FileSealStatus.DELIVERED, FileSealStatus.DECLINED -> all.filter { it.status.isLive }.map { it.transferId }
             // The relays deliver the rest; pushing it directly too would only duplicate traffic.
-            FileSealStatus.HANDED_OFF -> direct.filter { it.status.isLive }.forEach { engine.cancel(it.transferId) }
-            else -> Unit
+            FileSealStatus.HANDED_OFF -> direct.filter { it.status.isLive }.map { it.transferId }
+            else -> emptyList()
         }
     }
 
     /** Expired seals go, with their transfers; a seal still sending reports EXPIRED first. */
     private suspend fun sweep() {
         val now = ctx.clock.now()
-        for (seal in sealStore.live()) mutex.withLock { settle(seal.sealId) }
+        for (seal in sealStore.live()) cancelTransfers(settle(seal.sealId))
         for (seal in sealStore.expiredAt(now)) {
-            mutex.withLock {
+            val toCancel = mutex.withLock {
                 if (seal.status == FileSealStatus.SENDING) sealStore.setStatus(seal.sealId, FileSealStatus.EXPIRED)
-                endLiveTransfers(seal)
+                liveTransferIds(seal.sealId)
             }
+            cancelTransfers(toCancel)
             report(seal)
             mutex.withLock {
                 transferStore.bySeal(seal.sealId).forEach { transferStore.delete(it.transferId) }
@@ -253,6 +357,44 @@ internal class SealRegistry(
             }
         }
     }
+
+    /**
+     * Runs every planned seal outside the mutex, one guarded launch per device. Each child releases
+     * its own lease as soon as its seal lands; the outer finally releases the whole plan's leases,
+     * so a cancellation between planning and the children starting cannot strand one.
+     */
+    private suspend fun makeSeals(plans: List<SealPlan>) {
+        try {
+            coroutineScope {
+                for (plan in plans) {
+                    launch {
+                        try {
+                            makeSeal(plan)
+                        } finally {
+                            release(plan)
+                        }
+                    }
+                }
+            }
+        } finally {
+            plans.forEach { release(it) }
+        }
+    }
+
+    /** Releases [plan]'s in-flight lease, but only if no later operation has taken the pair. */
+    private suspend fun release(plan: SealPlan) {
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (inFlight[plan.key] === plan.lease) inFlight.remove(plan.key)
+            }
+        }
+    }
+
+    /** Makes one seal (crypto, store insert, first transfer); false when it can't be made now. */
+    private suspend fun makeSeal(plan: SealPlan): Boolean =
+        guarded("seal ${plan.device}") {
+            createSeal(plan.manifest, plan.device, plan.kind, plan.byteFrom)
+        } ?: false
 
     /**
      * Seals [manifest] for [device] and opens the direct transfer from [byteFrom]. False when the
@@ -323,9 +465,22 @@ internal class SealRegistry(
         expiresAt = seal.expiresAt,
     )
 
-    private suspend fun endLiveTransfers(seal: OutgoingSeal) {
-        transferStore.bySeal(seal.sealId).filter { it.status.isLive }.forEach { engine.cancel(it.transferId) }
+    /** Ends the given transfers outside the lock, one guarded launch each. */
+    private suspend fun cancelTransfers(transferIds: List<TransferId>) {
+        if (transferIds.isEmpty()) return
+        coroutineScope {
+            for (transferId in transferIds) {
+                launch {
+                    guarded("cancel", fields = mapOf("transferId" to transferId)) {
+                        engine.cancel(transferId)
+                    }
+                }
+            }
+        }
     }
+
+    private suspend fun liveTransferIds(sealId: ContentId): List<TransferId> =
+        transferStore.bySeal(sealId).filter { it.status.isLive }.map { it.transferId }
 
     // --- account-level reporting ------------------------------------------------------------
 
@@ -402,8 +557,12 @@ internal class SealRegistry(
     private suspend fun peerDevices(target: AccountId): List<PeerId> =
         ctx.devices.getAllPeerDevicesForAccount(target).filter { it != ctx.localDeviceId }
 
-    private suspend fun guarded(what: String, block: suspend () -> Unit) {
-        try {
+    private suspend fun <T> guarded(
+        what: String,
+        fields: Map<String, Any?> = emptyMap(),
+        block: suspend () -> T,
+    ): T? {
+        return try {
             block()
         } catch (e: CancellationException) {
             throw e
@@ -413,7 +572,9 @@ internal class SealRegistry(
                 event = LogEvent.FILE_TASK_FAILED,
                 message = "Seal registry $what failed",
                 throwable = e,
+                fields = fields,
             )
+            null
         }
     }
 }

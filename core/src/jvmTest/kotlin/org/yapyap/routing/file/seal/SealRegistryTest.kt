@@ -1,13 +1,20 @@
 package org.yapyap.routing.file.seal
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.FileHeader
+import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.routing.file.IdentityFileProtection
 import org.yapyap.routing.file.ackOffer
 import org.yapyap.routing.file.allTransfers
 import org.yapyap.routing.file.awaitOffers
@@ -38,6 +45,7 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SealRegistryTest {
 
     @Test
@@ -77,6 +85,132 @@ class SealRegistryTest {
         // One live seal per (file, device): the second push changes nothing.
         assertEquals(1, h.transfersFor(peerA).size)
         assertEquals(before, h.sent().size)
+    }
+
+    @Test
+    fun pushFile_overlappingPushes_makeOneSealPerDevice() = runTest {
+        val protection = GatedFileProtection()
+        val h = sealTransferHarness(fileProtection = protection)
+        val sealA = protection.park(peerA)
+        val sealB = protection.park(peerB)
+
+        val first = launch { h.seals.push(fixtureFileId, fixtureAccount) }
+        // The first push is inside its execute phase: its (file, device) pairs are marked in
+        // flight, but no seal row has landed yet, so the durable live check cannot see it.
+        withTimeout(5.seconds) {
+            sealA.awaitEntered()
+            sealB.awaitEntered()
+        }
+
+        val second = launch { h.seals.push(fixtureFileId, fixtureAccount) }
+        // The overlapping push plans nothing and finishes while the first still seals.
+        withTimeout(5.seconds) { second.join() }
+        assertTrue(first.isActive, "the first push is still sealing")
+        assertEquals(0, h.sealStore.byFile(fixtureFileId).size, "the first push's seals have not landed yet")
+
+        sealA.release()
+        sealB.release()
+        first.join()
+        h.awaitOffers(2)
+
+        assertEquals(2, h.sealStore.byFile(fixtureFileId).size)
+        for (device in listOf(peerA, peerB)) {
+            val seals = h.sealStore.byFileAndTarget(fixtureFileId, device)
+            assertEquals(1, seals.size, "one seal per (file, device)")
+            assertEquals(FileSealKind.PUSH, seals.single().kind)
+            assertEquals(1, h.transfersFor(device).size)
+        }
+    }
+
+    @Test
+    fun serve_overlappingServes_makeOneSealAndDeclineTheSecond() = runTest {
+        val protection = GatedFileProtection()
+        val h = sealTransferHarness(fileProtection = protection)
+        val sealA = protection.park(peerA)
+
+        val first = launch { assertTrue(h.seals.serve(fixtureFileId, peerA, fromOffset = 0L)) }
+        withTimeout(5.seconds) { sealA.awaitEntered() }
+
+        // Same pair, already in flight: the REQUEST is declined instead of starting a second seal.
+        assertFalse(
+            withTimeout(5.seconds) { h.seals.serve(fixtureFileId, peerA, fromOffset = 0L) },
+            "a serve already in flight declines",
+        )
+
+        sealA.release()
+        first.join()
+        h.awaitOffers(1)
+
+        val seals = h.sealStore.byFileAndTarget(fixtureFileId, peerA)
+        assertEquals(1, seals.size, "one serve seal for the device")
+        assertEquals(FileSealKind.SERVE, seals.single().kind)
+        assertEquals(1, h.transfersFor(peerA).size)
+    }
+
+    @Test
+    fun serve_whileSameDevicePushInFlight_declinesAndCreatesNoSeal() = runTest {
+        val protection = GatedFileProtection()
+        val h = sealTransferHarness(fileProtection = protection)
+        val pushSealA = protection.park(peerA)
+
+        val push = launch { h.seals.push(fixtureFileId, fixtureAccount) }
+        withTimeout(5.seconds) { pushSealA.awaitEntered() }
+
+        // The push's seal for the device is in flight: the REQUEST is declined and makes nothing.
+        assertFalse(
+            withTimeout(5.seconds) { h.seals.serve(fixtureFileId, peerA, fromOffset = 0L) },
+            "a push in flight for the device declines the serve",
+        )
+        assertEquals(0, h.sealStore.byFileAndTarget(fixtureFileId, peerA).size, "the serve made no seal")
+
+        pushSealA.release()
+        withTimeout(5.seconds) { push.join() }
+
+        val seals = h.sealStore.byFileAndTarget(fixtureFileId, peerA)
+        assertEquals(1, seals.size, "one PUSH seal for the device")
+        assertEquals(FileSealKind.PUSH, seals.single().kind)
+    }
+
+    @Test
+    fun pushFile_outerCleanupKeepsTheLeaseOfALaterServe() = runTest {
+        val protection = GatedFileProtection()
+        val h = sealTransferHarness(fileProtection = protection)
+        val pushSealA = protection.park(peerA)
+        val pushSealB = protection.park(peerB)
+
+        val push = launch { h.seals.push(fixtureFileId, fixtureAccount) }
+        withTimeout(5.seconds) {
+            pushSealA.awaitEntered()
+            pushSealB.awaitEntered()
+        }
+
+        // A's push seal lands, so the push releases A's mark while B is still parked.
+        // runCurrent() drains the work the gate release queued, so the mark is free before the serve.
+        pushSealA.release()
+        runCurrent()
+        assertEquals(1, h.sealStore.byFileAndTarget(fixtureFileId, peerA).size, "A's push seal landed")
+
+        // A serve now takes A's mark for itself and parks inside its own seal.
+        val serveSealA = protection.park(peerA)
+        val serve = launch { assertTrue(h.seals.serve(fixtureFileId, peerA, fromOffset = 0L)) }
+        withTimeout(5.seconds) { serveSealA.awaitEntered() }
+
+        // The push's outer cleanup runs when B lands; it must not release the serve's mark for A.
+        pushSealB.release()
+        withTimeout(5.seconds) { push.join() }
+        assertFalse(
+            withTimeout(5.seconds) { h.seals.serve(fixtureFileId, peerA, fromOffset = 0L) },
+            "the serve in flight still owns the device",
+        )
+
+        serveSealA.release()
+        withTimeout(5.seconds) { serve.join() }
+
+        val seals = h.sealStore.byFileAndTarget(fixtureFileId, peerA)
+        assertEquals(2, seals.size, "one PUSH seal and one SERVE seal for the device")
+        assertEquals(1, seals.count { it.kind == FileSealKind.PUSH })
+        assertEquals(1, seals.count { it.kind == FileSealKind.SERVE })
+        assertEquals(1, h.sealStore.byFileAndTarget(fixtureFileId, peerB).size)
     }
 
     @Test
@@ -290,5 +424,44 @@ class SealRegistryTest {
         val state = h.seals.sendState(fixtureFileId).getValue(fixtureAccount)
         assertEquals(FileSendStatus.COMPLETED, state.status)
         assertEquals(state.totalBytes, state.sentBytes)
+    }
+}
+
+/**
+ * File protection that parks `seal` calls on gates a test arms with [park]: the n-th call for a
+ * device waits for the n-th gate armed for it, so several seals of one file can be held at once and
+ * released one by one. Calls with no armed gate proceed. Nothing here sleeps.
+ */
+private class GatedFileProtection(
+    private val delegate: FileProtection = IdentityFileProtection(),
+) : FileProtection by delegate {
+    /** One armed gate: the next `seal` call for the device it was armed for waits until [release]. */
+    class Gate internal constructor() {
+        private val entered = CompletableDeferred<Unit>()
+        private val released = CompletableDeferred<Unit>()
+
+        /** Completes once a `seal` call is parked on this gate. */
+        suspend fun awaitEntered() = entered.await()
+
+        /** Lets the parked `seal` call proceed. */
+        fun release() {
+            released.complete(Unit)
+        }
+
+        internal suspend fun pass() {
+            entered.complete(Unit)
+            released.await()
+        }
+    }
+
+    private val gates = mutableMapOf<PeerId, ArrayDeque<Gate>>()
+
+    /** Arms a gate for the next `seal` call of [device]. */
+    fun park(device: PeerId): Gate = Gate().also { gates.getOrPut(device) { ArrayDeque() }.addLast(it) }
+
+    override suspend fun seal(seal: FileSeal, target: PeerId): ByteArray {
+        val gate = gates[target]?.removeFirstOrNull()
+        if (gate != null) gate.pass()
+        return delegate.seal(seal, target)
     }
 }
