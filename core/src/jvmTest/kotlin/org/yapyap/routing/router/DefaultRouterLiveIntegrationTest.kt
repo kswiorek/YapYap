@@ -182,6 +182,13 @@ class DefaultRouterLiveIntegrationTest {
 
             aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)!!
             bobTorMap[alicePeer] = aliceIdentity.resolveTorEndpointForDevice(alicePeer)!!
+            // The Tor link keeper already tried each peer when Tor became Ready — before the
+            // endpoints above were known — and backed off on the FakeClock, which never
+            // advances, so it would never retry and the message would park with "No open
+            // link". Announcing clears that backoff and opens the links now, as the app does
+            // once it learns its peers' endpoints.
+            aliceRouter.presence.announceOnline()
+            bobRouter.presence.announceOnline()
 
             val outbound = sampleText()
 
