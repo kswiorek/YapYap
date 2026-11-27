@@ -10,13 +10,14 @@ interface in `routing/router` (files: `routing/file/port`):
 | `MessageCarrier`   | `sendMessage`, `incomingMessages`, `deliveries`, `sendTypingIndicator`, `typingIndicators`, `frontiers`, `startSync`, `reopenSync` |
 | `BootstrapCarrier` | `sendBootstrap`, `bootstrapPackets`, `deliveries`                                                                            |
 | `Presence`         | `onlineAccounts`, `accountReach`, `localLinkStatus`, `localTorEndpoint`, `announceOnline`                                    |
-| `FileCarrier`      | `pushFile`, `cancelFile`, `sendState`, `startFileRequest`, `abortFileFetch`, `endIncoming`, `fileEvents`                     |
+| `FileCarrier`      | `pushFile`, `cancelFile`, `sendState`, `startFilePull`, `abortLargeFile`, `endIncoming`, `fileEvents`                     |
 
 The message service owns both directions: push (send, typing, receipts) and pull (asking for and serving missing
 history — the former separate sync service). Its cross-layer content ports live in `routing/message/port`.
 
-Orchestrator components take only the services they use. The file machinery (push engine, relay forwards, fetch,
-request loop, inbound face) is assembled in `routing/file/FileService`, which *is* the `FileCarrier`. The router
+Orchestrator components take only the services they use. The file machinery (seal registry, transfer
+sessions, relay door and forwards, the large path, the pull loop, inbound face) is assembled in
+`routing/file/FileService`, which *is* the `FileCarrier`. The router
 builds it from its shared kernel and the orchestrator ports/stores wiring passes in; the router routes FILE
 packets and outcomes to it. No other file assembly layer exists.
 
@@ -45,7 +46,7 @@ routing/
   store/                  routing-owned stores, OutboxTag, PacketStoreMaintenance
   message/                MessageService (+ inbound face, pull processor, messenger, ports)
   bootstrap/              BootstrapService (+ sender, inbound handler)
-  file/                   FileService (+ port/, push/, fetch/, inbound/)
+  file/                   FileService (+ port/, seal/, transfer/, relay/, inbound/, large/)
 ```
 
 ## Architecture
@@ -196,11 +197,14 @@ Subscribes to `webRtcTransport.outgoingBootstrapSignals` in its own `runIn(scope
   root resolves with deferred references. Routing is its own composition root below wiring
 - build `PeerLinks` + `RoutingContext` in wiring, never here — the context is ambient facts
 - own the transport subscriptions (inbound collectors, disposition scope, WebRTC signaler) and
-  route tagged outbox outcomes to the owning service's mailbox
+  route tagged outbox outcomes to the owning `RouterService`'s mailbox (each service declares the tag
+  kinds it owns)
 - expose the services (`sendMessage` to `OutboundMessenger`, files to `FileService` (which is the `FileCarrier`))
 - read the Tor endpoint from `TorTransport.localTorEndpoint`; it caches no copy
 - file-transfer sizes arrive as the composition root's `FileLimits` piece (chained from the
-  transport limits, guide §2); they are not router config
+  transport limits, guide §2); they are not router config. The small-file gate is the exception in kind:
+  `RouterConfig` policy, a network value settled network-wide and receiver-enforced — not a framing size
+  (see [`file/design.md`](file/design.md) §15)
 
 ## Sprint alignment
 

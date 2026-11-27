@@ -156,7 +156,7 @@ BinaryEnvelope v2
 - BOOTSTRAP keeps its scheme because the receiver may not know the sender's key yet (§3.1). It still
   carries a hop signature; it is verified when the source is known.
 - `fileId` stays off the wire everywhere except inside sealed content (the seal, REQUEST) and the
-  large path's `FETCH` frame.
+  large path's `PULL` frame.
 
 ## 5. Files: seals and hops
 
@@ -179,6 +179,10 @@ its store.
   `blockSize`, the block list, `fileName`, `mimeType` and the **seal key** (32 bytes, ChaCha20-Poly1305,
   `SealKey`, which replaces `TransferKey`). A seal that can't be made (no session to the device yet)
   is skipped for that device: the pull path covers it. File facts only: no chunk size, no transfer data.
+- **Size.** The seal is the block list plus fields — at most ~38 KiB by the block rule
+  ([`file/design.md`](file/design.md) §2) — and it must fit an OFFER through both transports: the
+  wire-fit budget is derived (`FileLimits.maxSealBytes`, chained from the transport limits, guide §2) and
+  checked when the seal is made and again at admission. No protocol constant owns it.
 - **`sealId` = the `contentId` of the OFFER content**, i.e. SHA-256 of the seal bytes.
   Content-addressed: nobody can swap a seal under an id, and the target recognises a seal it already
   holds without decrypting it (§5.5).
@@ -307,7 +311,8 @@ acknowledgement proves delivery, its absence proves nothing.
 file_seals (
   seal_id BLOB PK,                    -- SHA-256 of the seal bytes
   file_id TEXT, target_device TEXT,
-  seal_bytes BLOB,                    -- attached to every transfer of this seal (≤ ~38 KiB)
+  seal_bytes BLOB,                    -- attached to every transfer of this seal (≤ ~38 KiB by the block rule;
+                                      -- fits the derived budget, FileLimits.maxSealBytes)
   seal_key BLOB,
   status TEXT,                        -- SENDING | HANDED_OFF | DELIVERED | DECLINED | ENDED | CANCELLED | EXPIRED
   kind TEXT,                          -- PUSH | SERVE
@@ -335,8 +340,9 @@ file_relay_transfers (                -- the relay's inbound transfers
 )
 file_relay_chunks (transfer_id, chunk_index PK, ciphertext BLOB)   -- ciphertext, not envelopes
 
--- routing: request attempts (unchanged but for the name: a REQUEST is no transfer)
-file_request_attempts.request_attempt_id                           -- was request_transfer_id
+-- routing: pull attempts (the ask loop's rows for both classes; renamed from file_request_attempts
+-- at the file-branch review, file/cleanup.md §4)
+file_pull_attempts.request_attempt_id                             -- was request_transfer_id
 ```
 
 The outbox's `tag_kind` values follow §5.8. Guide §4's ownership table changes with these rows (all
@@ -454,3 +460,9 @@ Where the code settled what this document left open (the code is the reference f
   the peer's link closing. Only a seal's direct transfer acts on them (one deposit round).
 - **Config.** `wiring/ConfigInvariants` also checks `binaryEnvelopeLifetime <
   supersededSessionRetention` (relayed messages keep their first hop's expiry).
+- **Cleanup (27 November 2026).** The review recorded in [`file/cleanup.md`](file/cleanup.md) reshaped
+  `routing/file` without touching a mechanism in this document: per-transfer sessions over a mux, the
+  large path split into puller and holder sessions behind a channel mux, pull naming (`FilePullProcessor`,
+  `file_pull_attempts`), the frames renamed `LargeFileFrame` with kinds `PULL`/`PULL_OK`/`DECLINED` (wire
+  values unchanged), and the size-limit taxonomy of [`file/design.md`](file/design.md) §15. Package and
+  class references in this section are as implemented before that cleanup.

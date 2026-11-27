@@ -11,19 +11,19 @@ IN_FLIGHT --> CANCELLED: user cancel, or superseded by a serve to the same devic
         CREATED --> CANCELLED: user cancel before the offer
     }
 
-state "Fetch — a large file (routing · in memory only · one data channel)" as large {
-[*] --> ASKED: session and fetch channel open · FETCH sent
-ASKED --> STREAMING: FETCH_OK · block list matches the fileId
-ASKED --> ENDED_L: FETCH_DECLINED · bad block list · session dropped
-STREAMING --> STREAMING: PROGRESS at a checkpoint · window moves (fileStreamWindowBytes)
+state "Pull — a large file (routing · in memory only · one data channel)" as large {
+[*] --> ASKED: session and file channel open · PULL sent
+ASKED --> STREAMING: PULL_OK · block list matches the fileId
+ASKED --> ENDED_L: DECLINED · bad block list · session dropped
+STREAMING --> STREAMING: PROGRESS at a checkpoint · window moves (largeFileStreamWindowBytes)
 STREAMING --> DONE_L: READY · channel closed
 STREAMING --> ENDED_L: session dropped · gap-trigger ABORT · bad block at the source
-ENDED_L --> [*]: nothing kept · the next fetch starts at the checkpointed P
+ENDED_L --> [*]: nothing kept · the next pull starts at the checkpointed P
     }
 
     state "Receiver (fileId-scoped · transfers and chunkings merge)" as recv {
         [*] --> PENDING: OFFER or message seen
-PENDING --> IN_FLIGHT: .part reserved (first OFFER, or FETCH_OK · keys live on incoming-transfer rows)
+PENDING --> IN_FLIGHT: .part reserved (first OFFER, or PULL_OK · keys live on incoming-transfer rows)
 PENDING --> DECLINED: no space, or a large file this device did not fetch (local)
 IN_FLIGHT --> IN_FLIGHT: checkpoint · blocks verified · P committed · fsync
 IN_FLIGHT --> READY: coverage complete · last block verified · atomic rename · COMPLETE to live authors
@@ -48,16 +48,16 @@ READY --> [*]: no message references it within fileTransferTtl · deleted
     }
 
     state "Request row (orchestrator · pending_file_requests)" as req {
-[*] --> PENDING: trigger with guards (small: grace period · large: auto-download limit or user click)
-PENDING --> ASKING: one candidate asked (large: session and fetch channel opened)
+[*] --> PENDING: trigger with guards (small: push window · large: auto-download limit or user click)
+PENDING --> ASKING: one candidate asked (large: session and file channel opened)
 PENDING --> PENDING: large · every remaining candidate unreachable · wait for one to come online
 ASKING --> WAITING: small · ACK · candidate holds it · offer pending
-ASKING --> SATISFIED: large · FETCH_OK · bytes follow on the same channel
+ASKING --> SATISFIED: large · PULL_OK · bytes follow on the same channel
         WAITING --> SATISFIED: OFFER received · serve transfer takes over
         WAITING --> PENDING: offer timeout → next candidate
         ASKING --> PENDING: DECLINED or expiry → next candidate at once
         ASKING --> UNAVAILABLE: every candidate DECLINED or expired
-SATISFIED --> PENDING: serve transfer died re-requestably (STALLED / EXPIRED · fetch ended with its session)
+SATISFIED --> PENDING: serve transfer died re-requestably (STALLED / EXPIRED · pull ended with its session)
     }
 
     state "Outbox marker (routing · outbox row · tag FILE)" as marker {

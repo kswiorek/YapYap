@@ -18,6 +18,13 @@ every family now shares. It replaces the per-transfer key, the per-deposit seale
 addressing and the author-signed relay replay here (§3.2–§3.3, §4, §6, §7, §13–§14, invariants 5, 6 and 19).
 The large path, the receiver, REQUEST/serve and storage are unchanged.
 
+**Reviewed (27 November 2026):** a full review of the implemented branch — the roadmap's "review the
+unreviewed file branch" item — confirmed the mechanisms and ordered an implementation cleanup: naming on two
+axes (Large/Small, Push/Pull), the config taxonomy of §15, per-transfer sessions over a mux, and store-owned
+candidate views. [`cleanup.md`](cleanup.md) records that review's decisions and the change steps; this
+document describes the steady state they produce, and until the code lands, any code/doc disagreement here is
+a known bug whose fix is that document. Every wire value and every mechanism stands.
+
 Related: [`../guide.md`](../guide.md) (layer model, dependency rules, the delivery model in §6),
 [`../transport.md`](../transport.md) (links, channels, frame limits), [`../router.md`](../router.md) (outbox and
 relay machinery this design reuses), [`../e2ee.md`](../e2ee.md) (sessions — used for the OFFER's sealed half,
@@ -38,10 +45,13 @@ Two transfer classes, one engine:
   small files; the transfer machinery (envelopes, keys, `transferId`s) is not used at all.
 
 **`smallFileMaxBytes` is a network value, not a device setting.** The requester picks its path by it (REQUEST
-through the outbox, or a fetch over WebRTC) and the holder picks how to serve, so every device must hold the
-same number. It belongs in the network config (fetched from the network's page, not editable by the user);
-until that exists it is a protocol constant next to the block-size rule (§2). It is never a field a user or a
-config file can change per device.
+through the outbox, or a pull over WebRTC) and the holder picks how to serve, so every device settles on the
+same number. It lives in `RouterConfig` and is surfaced through the settings registry as a network field
+(`FieldSource.NETWORK`, `wiring/Settings.kt`): written programmatically, never user-editable, settled from the
+network's page when that exists. A peer that lags behind the settled value loses nothing: **the receiver
+enforces its own** — a small-path OFFER above it is DECLINED, and the receiver's own class pin routes the file
+to its large path (§9), which no sender's limit can block. It is never a field a user or a config file can
+change per device.
 
 The core philosophy transplants the guide's delivery model (§6) to files, with one hard separation on top:
 **the message and the transfer are decoupled. A message with an attachment is a notification — "you may want
@@ -322,9 +332,10 @@ fetch starts as soon as the message lands, so a typical ~100 MB file still arriv
 
 **Composed sends push immediately** (small files). Publishing a message with attachments starts the per-device file
 transfers alongside the message push — the file is not waiting for anyone to ask. If an OFFER has not landed
-within the grace period (`fileRequestFirstAttemptDelay`) — the sibling never targeted, an offer lost, or the
+within the push window (`filePullDelay` — routing's value; it owns both the push and the ask, §9) — the sibling never
+targeted, an offer lost, or the
 message arrived via sync rather than push — the REQUEST trigger fires (§9). Push is the latency path; REQUEST
-is the backstop; the grace period is the only thing telling them apart.
+is the backstop; the wait is the only thing telling them apart.
 
 ## 6. The push machinery (routing layer)
 
@@ -478,7 +489,7 @@ earlier on the only two legitimate cross-depot teardowns:
 COMPLETE is per-transfer-addressed (target → that transfer's author), never account-fanned: the transfer
 logic happens between the two devices that participate in it (§12).
 
-### 6.6 The fetch (large path)
+### 6.6 The large path (pull over WebRTC)
 
 A large file moves the way files normally move over WebRTC. The libraries have no file-transfer function: a
 data channel is a reliable, ordered message stream, and every application sends a small header, then binary
@@ -488,17 +499,17 @@ the transport's channel and the file code, the same kind of direct path AV will 
 
 One fetch = one data channel between the requesting device and one holder.
 
-1. **The requester opens the session.** Its request processor (§9) asks for a WebRTC session with the
+1. **The requester opens the session.** Its pull processor (§9) asks for a WebRTC session with the
    candidate through the router's budgeted link await (`LinkKeeper.await`, signaled over Tor as today).
    Sends never opened connections; a large fetch does, because the requesting device is
-   the one with the user's intent. No session within `fileSessionOpenTimeout` → that candidate is unreachable
+   the one with the user's intent. No session within `largeFileSessionOpenTimeout` → that candidate is unreachable
    and the next is asked.
-2. **The requester opens a fetch channel** on that peer connection (no renegotiation; either side may add a
-   data channel) and sends `FETCH { fileId, fromOffset }`, with `fromOffset` = its checkpointed P (§8). A
+2. **The requester opens a file channel** on that peer connection (no renegotiation; either side may add a
+   data channel) and sends `PULL { fileId, fromOffset }`, with `fromOffset` = its checkpointed P (§8). A
    dedicated channel keeps a 100 GB stream from starving messages and ACKs on the envelope channel.
 3. **The holder answers once.** It runs the serve gate for the session's peer device (§9, also
-   rejecting removed or revoked devices) and replies `FETCH_OK { totalBytes, block list }`, or
-   `FETCH_DECLINED` (not held, or not allowed) and closes the channel. The requester checks the block list against the
+   rejecting removed or revoked devices) and replies `PULL_OK { totalBytes, block list }`, or
+   `DECLINED` (not held, or not allowed) and closes the channel. The requester checks the block list against the
    `fileId` (§2) before it accepts a byte; a list
    that does not match closes the channel and counts that holder as declined — the only
    holder-side decline. A local refusal (no space, an ended receive) never counts against the holder.
@@ -518,20 +529,20 @@ One fetch = one data channel between the requesting device and one holder.
    usual candidate order.
 6. **The end.** The last block verifies → READY → the requester closes the channel. Either side may send
    `ABORT { reason }` (a bad block at the source, no space, the gap trigger, a user cancel) and close.
-   A fetch lives exactly as long as its channel; `abortFetch` ends only the requester for that file,
+   A pull lives exactly as long as its channel; `abortLargeFile` ends only the requester for that file,
    never the node's serves of it.
 
-**Frames.** Each channel message is one frame: a type byte, then the body. `FETCH`, `FETCH_OK`,
-`FETCH_DECLINED`, `PROGRESS` and `ABORT` have a small codec in `protocol` (`FileFetchFrame`, wire values
-21–26, separate from the `FileEnvelope` kinds); `DATA` is the type byte followed
-by raw bytes. The `fileId` appears in `FETCH` in the clear inside the channel — DTLS covers it, and only the
-peer device ever sees the channel (§4). `FETCH_OK` also carries the holder's display metadata (`fileName`, `mimeType`)
-so the requester can index the receive row. One fetch runs on one data channel per fetch, so concurrent fetches to one
+**Frames.** Each channel message is one frame: a type byte, then the body. `PULL`, `PULL_OK`,
+`DECLINED`, `PROGRESS` and `ABORT` have a small codec in `protocol` (`LargeFileFrame`, wire values
+unchanged, separate from the `FileHeader` kinds); `DATA` is the type byte followed
+by raw bytes. The `fileId` appears in `PULL` in the clear inside the channel — DTLS covers it, and only the
+peer device ever sees the channel (§4). `PULL_OK` also carries the holder's display metadata (`fileName`, `mimeType`)
+so the requester can index the receive row. One pull runs on one data channel per file, so concurrent pulls to one
 peer demultiplex.
 The channel handle is minted by the transport — routing never builds label strings. File channels are always
 reliable (ordered, no retransmit or lifetime limit), whatever the shared data-channel config says.
 
-**A credit window.** The holder may start a frame at most `fileStreamWindowBytes` (32 MB) past the last
+**A credit window.** The holder may start a frame at most `largeFileStreamWindowBytes` (32 MB) past the last
 `PROGRESS` (the requester closes a channel whose holder starts one further out, since its frames would queue
 without bound),
 and also waits on `awaitBufferedBelow` (resume at or below 1 MB buffered) instead of polling a threshold or
@@ -547,21 +558,21 @@ reliable is refused.
 **No staging, no routing rows.** One ordered source lands every byte at P, so a fetch never stages. Neither
 end has a row for it in routing: the holder's state (offset, window) and the requester's (the channel) live in
 memory and die with the channel. What is durable is what already was — the requester's receive row and
-request row (orchestrator), and its request attempts (§9). A device runs one fetch per file at a time (one
+request row (orchestrator), and its pull attempts (§9). A device runs one pull per file at a time (one
 candidate at a time, §9).
 
-**A fetch lives exactly as long as its channel.** When the session or the channel drops, both ends forget the
-fetch and the request goes back to PENDING (§9). The next fetch names the checkpointed P as its `fromOffset`,
+**A pull lives exactly as long as its channel.** When the session or the channel drops, both ends forget the
+pull and the request goes back to PENDING (§9). The next pull names the checkpointed P as its `fromOffset`,
 and the holder starts there with a positioned read (§11); a restart on either side is the same case. There is
-no waiting-for-session state and nothing to resume but P. A fetch that stalls while its session lives is ended
+no waiting-for-session state and nothing to resume but P. A pull that stalls while its session lives is ended
 by the receiver's gap trigger (`fileStallTimeout`, §8) with an `ABORT`, and re-requested the same way.
 
-The small path's timers do not apply: there is no grace period (nothing is pushed), no `chunkAckTimeout` and
+The small path's timers do not apply: there is no push window (nothing is pushed), no `chunkAckTimeout` and
 no deposit.
 
 **When no session can be made.** WebRTC here has STUN only and no relay server, so two devices behind
 unfriendly NATs may never connect. A candidate that is online (its Tor link is up) but whose session failed
-`fileSessionOpenTimeout` is recorded as **no direct connection**, distinct from offline, and the GUI can show
+`largeFileSessionOpenTimeout` is recorded as **no direct connection**, distinct from offline, and the GUI can show
 "can't connect directly to any device that has this file" instead of waiting silently. Bytes still never fall
 back to Tor (§17); a relay server for such pairs is deferred (§18).
 
@@ -727,12 +738,20 @@ files get their bytes.
 
 - **Trigger** (orchestrator inbound pipeline, on message ingest — the message may have arrived by push or by
   sync): a message references a `fileId` with no completed local file and no progressing transfer. Guards:
-    - **large files: the device's decision** — at or below `autoDownloadMaxBytes` the trigger fires at once (nothing is
-      pushed, so there is nothing to wait for); above it, only a user click fires it (§8);
-    - small files: a grace period before the first attempt (`fileRequestFirstAttemptDelay`) — the OFFER may be in
-      flight, or
-    may never come (the sibling case, §2); the grace period is the only thing telling "late" and "never"
-    apart, and it errs on the quiet side;
+    - **want-now vs wait-for-permission is the orchestrator's only size decision**: at or below
+      `autoDownloadMaxBytes` the trigger fires for every file, small included; above it, only a user click
+      does (§8). Beyond that one gate the orchestrator is size-blind — it never branches on the network's
+      small-file boundary (§1).
+    - **when the first attempt runs is routing's, and the seam carries only the trigger's origin**
+      (`startFilePull(fileId, immediate = false)`): automatic triggers omit the flag and routing pins the
+      class by the file's total bytes and schedules — small files wait `filePullDelay` (the direct OFFER
+      may be in flight, or may never come: the sibling case, §2; the wait is the only thing telling
+      "late" and "never" apart, and it errs on the quiet side), large files start at once (nothing is
+      ever pushed, so there is nothing to wait for); explicit triggers (a user's accept, a stall
+      re-open) set the flag for now at any size. The flag expresses the trigger's origin, never a size.
+      The schedule lives in routing's attempt row; the orchestrator's pending rows carry only the
+      accept/decline state, exactly as the sync coordinator's rows never schedule (routing's
+      `sync_attempts` owns that);
     - **STALLED / EXPIRED are re-requestable** (something broke; try again — a hash mismatch below the retry
       limit lands here too, §8); **DECLINED / CANCELLED / FAILED are refused** — never auto-resurrect a file the
       user declined or that exhausted its retries; those need a user re-open;
@@ -744,14 +763,14 @@ files get their bytes.
   I won't") — and the OFFER is the reply**, exactly like a sync request's ACK-then-reply. On ACK the request
   waits (WAITING) with a timeout for the OFFER; on timeout or DECLINED the next candidate is asked at once.
   All candidates declined → "file unavailable" (terminal; a new sync or a user re-open retries).
-- **A large request is a fetch, not a REQUEST envelope** (§6.6). The same loop picks the candidate; the
-  attempt then opens a session and a fetch channel instead of enqueueing a packet, `FETCH_OK` plays the ACK
-  and `FETCH_DECLINED` the DECLINED, and there is no WAITING state because the answer and the bytes come on
+- **A large request is a pull, not a REQUEST envelope** (§6.6). The same loop picks the candidate; the
+  attempt then opens a session and a file channel instead of enqueueing a packet, `PULL_OK` plays the ACK
+  and `DECLINED` the decline, and there is no WAITING state because the answer and the bytes come on
   the same channel. A candidate that cannot be
   reached is not a decline: when every remaining candidate is merely unreachable, the request stays PENDING and
   retries when one of them comes online — for WebRTC-only bytes, offline holders are the normal case. A
   candidate that is online but cannot be connected to is recorded as "no direct connection" so the GUI can say
-  so (§6.6). A fetch that ends with its session sends the request back to PENDING, asking the same candidate
+  so (§6.6). A pull that ends with its session sends the request back to PENDING, asking the same candidate
   first.
 - The small-file REQUEST is **ratchet-sealed** (it carries the `fileId`) and **direct-only** (§3.2). It carries **held
   coverage** in bytes (`contiguousBytes` + missing ranges, capped; heavy fragmentation degrades to
@@ -760,7 +779,7 @@ files get their bytes.
   message that references the `fileId`: the orchestrator's `message_attachments` index (filled at DAG ingest)
   maps the `fileId` to its messages, and the sync serve gate decides visibility of those messages. No visible
   referencing message → DECLINED. Without the gate, anyone who has or guesses a file's content could pull it
-  from any holder by its hash. A large fetch passes the same gate before `FETCH_OK`: the requesting account
+  from any holder by its hash. A large pull passes the same gate before `PULL_OK`: the requesting account
   is the account of the session's peer device. A message that references a file shares it with
   everyone who can see that message, its author included. This is intended.
 - **Holders check blocks as they read.** AEAD only protects bytes in transit: a copy that rotted on disk, or a
@@ -776,12 +795,15 @@ files get their bytes.
   `transferId` and a fresh key**, covering the suffix from the floor-aligned boundary at or below the
   requester's lowest missing byte (§3.4). Mixed chunkings are correct — the receiver is param-agnostic.
 - **One live transfer per (`fileId`, target device) at a serving device.** A REQUEST that reaches a device
-  already pushing that file to the requester (a late OFFER after the grace period, a stalled push) supersedes
+  already pushing that file to the requester (a late OFFER after the push window, a stalled push) supersedes
   it: the old transfer is CANCELled and the serve starts fresh from the held coverage. Never two parallel
   transfers of one file from one device to one device.
 - The candidate-asking loop is **a shared core with two executors** (`routing/candidate`): sync and small
-  file requests queue outbox attempts, while large-file fetches run as bounded concurrent calls (`maxConcurrentFetches`
-  at a time). Each request class has its own core instance over its own due query (`SMALL` vs `LARGE` rows). A satisfied
+  file requests queue outbox attempts, while large-file pulls run as bounded concurrent calls
+  (`maxConcurrentLargeFiles` at a time). Each request class has its own core instance over its own due query
+  (`SMALL` vs `LARGE` rows), fed by a **store-owned candidate view**: the attempt store hands each core a
+  `CandidateAttemptStore` — the parent row plus its declined children, composed by the store that owns the
+  tables; no consumer assembles the join. A satisfied
   id is dropped before any candidate is picked; a file REQUEST ACK
   parks the row in WAITING for its OFFER (expiry re-asks the next candidate with the silent holder tried
   last); an unreachable candidate is never a decline.
@@ -873,10 +895,10 @@ own traffic → our row, account-grain, pushed through the same machinery).
 
 | Layer                       | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 |-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `protocol`                  | `FileEnvelope` rework (§3.2: `transferId`-addressed control packets, chunk-index ACK, sealed byte-coverage REQUEST, the block list in the sealed OFFER half), `Text.attachments` (§3.1, breaking, payload header version 3), the `fileId` construction, the block-size rule and `smallFileMaxBytes` until the network config exists (§1, §2), the fetch frames (§6.6), codecs + round-trip tests, observability profile update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `protocol`                  | `FileHeader` (§3.2: `transferId`-addressed control packets, chunk-index ACK, sealed byte-coverage REQUEST, the block list in the sealed OFFER half), `Text.attachments` (§3.1, breaking, payload header version 3), the `fileId` construction and the block-size rule (§2 — protocol constants; `smallFileMaxBytes` is config, §1 and §15), the large-path frames `LargeFileFrame` (§6.6), codecs + round-trip tests, observability profile update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `crypto`                    | incremental SHA-256 on `CryptoProvider` (init/update/final, §2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `protection`                | `FileEnvelopeProtection` (§4): ratchet-sealed OFFER half and REQUEST, per-transfer chunk AEAD and signing (small path only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `routing`                   | the file service (`file/FileService`, the `FileCarrier` itself): the push engine (`file/push`): per-device fan-out + per-transfer actors, cutting and protecting chunks from `FilePlaintextSource`, relay forwards over the DB chunk source; the fetch (`file/fetch`, §6.6): both ends of the fetch channel, credit window, frames passed straight to the transport; the relay door (admission/park) + `FileIncomingTransfers` (the target side's per-transfer rows); the file inbound face under `file/inbound` (`FileInboundHandler` dispatching local envelopes to the target/serve handlers and foreign ones to the door); the `FilePlaintextSource` port (orchestrator implements it); the file request processor on the shared candidate core (a large request opens a session and a fetch channel); `OutboxTag.Kind.FILE_PUSH`/`FILE_FORWARD`; `packetId` on `OutboxOutcome`; the outbox changes of §6.2 (blob-less due query, messages first, FILE retry policy); per-kind relay backup (markers message-backed, chunks never) and the gone-only deposit triggers (§6.3) |
+| `routing`                   | the file service (`file/FileService`, the `FileCarrier` itself): the seal registry (`file/seal`) — seals, the deposit round, hand-off, delivery, account-level events; per-transfer sessions over a `ChunkSource` (`file/transfer`: one session per outgoing transfer, ours and relay forwards alike, each with its own mailbox and coroutine; a mux routes ACK/CANCEL/outbox outcomes/link-downs into it); the large path (`file/large`, §6.6): the puller's and the holder's sessions over a channel mux, admission named apart, frames passed straight to the transport; the relay door (admission/park) + relay forwards (`file/relay`); the target side's per-transfer rows and the inbound face under `file/inbound` (`FileInboundHandler` dispatching by header, shared chunk checks before a `ChunkSink`); every FILE envelope built in one place (`FilePackets`); the `FilePlaintextSource` port (orchestrator implements it); the pull processor (`FilePullProcessor`) on the shared candidate core — small REQUESTs through the outbox, large pulls as bounded calls — over store-owned candidate views; `OutboxTag.Kind.FILE_TRANSFER`/`FILE_REQUEST`; the gone-only deposit triggers (§6.3) |
 | `orchestrator/file`         | the file machinery: `FileIds` block hashing, classification, descriptor creation, the block-checking plaintext source, the file store (copies and references, quota and retention, §10), the receive engine (coverage, staging, checkpoints, block verification, ready), the auto-download decision, the REQUEST trigger + coordinator, serve-on-REQUEST and serve-on-fetch with the serve gate (account-level); stores: `file_descriptors`, `file_receives`, `file_receive_chunks`, `pending_file_requests`; the DAG gains `message_attachments`; the transfer enums move out of `persistence/DatabaseEnums.kt` to the owning stores                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `orchestrator/runtime/file` | the GUI-facing file facade: `FileTransferService` (`receiveState`, `localFilePath`, `acceptFile`, `declineFile`) over `orchestrator/file` — sending goes through `MessagingService.sendMessage` with picked files (no separate file-send entry point, §10); progress display and open land with the GUI surface — the runtime stays the GUI's whole API ([`../gui-api.md`](../gui-api.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `transport/webrtc`          | a file channel kind opened per fetch by either side (the backend already multiplexes by label: envelope and AV channels), carrying raw frames instead of `BinaryEnvelope`s; `bufferedAmount` low-threshold exposure; channel close events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -889,7 +911,7 @@ domain package beside `dag` and `sync`, and the GUI reaches it only through `Fil
 DAG. The runtime stays the GUI's whole API ([`../gui-api.md`](../gui-api.md) is that contract; the boundary
 test enforces it), and what the facade does not expose never crosses into the GUI.
 
-The fetch (§6.6) needs from the session machinery only "open a session to this device" and "this session
+The large path (§6.6) needs from the session machinery only "open a session to this device" and "this session
 ended"; the planned shared session machinery ("offer retry queues for voice and file", sprints s6a) can serve
 both AV and file requests without a file-specific session contract — a large file has no accept/reject
 session state, because accepting is the requester's local decision (§8).
@@ -962,7 +984,7 @@ file_relay_transfers (
   reserved_bytes INT, created_at, last_chunk_at             -- last_chunk_at drives the reservation TTL
 )
 file_relay_chunks (transfer_id, chunk_index PK, blob)
-file_request_attempts / file_request_declined_devices       -- sync-shaped
+file_pull_attempts / file_pull_declined_devices     -- sync-shaped (candidate views over parent + children)
 ```
 
 The outbox table gains the file tag kinds (`FILE_PUSH`, `FILE_FORWARD`, `FILE_REQUEST`) and `retry_class`
@@ -982,10 +1004,10 @@ See [`transfer states.mmd`](transfer%20states.mmd). Compact listing:
   is gone there, §3.6 — or another terminal NACK on the marker, §6.1; never shown as delivered) /
   EXPIRED (`fileTransferTtl`) / **DECLINED (the target declined the OFFER — terminal for this device)** /
   CANCELLED (user cancel, or superseded by a serve to the same device, §9).
-- **Fetch (large, routing, in memory only)**: ASKED (channel open, `FETCH` sent) → STREAMING (`FETCH_OK`,
-  block list checked) → done (READY, channel closed) / ended (`FETCH_DECLINED`, session or channel dropped,
+- **Pull (large, routing, in memory only)**: ASKED (channel open, `PULL` sent) → STREAMING (`PULL_OK`,
+  block list checked) → done (READY, channel closed) / ended (`DECLINED`, session or channel dropped,
   `ABORT` from the receiver's gap trigger, or a block mismatch at the source). No row on either end: an ended
-  fetch is forgotten, and the next one starts from the checkpointed P.
+  pull is forgotten, and the next one starts from the checkpointed P.
 - **Incoming transfer (`transferId`-scoped, routing)**: ACTIVE (OFFER processed) → dropped on COMPLETE sent,
   CANCEL either way, or expiry. The gap trigger does not end it (§8).
 - **Receiver (`fileId`-scoped)**: an accepted OFFER starts IN_FLIGHT (`.part` reserved) → READY (coverage
@@ -1006,34 +1028,57 @@ See [`transfer states.mmd`](transfer%20states.mmd). Compact listing:
   offer pending, timeout → next candidate)** → SATISFIED (OFFER received; the serve transfer takes over) /
   UNAVAILABLE (every candidate declined or expired). A large request whose remaining candidates are only
   unreachable stays PENDING until one comes online. A large request has no WAITING: ASKING → SATISFIED on
-  `FETCH_OK`, and SATISFIED → PENDING when the fetch ends with its session.
+  `PULL_OK`, and SATISFIED → PENDING when the pull ends with its session.
 - **Marker** (outbox row): unchanged from the message contract — QUEUED → dispatched → gone on ACK / terminal
   NACK / expiry; retries resume, never restart. Only a target's DECLINED is a refusal; other terminal NACKs
   end the transfer as ENDED (§6.1).
 
 ## 15. Config
 
-Per guide §2, each layer's config type lives next to its code:
+Per guide §2, each layer's config type lives next to its code. Four kinds of number, agreed at the
+file-branch review ([`cleanup.md`](cleanup.md) §2.1):
 
-- **Network value, not config**: `smallFileMaxBytes = 10 MB` (§1) — the network config when it exists, a
-  protocol constant until then.
+- **Protocol constants** — the contract for this version, changing only with the format: the block-size rule
+  and the `fileId` version tag (§2 — every device must compute the same `fileId` for the same bytes), key
+  lengths, decode-time allocation guards, and `MIN_FILE_CHUNK_SIZE_BYTES` — the shape floor. A transfer's
+  chunk granularity is **peer-chosen** in its OFFER and every accepted chunk costs a stored row at a relay,
+  so the floor bounds storage amplification (a 10 MiB deposit is 160 rows, never 10 million). Not config:
+  there is no fallback granularity, so two devices disagreeing on a floor would kill the small path between
+  them.
+- **Derived sizes** — chained by the composition root from the transport limits (`wiring/FileLimits`,
+  guide §2), never independently configured and never a constant checked after the fact: `chunkSizeBytes`
+  (each transfer snapshots the current value at creation, §2), `largeFileFrameBytes`, and `maxSealBytes` —
+  a seal must fit an OFFER through both transports (`maxRoutableBytes` minus the envelope and OFFER-header
+  overhead); checked when the seal is made and again at admission. The block rule keeps real seals far
+  below it (the block list is at most ~38 KiB, §2).
+- **Network values** — config every device must settle on together, never user-editable:
+  `smallFileMaxBytes = 10 MB` (§1), a `RouterConfig` field surfaced through the settings registry as
+  `FieldSource.NETWORK` (`wiring/Settings.kt`); settled from the network's page when that exists, and
+  receiver-enforced meanwhile (§1).
+- **Local mechanics** — plain `RouterConfig` fields, deliberately not settings; the file fields below.
 - `OrchestratorConfig` file fields (`orchestrator`, implemented in `orchestrator/file`; the receive and
   store directories are the node layout's, not config): `storeQuotaBytes` (at least `autoDownloadMaxBytes`
   and `copyIntoStoreMaxBytes`, so a file fetched or copied without asking is never evicted on arrival),
   `maxStagedBytes`, `fileHashRetryLimit` (e.g. 3, §8);
-  `autoDownloadMaxBytes` (per device — large files at or below it are fetched without asking; e.g. 250 MB on
-  desktop, lower on mobile, §8); `copyIntoStoreMaxBytes` (the "keep a copy" checkbox default, default
-  `smallFileMaxBytes`, §10); `fileCheckpointBytes` (e.g. 8 MB) and `fileCheckpointInterval` (e.g. 2 s, §8);
-  `fileStallTimeout` (the receiver's gap trigger, §8); `fileRequestFirstAttemptDelay` (the grace period
-  before a small file's first REQUEST, §9).
-- `RouterConfig` additions: `fileTransferTtl = 2 days` (marker, relay reservation and transfer lifetimes),
-  `maxInFlightChunks` (the push engine's window, §6.2), `fileChunkRetryDelay` (the flat retry of chunk rows,
+  `autoDownloadMaxBytes` (per device — **every** file at or below it is fetched without asking, small
+  included; e.g. 250 MB on desktop, lower on mobile, §8); `copyIntoStoreMaxBytes` (the "keep a copy"
+  checkbox default, its own value — no longer defaulted to `smallFileMaxBytes`, §10);
+  `fileCheckpointBytes` (e.g. 8 MB) and `fileCheckpointInterval` (e.g. 2 s, §8);
+  `fileStallTimeout` (the receiver's gap trigger, §8). (`fileRequestFirstAttemptDelay` moved to routing as
+  `filePullDelay`: the orchestrator no longer schedules file attempts — it is size-blind beyond
+  `autoDownloadMaxBytes`, §9.)
+- `RouterConfig` additions: `fileTransferTtl = 2 days` (seal, relay reservation and transfer lifetimes),
+  `maxInFlightChunks` (the transfer window, §6.2), `fileChunkRetryDelay` (the flat retry of chunk rows,
   §6.2), `chunkAckTimeout` (no chunk ACK at all for this long → deposit, §6.3),
   `fileRelayIdleTtl` (idle partial deposits are dropped, §7.2), `fileRequestAttemptTimeout`,
   `fileRequestWaitTimeout` (WAITING for the
-  OFFER), `fileSessionOpenTimeout` (a large request opening its session), `fileStreamWindowBytes` (e.g.
-  32 MB — how far a fetch's holder may run past the last `PROGRESS`, §6.6) and `maxConcurrentFetches`
-  (large fetches running at once, e.g. 2).
+  OFFER), `filePullDelay` (the push window before a small file's first REQUEST, §9),
+  `largeFileSessionOpenTimeout` (a large request opening its session), `largeFileStreamWindowBytes` (e.g.
+  32 MB — how far a holder may run past the last `PROGRESS`, §6.6), `maxConcurrentLargeFiles`
+  (large pulls running at once, e.g. 2), the sweep and tick cadences (the seal registry's, the relay
+  forwards' and the target side's sweeps, and the transfer tick — one stated value each, not ad-hoc
+  floors), and the large path's pacing (the puller's defer retry and parked-channel recheck, the holder's
+  idle and buffered-amount waits, §6.6).
 - **Storage pledge**: one user-facing `relayStoragePledgeBytes` (default 100 MB) — how much of this device's
   storage the network may use — split by the composition root into the message relay-cache budget and the
   file relay-store budget, each keeping its own eviction semantics (per-row LRU vs whole-transfer LRU). Our
@@ -1045,13 +1090,16 @@ Per guide §2, each layer's config type lives next to its code:
   there). Skipped-key limits within a chain are not covered by it — an accepted edge the pull path recovers (§3.3).
 - Derived in wiring (`FileLimits`, chained from the transport backend configs like `MessageLimits`):
   `chunkSizeBytes ≈ 249.5 KiB` (255,525 bytes at the default 256,000-byte frames), at least the protocol's
-  64 KiB minimum chunk; each transfer snapshots the current derived value at creation (§2).
-- **Not config**: the block-size rule and the `fileId` version tag (§2) are protocol constants — every device
-  must compute the same `fileId` for the same bytes.
+  64 KiB minimum chunk; each transfer snapshots the current derived value at creation (§2);
+  `largeFileFrameBytes` (a WebRTC frame's file bytes); and `maxSealBytes` — the OFFER-content budget, the
+  seal must fit through both transports (`BinaryEnvelope.maxContentBytes(maxRoutableBytes, the OFFER
+  header)`), checked when the seal is made and at admission, with the chain asserted in
+  `wiring/ConfigInvariants`.
 - Startup checks: `maxStagedBytes ≥ fileCheckpointBytes` (staging must hold a checkpoint's worth) and
   `maxStagedBytes ≥ maxInFlightChunks × chunkSizeBytes` (one transfer's out-of-order window must fit; the two values
   live in different layers, so wiring checks it);
-  `copyIntoStoreMaxBytes` and `autoDownloadMaxBytes` are free per device, `smallFileMaxBytes` is not.
+  `copyIntoStoreMaxBytes` and `autoDownloadMaxBytes` are free per device; `smallFileMaxBytes` is settled
+  network-wide and receiver-enforced meanwhile (§1).
 - Reused unchanged: `RelaySelectionPolicy` with `relayTargetSuccessProbability`, `minRelayScore` and the
   `maxRelays` cap (§5); the outbox's own retry/park/expiry behavior.
 
@@ -1088,14 +1136,16 @@ Per guide §2, each layer's config type lives next to its code:
 16. Transfers are device-to-device; the orchestrator speaks files and accounts, routing fans out and signals
     per device.
 17. In envelopes the `fileId` travels only in the OFFER's sealed half and the sealed, direct-only REQUEST;
-    every other FILE envelope is addressed by `transferId`. Outside envelopes it appears only in a fetch's
-    `FETCH` frame, inside the DTLS channel to the one peer device.
+    every other FILE envelope is addressed by `transferId`. Outside envelopes it appears only in a large
+    path's `PULL` frame, inside the DTLS channel to the one peer device.
 18. Every serve passes the serve gate: the requester's account must see a message referencing the `fileId`.
 19. One sealed OFFER per transfer, and one transfer per relay deposit; at a serving device, one live transfer
     per (`fileId`, target device).
-20. Large files are pull-only: nothing large is sent unasked; the receiving device decides to fetch, and
-    declining is local. `smallFileMaxBytes` is one value for the whole network.
-21. A fetch lives within one data channel of one WebRTC session; it never waits for a session and never goes
+20. Large files are pull-only: nothing large is sent unasked; the receiving device decides to pull, and
+    declining is local. `smallFileMaxBytes` is a network value, settled network-wide; a device that lags
+    enforces its own — a small-path OFFER above it is DECLINED, and the receiver's class pin routes the file
+    to its large path. No disagreement is a loss.
+21. A pull lives within one data channel of one WebRTC session; it never waits for a session and never goes
     over Tor, a relay, the outbox or the envelope pipeline.
 22. The `fileId` is computed by one protocol-fixed rule (§2); a block list is used only after it hashes to the
     `fileId`, and a holder sends no block it has not just checked against the list.
@@ -1105,6 +1155,9 @@ Per guide §2, each layer's config type lives next to its code:
 24. Chunk rows deposit only on signals that the target is gone (link closed, no link, no chunk ACK at all
     within `chunkAckTimeout`) — never on one slow or retried chunk (§6.3).
 25. A received file that no message references within `fileTransferTtl` is deleted (§8).
+26. A seal must fit an OFFER through both transports: the budget is derived (`FileLimits.maxSealBytes`,
+    chained from the transport limits) and checked at seal creation and at admission — never a constant
+    checked after the fact.
 
 ## 17. Rejected alternatives
 
@@ -1229,15 +1282,15 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
 - Target declines the relay-forwarded OFFER (no space) → relay drops the transfer, frees quota.
 - Sender dies mid-deposit: partial never pushed; reservation TTL cleans; target's REQUEST recovers from a
   holder.
-- Large file, auto-download: the message lands → the requester opens a session and a fetch channel → `FETCH`
-  → `FETCH_OK` → `DATA` → READY; nothing goes over Tor, a relay or the outbox.
+- Large file, auto-download: the message lands → the requester opens a session and a file channel → `PULL`
+  → `PULL_OK` → `DATA` → READY; nothing goes over Tor, a relay or the outbox.
 - Large file above `autoDownloadMaxBytes`: no fetch until the user clicks; declining sends nothing; a
   re-open later fetches it.
-- Fetch session drops mid-file: both ends forget it → request PENDING → a new fetch starts at the checkpointed
+- Pull session drops mid-file: both ends forget it → request PENDING → a new pull starts at the checkpointed
   P with a positioned read; same for a restart on either side.
-- `FETCH_OK` with a block list that does not hash to the `fileId` → channel closed, nothing written, next
+- `PULL_OK` with a block list that does not hash to the `fileId` → channel closed, nothing written, next
   candidate.
-- Fetch serve gate: a `FETCH` from a device whose account sees no referencing message gets `FETCH_DECLINED`.
+- Pull serve gate: a `PULL` from a device whose account sees no referencing message gets `DECLINED`.
 - A REQUEST envelope for a file above `smallFileMaxBytes` is DECLINED.
 - No direct connection: the holder is online over Tor but no session forms → recorded as such, not as
   offline, and no byte goes over Tor.
@@ -1255,7 +1308,7 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
 - Attachments codec: round trip with 0, 1 and the maximum number of attachments; a version-2 payload is
   rejected.
 - All large candidates offline: the request stays PENDING (not UNAVAILABLE) and fetches when one comes online.
-- Credit window: a receiver with a slow disk holds the holder at `fileStreamWindowBytes` past the last
+- Credit window: a receiver with a slow disk holds the holder at `largeFileStreamWindowBytes` past the last
   `PROGRESS`; memory stays bounded and the envelope channel keeps flowing.
 - Checkpoint crash: kill the receiver between checkpoints → restart truncates to P, re-hashes the partial
   block, and the next fetch re-sends at most one checkpoint.
@@ -1266,7 +1319,7 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
   OFFER carries the key; exact resume from held coverage.
 - Declined / cancelled / no-space / ENOSPC paths; "file unavailable" after all candidates decline;
   ACK-but-no-OFFER → WAITING timeout → next candidate.
-- Multi-device account: the non-targeted sibling REQUESTs after the grace period (normal traffic, one
+- Multi-device account: the non-targeted sibling REQUESTs after the push window (normal traffic, one
   candidate at a time).
 - No-chaining negative test: a forwarding relay must never deposit elsewhere.
 - Unverified chunk injection at a relay (bad signature) is dropped and never counts toward wholeness; a chunk
