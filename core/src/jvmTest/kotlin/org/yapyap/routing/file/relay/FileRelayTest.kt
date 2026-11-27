@@ -515,10 +515,11 @@ class FileRelayTest {
         h.forwards.runIn(backgroundScope)
         val transferId = h.depositWhole()
         h.clock.advanceBy(3.days)
-        // Sweep via a fresh forwards run tick: expire and drop.
-        withTimeout(10.seconds) {
+        // Sweep via a fresh forwards run tick: expire and drop. A session started after the
+        // engine is running ticks at chunkAckTimeout / 3 (15 s), and the forwards sweep every
+        // max(chunkAckTimeout, 10 s); wait past both instead of assuming the old first pass.
+        withTimeout(120.seconds) {
             while (h.relay.find(transferId) != null) {
-                // Drive sweep manually by calling drop path through forwards run loop tick:
                 // advance clock and let the sweep loop (chunkAckTimeout tick) fire.
                 delay(100.milliseconds)
             }

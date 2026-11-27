@@ -155,7 +155,8 @@ The largest discussion, in three parts.
 **2.5.1 Sessions over a mux — the envelope path adopts the actor shape the large path already has.** The
 chosen restructure (option B of the review; option A, a light in-place flattening, was rejected as not
 worth stopping there): each outgoing transfer becomes an `OutgoingTransferSession` — its own mailbox
-(`sealed SessionMsg { Tick, Ack(from, index), Cancelled(from, reason), Outcome, LinkDown }`), its own
+(`sealed SessionMsg { Tick, Ack(from, index), Cancelled(from, reason), Outcome, LinkDown, Cancel }`;
+`Cancel` is our own end), its own
 guarded coroutine, owning the row copy, its `ChunkSource`, the queued set, `offerSentAt`,
 `lastProgressAt` and the gone flag; it ends itself (status row, event emit, source close). The engine
 shrinks to the registry + start-time recovery + a mux that routes inbound ACK/CANCEL/outbox

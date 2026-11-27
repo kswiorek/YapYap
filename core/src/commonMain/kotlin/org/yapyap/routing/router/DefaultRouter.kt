@@ -304,6 +304,29 @@ internal class DefaultRouter(
         lifecycle.markStarted()
 
         inboundEnvelopeProcessor.startDispositions(scope)
+        webRtcSignalerJob = webRtcSignaler.runIn(scope)
+
+        // Before the outbox runs: outcomes are not replayed. (The outbox subscribes to its own
+        // link/online inputs in its runIn.)
+        outboxOutcomeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            outboxProcessor.outcomes.collect { outcome ->
+                runCatching { routeOutcome(outcome) }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    AppLog.error(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.OUTBOX_PROCESS_FAILED,
+                        message = "Failed to route an outbox outcome",
+                        fields = mapOf("tag" to outcome.tag, "error" to e.toString()),
+                    )
+                }
+            }
+        }
+        outboxRetryJob = outboxProcessor.runIn(scope)
+
+        // Services (and the engine's start-time recovery) before inbound handling: a control
+        // packet that arrives during a restart waits behind recovery instead of being dropped.
+        serviceJobs = services.flatMap { it.runIn(scope) }
+
         torIncomingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             ctx.torTransport.incoming.collect { inbound ->
                 runCatching { inboundEnvelopeProcessor.handleTorInbound(inbound) }
@@ -333,27 +356,6 @@ internal class DefaultRouter(
                     }
             }
         }
-
-        webRtcSignalerJob = webRtcSignaler.runIn(scope)
-
-        // Before the outbox runs: outcomes are not replayed. (The outbox subscribes to its own
-        // link/online inputs in its runIn.)
-        outboxOutcomeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            outboxProcessor.outcomes.collect { outcome ->
-                runCatching { routeOutcome(outcome) }.onFailure { e ->
-                    if (e is CancellationException) throw e
-                    AppLog.error(
-                        component = LogComponent.ROUTER,
-                        event = LogEvent.OUTBOX_PROCESS_FAILED,
-                        message = "Failed to route an outbox outcome",
-                        fields = mapOf("tag" to outcome.tag, "error" to e.toString()),
-                    )
-                }
-            }
-        }
-        outboxRetryJob = outboxProcessor.runIn(scope)
-
-        serviceJobs = services.flatMap { it.runIn(scope) }
 
         pingProvider.runIn(scope)
         peerAvailabilityRegistry.start(scope, ctx.localDeviceId)

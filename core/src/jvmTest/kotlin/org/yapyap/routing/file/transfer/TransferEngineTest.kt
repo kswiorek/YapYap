@@ -48,6 +48,7 @@ class TransferEngineTest {
     fun offerAck_startsWindow_countingQueuedRows() = runTest {
         val h = sealTransferHarness(totalBytes = 1024L * 1024, chunkSize = 220 * 1024)
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         h.awaitOffers(2)
         val transfer = h.transfersFor(peerA).single()
@@ -67,6 +68,7 @@ class TransferEngineTest {
         // More chunks than the window (16), so a coverage-driven window would show.
         val h = sealTransferHarness(totalBytes = 32L * 220 * 1024)
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
@@ -103,6 +105,7 @@ class TransferEngineTest {
     fun restart_rebuildsQueued_withoutNewSeals() = runTest {
         val h = sealTransferHarness(totalBytes = 3L * 1024 * 1024, chunkSize = 100 * 1024)
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerB).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerB))
@@ -152,6 +155,7 @@ class TransferEngineTest {
         val h = sealTransferHarness()
 
         val seen = mutableListOf<FileEvent>()
+        h.engine.runIn(backgroundScope)
         backgroundScope.launch(Dispatchers.Unconfined) { h.seals.runIn(backgroundScope) }
         backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
         h.seals.push(fixtureFileId, fixtureAccount)
@@ -195,6 +199,7 @@ class TransferEngineTest {
     fun declinedChunk_endsTransferQuietly() = runTest {
         val h = sealTransferHarness()
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
@@ -224,6 +229,7 @@ class TransferEngineTest {
     fun otherTerminalNack_endsTransfer() = runTest {
         val h = sealTransferHarness()
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(
@@ -286,6 +292,9 @@ class TransferEngineTest {
 
         val seen = mutableListOf<FileEvent>()
         backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
+        // Running the engine makes the liveness check below meaningful: a wrongly accepted
+        // COMPLETE would cancel the transfer through the session, not just leave the row alone.
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         val sealId = h.sealStore.byFileAndTarget(fixtureFileId, peerA).single().sealId
@@ -321,6 +330,7 @@ class TransferEngineTest {
     fun cancelledFromWrongSource_isIgnored() = runTest {
         val h = sealTransferHarness()
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
 
@@ -335,6 +345,7 @@ class TransferEngineTest {
     fun fiftyConcurrentCoverageAcks_neverDuplicateChunk() = runTest {
         val h = sealTransferHarness(totalBytes = 10L * 1024 * 1024, chunkSize = 220 * 1024)
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
@@ -353,6 +364,7 @@ class TransferEngineTest {
     fun expiredTransfer_isTerminal() = runTest {
         val h = sealTransferHarness()
 
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         // The offer must be out before the TTL passes: the engine would otherwise
@@ -382,6 +394,7 @@ class TransferEngineTest {
     @Test
     fun expiredOffer_reArmsWhileLive() = runTest {
         val h = sealTransferHarness()
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         val transfer = h.transfersFor(peerA).single()
         val oldOffer = h.offerPacketOf(transfer.transferId)

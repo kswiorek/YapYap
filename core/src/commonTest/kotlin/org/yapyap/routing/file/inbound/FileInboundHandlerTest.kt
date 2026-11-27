@@ -1,6 +1,8 @@
 package org.yapyap.routing.file.inbound
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
@@ -39,6 +41,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -445,6 +449,9 @@ class FileInboundHandlerTest {
                 expiresAt = h.clock.now() + 2.days,
             ),
         )
+        // The ACK runs in the transfer's session, so the engine must be running: recovery
+        // builds the session from the row inserted above, exactly as after a restart.
+        h.engine.runIn(backgroundScope)
         val result = h.handler.handle(
             envelope(
                 h,
@@ -452,6 +459,9 @@ class FileInboundHandlerTest {
             )
         )
         assertIs<InboundHandleResult.Success>(result)
+        withTimeout(5.seconds) {
+            while (h.transferStore.find(transferId)?.contiguousAcked != 2) delay(10.milliseconds)
+        }
         assertEquals(2, h.transferStore.find(transferId)?.contiguousAcked)
     }
 

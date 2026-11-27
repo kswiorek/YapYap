@@ -1,8 +1,9 @@
 package org.yapyap.routing.file.transfer
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -15,8 +16,6 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileCancelReason
-import org.yapyap.protocol.envelopes.FileHeader
-import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.FilePackets
 import org.yapyap.routing.file.TransferEvent
 import org.yapyap.routing.file.port.FilePlaintextSource
@@ -30,24 +29,20 @@ import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.RetryClass
+import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * Runs every transfer this device sends (docs/envelope-redesign.md §5.3–§5.4): ours and relay
- * forwards alike, each one hop over its [ChunkSource]. It speaks only transfers — OFFER, a window
- * of chunk rows in the outbox, the peer's ACKs and CANCELs, expiry — and makes sure the peer ends
- * up holding every chunk the transfer describes. What a transfer is *for* is its owner's business:
- * the engine reports [events] and never decides about seals, deposits or relays.
+ * forwards alike, each one hop over its [ChunkSource]. What a transfer is *for* is its owner's
+ * business: the engine reports [events] and never decides about seals, deposits or relays.
  *
- * Durable state is the transfer rows plus the outbox; the window and the timers are rebuilt from
- * them, so a restart resumes and never re-sends what is still queued. Each transfer is handled
- * under its own lock; the events flow is unbounded, so reporting never waits on an owner.
+ * Each transfer runs as its own [OutgoingTransferSession] behind a mailbox; this class is only the
+ * registry, the start-time recovery and the mux that feeds sessions their ACK/CANCEL/outbox/
+ * link-down inputs. A slow transfer therefore blocks only itself. Durable state is the transfer
+ * rows plus the outbox; recovery rebuilds sessions from them and never re-sends what is queued.
  */
-//TODO: logic seems ok, but messy, to be rewritten
 internal class TransferEngine(
     private val ctx: RoutingContext,
     private val packets: FilePackets,
@@ -61,252 +56,96 @@ internal class TransferEngine(
     private val eventFlow = MutableSharedFlow<TransferEvent>(extraBufferCapacity = Int.MAX_VALUE)
     val events: SharedFlow<TransferEvent> = eventFlow.asSharedFlow()
 
-    /** In-memory state of a live transfer, rebuilt from its rows when first touched. */
-    private class Running(
-        val source: ChunkSource,
-        val queued: MutableSet<Int>,
-        var lastProgressAt: Instant,
-        var offerSentAt: Instant?,
-        var goneReported: Boolean = false,
-    )
-
     private val registryLock = Mutex()
-    private val locks = mutableMapOf<TransferId, Mutex>()
-    private val running = mutableMapOf<TransferId, Running>()
+    private val sessions = mutableMapOf<TransferId, OutgoingTransferSession>()
 
-    /** Inserts [transfer] and sends its OFFER (re-armed by the tick if it can't go now). */
+    /** The engine's coroutine scope; sessions started later run here. Set by [runIn]. */
+    @Volatile
+    private var sessionScope: CoroutineScope? = null
+
+    /** Completes when the start-time recovery has rebuilt every live session. */
+    private val recovered = CompletableDeferred<Unit>()
+
+    /** Inserts [transfer] and sends its OFFER (a re-arm is the session tick's job). */
     suspend fun start(transfer: OutgoingTransfer) {
+        awaitRecovery()
         transferStore.insert(transfer)
-        //TODO: untangle nested lambdas: we insert transfer, check some things and look it up in the db again, messy
-        guarded("offer") { withLive(transfer.transferId) { current, run -> sendOffer(current, run) } }
+        guarded("offer") {
+            val source = sourceFor(transfer) ?: return@guarded endWithoutSession(transfer, FileTransferStatus.ENDED)
+            // The row was just inserted: its running state is fresh, no re-read or recovery needed.
+            val session = newSession(transfer, source, mutableSetOf(), offerSentAt = null)
+            if (!register(session)) return@guarded
+            session.begin()
+            sessionScope?.let { session.launch(it, initialTick = false) }
+        }
     }
 
-    /** Ends a live transfer at our end: tells the peer (CANCEL) and stops. */
+    /**
+     * Posts a cancel to the transfer's session: the session sends the CANCEL and ends itself.
+     * Row cleanup happens in the session's coroutine, not here.
+     */
     suspend fun cancel(transferId: TransferId) {
-        withLive(transferId) { current, _ ->
-            val cancel = FileHeader.Cancel(transferId, FileCancelReason.ABORT)
-            outbox.enqueueAndWake(packets.control(current.peer, cancel, current.expiresAt), ctx.clock.now())
-            end(current, FileTransferStatus.CANCELLED)
-        }
+        awaitRecovery()
+        session(transferId)?.cancel()
     }
 
     /** True when [transferId] is a transfer we send (live or ended), so inbound control for it is ours. */
     suspend fun owns(transferId: TransferId): Boolean = transferStore.find(transferId) != null
 
-    /** The peer's coverage ACK, in the transfer's own chunk indices. */
+    /**
+     * Posts the peer's coverage ACK, in the transfer's own chunk indices, to its session's
+     * mailbox; the session applies it in its own loop.
+     */
     suspend fun onAck(transferId: TransferId, from: PeerId, highestContiguousIndex: Int) {
-        withLive(transferId) { current, run ->
-            if (from != current.peer) return@withLive
-            val covered = minOf(highestContiguousIndex, current.shape.chunkCount - 1)
-            if (covered <= current.contiguousAcked) return@withLive
-            run.lastProgressAt = ctx.clock.now()
-            val moved =
-                current.copy(contiguousAcked = covered, nextChunkIndex = maxOf(current.nextChunkIndex, covered + 1))
-            transferStore.setProgress(moved.transferId, moved.nextChunkIndex, moved.contiguousAcked)
-            eventFlow.emit(TransferEvent.Progress(moved))
-            settle(moved, run)
-        }
+        awaitRecovery()
+        session(transferId)?.ack(from, highestContiguousIndex)
     }
 
-    /** The peer ended the transfer at its end. */
+    /** Posts the peer's cancellation to the transfer's session's mailbox. */
     suspend fun onCancelled(transferId: TransferId, from: PeerId, reason: FileCancelReason) {
-        withLive(transferId) { current, _ ->
-            if (from != current.peer) return@withLive
-            val status = when (reason) {
-                FileCancelReason.DECLINED, FileCancelReason.NO_SPACE -> FileTransferStatus.DECLINED
-                FileCancelReason.ABORT -> FileTransferStatus.ENDED
-            }
-            end(current, status)
-        }
+        awaitRecovery()
+        session(transferId)?.cancelled(from, reason)
     }
 
-    /** How one of our OFFER or chunk rows left the outbox. */
+    /** Posts one of our OFFER/chunk outcomes to its transfer's session's mailbox. */
     suspend fun onOutcome(outcome: OutboxOutcome) {
-        withLive(TransferId(outcome.tag.id)) { current, run ->
-            val isOffer = outcome.packetId == current.offerPacketId
-            when (outcome) {
-                is OutboxOutcome.Acked -> {
-                    run.lastProgressAt = ctx.clock.now()
-                    if (isOffer) {
-                        if (current.status == FileTransferStatus.OFFERED) {
-                            transferStore.setStatus(current.transferId, FileTransferStatus.STREAMING)
-                        }
-                        settle(current.copy(status = FileTransferStatus.STREAMING), run)
-                    } else {
-                        forgetChunk(current, run, outcome.packetId)
-                        settle(current, run)
-                    }
-                }
-
-                // DECLINED on the OFFER is the peer's refusal; on a chunk, or any other terminal
-                // NACK, the transfer is gone at that end and ends quietly.
-                is OutboxOutcome.Nacked -> end(
-                    current,
-                    if (isOffer && outcome.reason == PacketNackReason.DECLINED) FileTransferStatus.DECLINED
-                    else FileTransferStatus.ENDED,
-                )
-
-                is OutboxOutcome.Expired -> when {
-                    ctx.clock.now() >= current.expiresAt -> end(current, FileTransferStatus.EXPIRED)
-                    isOffer -> sendOffer(current, run)
-                    else -> {
-                        val index = forgetChunk(current, run, outcome.packetId) ?: return@withLive
-                        val rewound = current.copy(nextChunkIndex = minOf(current.nextChunkIndex, index))
-                        transferStore.setProgress(rewound.transferId, rewound.nextChunkIndex, rewound.contiguousAcked)
-                        settle(rewound, run)
-                    }
-                }
-            }
-        }
+        awaitRecovery()
+        session(TransferId(outcome.tag.id))?.outcome(outcome)
     }
 
-    /** Ticks every live transfer and reports transfers to a peer whose link just closed. */
-    fun runIn(scope: CoroutineScope): Job = scope.launch {
+    /**
+     * Starts the engine: rebuilds a session per live transfer from its rows plus the outbox,
+     * launches every session, and re-routes link-downs. Recovery ends a transfer whose source is
+     * gone; a recovered session takes one immediate tick, as the old shared tick did.
+     *
+     * The mux waits on [recovered] before touching the registry, so a control packet or outbox
+     * outcome that arrives while rows are being rebuilt is applied after recovery instead of
+     * being dropped.
+     */
+    fun runIn(scope: CoroutineScope): Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        sessionScope = this
+        try {
+            guarded("recovery") { recover(this) }
+        } finally {
+            recovered.complete(Unit)
+        }
         launch {
             ctx.peerLinks.linkDowns.collect { peer -> guarded("link-down") { onLinkDown(peer) } }
         }
-        while (true) {
-            guarded("tick") { tick() }
-            delay(maxOf(ctx.routerConfig.value.chunkAckTimeout / 3, 5.seconds))
-        }
     }
 
-    private suspend fun onLinkDown(peer: PeerId) {
+    private suspend fun recover(scope: CoroutineScope) {
+        val known = registryLock.withLock { sessions.keys.toSet() }
         for (transfer in transferStore.live()) {
-            if (transfer.peer != peer) continue
-            withLive(transfer.transferId) { current, run ->
-                if (current.status == FileTransferStatus.OFFERED || run.queued.isNotEmpty()) reportGone(current, run)
-            }
+            if (transfer.transferId in known) continue
+            guarded("recover ${transfer.transferId}") { recoverOne(transfer) }
         }
+        for (active in sessionsSnapshot()) active.launch(scope, initialTick = true)
     }
 
-    /**
-     * Expiry, a lost OFFER re-armed, a stalled window refilled, and the gone signals: before the
-     * OFFER lands, no link or no ACK within `relayBackupAfter` (the message triggers); after, no
-     * link or no ACK at all for `chunkAckTimeout` while chunks are in flight — never one slow chunk.
-     */
-    private suspend fun tick() {
-        val now = ctx.clock.now()
-        val config = ctx.routerConfig.value
-        for (transfer in transferStore.live()) {
-            withLive(transfer.transferId) { current, run ->
-                if (now >= current.expiresAt) return@withLive end(current, FileTransferStatus.EXPIRED)
-                val linked = ctx.peerLinks.linksOf(current.peer).isNotEmpty()
-                when (current.status) {
-                    FileTransferStatus.OFFERED -> {
-                        val queued =
-                            current.offerPacketId?.let { it in outboxStore.packetIdsByTag(tag(current)) } == true
-                        if (!queued) sendOffer(current, run)
-                        val sentAt = run.offerSentAt
-                        if (!linked || (sentAt != null && now - sentAt > config.relayBackupAfter)) reportGone(
-                            current,
-                            run
-                        )
-                    }
-
-                    else -> {
-                        settle(current, run)
-                        val silent = now - run.lastProgressAt > config.chunkAckTimeout
-                        if (run.queued.isNotEmpty() && (!linked || silent)) reportGone(current, run)
-                    }
-                }
-            }
-        }
-    }
-
-    /** Refills the window and ends the transfer once the peer holds every chunk. */
-    private suspend fun settle(transfer: OutgoingTransfer, run: Running) {
-        if (transfer.status != FileTransferStatus.STREAMING) return
-        val count = transfer.shape.chunkCount
-        if (transfer.contiguousAcked >= count - 1) return end(transfer, FileTransferStatus.DONE)
-        var next = maxOf(transfer.nextChunkIndex, transfer.contiguousAcked + 1)
-        val window = ctx.routerConfig.value.maxInFlightChunks
-        while (run.queued.size < window && next < count) {
-            if (next in run.queued) {
-                next += 1
-                continue
-            }
-            val ciphertext = run.source.chunk(next)
-                ?: return end(transfer.copy(nextChunkIndex = next), FileTransferStatus.ENDED)
-            val envelope = packets.chunk(transfer, next, ciphertext)
-            outbox.enqueueAndWake(envelope, ctx.clock.now(), tag = tag(transfer), retryClass = RetryClass.FLAT)
-            transferStore.recordChunk(transfer.transferId, next, envelope.packetId)
-            run.queued += next
-            next += 1
-        }
-        if (next != transfer.nextChunkIndex) transferStore.setProgress(
-            transfer.transferId,
-            next,
-            transfer.contiguousAcked
-        )
-        // Every chunk queued and every queued chunk ACKed: the peer holds them all.
-        if (next >= count && run.queued.isEmpty()) end(transfer.copy(nextChunkIndex = next), FileTransferStatus.DONE)
-    }
-
-    private suspend fun sendOffer(transfer: OutgoingTransfer, run: Running) {
-        val envelope = packets.offer(transfer, run.source.offer)
-        outbox.enqueueAndWake(envelope, ctx.clock.now(), tag = tag(transfer), retryClass = RetryClass.STANDARD)
-        transferStore.setOffer(transfer.transferId, envelope.packetId)
-        run.offerSentAt = ctx.clock.now()
-    }
-
-    /** Drops a chunk row's mapping; returns its index, or null when it was not one of ours. */
-    private suspend fun forgetChunk(transfer: OutgoingTransfer, run: Running, packetId: Uuid): Int? {
-        val (owner, index) = transferStore.chunkByPacket(packetId) ?: return null
-        if (owner != transfer.transferId) return null
-        run.queued -= index
-        transferStore.deleteChunk(packetId)
-        return index
-    }
-
-    private suspend fun reportGone(transfer: OutgoingTransfer, run: Running) {
-        if (run.goneReported) return
-        run.goneReported = true
-        eventFlow.emit(TransferEvent.Gone(transfer))
-    }
-
-    private suspend fun end(transfer: OutgoingTransfer, status: FileTransferStatus) {
-        transferStore.setStatus(transfer.transferId, status)
-        outboxStore.deleteByTag(tag(transfer))
-        transferStore.deleteChunks(transfer.transferId)
-        registryLock.withLock { running.remove(transfer.transferId) }?.source?.close()
-        AppLog.info(
-            component = LogComponent.FILE,
-            event = LogEvent.FILE_TRANSFER_ENDED,
-            message = "File transfer ended",
-            fields = mapOf("transferId" to transfer.transferId, "peer" to transfer.peer, "status" to status),
-        )
-        eventFlow.emit(TransferEvent.Ended(transfer.copy(status = status)))
-    }
-
-    /**
-     * Runs [block] under [transferId]'s lock with its current row and running state, only while
-     * the transfer is live. A transfer whose source is gone (seal or relay row deleted) ends here.
-     */
-    private suspend fun withLive(
-        transferId: TransferId,
-        block: suspend (OutgoingTransfer, Running) -> Unit,
-    ) {
-        val lock = registryLock.withLock { locks.getOrPut(transferId) { Mutex() } }
-        lock.withLock {
-            val current = transferStore.find(transferId)?.takeIf { it.status.isLive }
-            if (current == null) {
-                registryLock.withLock { locks.remove(transferId) }
-                return
-            }
-            val state = registryLock.withLock { running[transferId] } ?: recover(current)
-            if (state == null) {
-                // Its seal or relay copy is gone: nothing left to send.
-                end(current, FileTransferStatus.ENDED)
-                return
-            }
-            block(current, state)
-        }
-    }
-
-    /** Rebuilds a transfer's window from its chunk rows still queued in the outbox. */
-    private suspend fun recover(transfer: OutgoingTransfer): Running? {
-        val source = sourceFor(transfer) ?: return null
+    /** Rebuilds one session's window from its chunk rows still queued in the outbox. */
+    private suspend fun recoverOne(transfer: OutgoingTransfer) {
+        val source = sourceFor(transfer) ?: return endWithoutSession(transfer, FileTransferStatus.ENDED)
         val stillQueued = outboxStore.packetIdsByTag(tag(transfer)).toSet()
         val queued = mutableSetOf<Int>()
         for ((index, packetId) in transferStore.chunks(transfer.transferId)) {
@@ -314,9 +153,62 @@ internal class TransferEngine(
         }
         val now = ctx.clock.now()
         // A fresh start (also after a restart) is not evidence the peer is gone: clocks start now.
-        val run = Running(source, queued, lastProgressAt = now, offerSentAt = transfer.offerPacketId?.let { now })
-        registryLock.withLock { running[transfer.transferId] = run }
-        return run
+        register(newSession(transfer, source, queued, offerSentAt = transfer.offerPacketId?.let { now }))
+    }
+
+    private fun newSession(
+        transfer: OutgoingTransfer,
+        source: ChunkSource,
+        queued: MutableSet<Int>,
+        offerSentAt: Instant?,
+    ) = OutgoingTransferSession(
+        initial = transfer,
+        source = source,
+        queued = queued,
+        lastProgressAt = ctx.clock.now(),
+        offerSentAt = offerSentAt,
+        ctx = ctx,
+        packets = packets,
+        transferStore = transferStore,
+        outbox = outbox,
+        outboxStore = outboxStore,
+        emitEvent = eventFlow::emit,
+        onEnded = { transferId -> deregister(transferId) },
+    )
+
+    private suspend fun onLinkDown(peer: PeerId) {
+        // Copy under the lock, post outside it: a session's mailbox is a cheap trySend.
+        val affected = registryLock.withLock { sessions.values.filter { it.peer == peer } }
+        affected.forEach { it.linkDown() }
+    }
+
+    private suspend fun session(transferId: TransferId): OutgoingTransferSession? =
+        registryLock.withLock { sessions[transferId] }
+
+    /** Registers [session] unless one already exists for its id; false in that case. */
+    private suspend fun register(session: OutgoingTransferSession): Boolean = registryLock.withLock {
+        if (sessions.containsKey(session.transferId)) {
+            false
+        } else {
+            sessions[session.transferId] = session
+            true
+        }
+    }
+
+    private suspend fun deregister(transferId: TransferId) {
+        registryLock.withLock { sessions.remove(transferId) }
+    }
+
+    private suspend fun sessionsSnapshot(): List<OutgoingTransferSession> =
+        registryLock.withLock { sessions.values.toList() }
+
+    /**
+     * The startup barrier: before the recovery completes, a mux call waits instead of looking at a
+     * half-built registry. Before [runIn] (tests that never start the engine) there is nothing to
+     * wait for.
+     */
+    private suspend fun awaitRecovery() {
+        if (sessionScope != null) recovered.await()
     }
 
     private suspend fun sourceFor(transfer: OutgoingTransfer): ChunkSource? {
@@ -330,6 +222,20 @@ internal class TransferEngine(
         }
     }
 
+    /** Ends a row with no live source (its seal or relay copy is gone): nothing left to send. */
+    private suspend fun endWithoutSession(transfer: OutgoingTransfer, status: FileTransferStatus) {
+        transferStore.setStatus(transfer.transferId, status)
+        outboxStore.deleteByTag(tag(transfer))
+        transferStore.deleteChunks(transfer.transferId)
+        AppLog.info(
+            component = LogComponent.FILE,
+            event = LogEvent.FILE_TRANSFER_ENDED,
+            message = "File transfer ended",
+            fields = mapOf("transferId" to transfer.transferId, "peer" to transfer.peer, "status" to status),
+        )
+        eventFlow.emit(TransferEvent.Ended(transfer.copy(status = status)))
+    }
+
     private fun tag(transfer: OutgoingTransfer) = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value)
 
     private suspend fun guarded(what: String, block: suspend () -> Unit) {
@@ -341,7 +247,7 @@ internal class TransferEngine(
             AppLog.error(
                 component = LogComponent.FILE,
                 event = LogEvent.FILE_TASK_FAILED,
-                message = "File transfer $what failed",
+                message = "File transfer engine $what failed",
                 throwable = e,
             )
         }

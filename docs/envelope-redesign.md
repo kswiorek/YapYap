@@ -446,15 +446,16 @@ Where the code settled what this document left open (the code is the reference f
   unanswered. `InboundHandleResult.Success` no longer carries `sourceAuthenticated`.
 - **Outbox.** `OutboxProcessor` owns `RelayDepositor` (messages only) and takes the relay policy;
   `backUpToRelays(envelope, reason)` has no tag. One file tag kind, `FILE_TRANSFER`.
-- **File routing** (`routing/file`): `transfer/TransferEngine` runs every outgoing transfer (ours and
-  relay forwards) over a `ChunkSource` and reports `TransferEvent`s (progress, gone, ended) on an
-  unbounded flow; `seal/SealRegistry` owns seals, the deposit round, hand-off, delivery and the
-  account-level events; `relay/RelayDoor` admits deposits and parks chunks, `relay/RelayForwards`
-  forwards whole deposits and forgets them when the forward ends; `inbound/TargetSide` holds seals
-  and incoming transfers and feeds the receive engine; `inbound/FileInboundHandler` dispatches by
-  header and runs the shared chunk checks before a `ChunkSink` sees a chunk. The registry and the
-  forwards subscribe to the engine's events (guide §5), and each sweeps its rows so a restart that
-  cut an event short still settles.
+- **File routing** (`routing/file`): `transfer` runs every outgoing transfer (ours and relay
+  forwards) over a `ChunkSource` — each is an `OutgoingTransferSession` with its own mailbox and
+  coroutine, while `TransferEngine` is the registry, start-time recovery and mux — and reports
+  `TransferEvent`s (progress, gone, ended) on an unbounded flow; `seal/SealRegistry` owns seals, the
+  deposit round, hand-off, delivery and the account-level events; `relay/RelayDoor` admits deposits
+  and parks chunks, `relay/RelayForwards` forwards whole deposits and forgets them when the forward
+  ends; `inbound/TargetSide` holds seals and incoming transfers and feeds the receive engine;
+  `inbound/FileInboundHandler` dispatches by header and runs the shared chunk checks before a
+  `ChunkSink` sees a chunk. The registry and the forwards subscribe to the engine's events (guide
+  §5), and each sweeps its rows so a restart that cut an event short still settles.
 - **Gone signals.** Before the OFFER is ACKed: no link to the peer, or no ACK within
   `relayBackupAfter`. After: chunks in flight and no link, or no ACK at all for `chunkAckTimeout`, or
   the peer's link closing. Only a seal's direct transfer acts on them (one deposit round).
@@ -464,5 +465,6 @@ Where the code settled what this document left open (the code is the reference f
   `routing/file` without touching a mechanism in this document: per-transfer sessions over a mux, the
   large path split into puller and holder sessions behind a channel mux, pull naming (`FilePullProcessor`,
   `file_pull_attempts`), the frames renamed `LargeFileFrame` with kinds `PULL`/`PULL_OK`/`DECLINED` (wire
-  values unchanged), and the size-limit taxonomy of [`file/design.md`](file/design.md) §15. Package and
-  class references in this section are as implemented before that cleanup.
+  values unchanged), and the size-limit taxonomy of [`file/design.md`](file/design.md) §15. The
+  file-routing bullet above already shows the steady-state session shape; the remaining references in
+  this section predate the cleanup where they name changed types.

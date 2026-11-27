@@ -113,6 +113,7 @@ class SealRegistryTest {
 
         val seen = mutableListOf<FileEvent>()
         backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         h.awaitOffers(2)
         val pushed = h.transfersFor(peerA).single()
@@ -140,6 +141,7 @@ class SealRegistryTest {
 
         val seen = mutableListOf<FileEvent>()
         backgroundScope.launch(Dispatchers.Unconfined) { h.fileEvents.collect { seen += it } }
+        h.engine.runIn(backgroundScope)
         h.seals.push(fixtureFileId, fixtureAccount)
         h.awaitOffers(2)
 
@@ -165,19 +167,30 @@ class SealRegistryTest {
     @Test
     fun sendState_aggregatesProgressAndTerminal() = runTest {
         val h = sealTransferHarness(totalBytes = 1024L * 1024, chunkSize = 220 * 1024)
+        h.engine.runIn(backgroundScope)
 
         h.seals.push(fixtureFileId, fixtureAccount)
 
         val sending = h.seals.sendState(fixtureFileId)
         assertEquals(FileSendStatus.SENDING, sending.getValue(fixtureAccount).status)
 
-        val transfer = h.transfersFor(peerA).single()
-        h.engine.onOutcome(h.ackOffer(transfer.transferId, peerA))
-        h.engine.onAck(transfer.transferId, peerA, highestContiguousIndex = 2)
-        delay(100.milliseconds)
-        val progress = h.seals.sendState(fixtureFileId)
-        // Minimum covered bytes across the account's live device transfers.
-        assertTrue(progress.getValue(fixtureAccount).sentBytes >= 0L)
+        // Progress is the least any device has covered, so both devices must ACK before the
+        // account's sentBytes leaves the starting zero.
+        for (device in listOf(peerA, peerB)) {
+            val transfer = h.transfersFor(device).single()
+            h.engine.onOutcome(h.ackOffer(transfer.transferId, device))
+            h.engine.onAck(transfer.transferId, device, highestContiguousIndex = 2)
+        }
+        val expectedBytes = 3L * h.chunkSize
+        withTimeout(5.seconds) {
+            while (h.seals.sendState(fixtureFileId).getValue(fixtureAccount).sentBytes < expectedBytes) {
+                delay(10.milliseconds)
+            }
+        }
+        val progress = h.seals.sendState(fixtureFileId).getValue(fixtureAccount)
+        assertEquals(FileSendStatus.SENDING, progress.status)
+        // Chunks 0..2 covered: exactly three chunks from the chunk boundary.
+        assertEquals(expectedBytes, progress.sentBytes)
     }
 
     @Test
