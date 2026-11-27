@@ -204,6 +204,19 @@ internal data class RouterConfig(
     val largeFileStreamWindowBytes: Long = 32L * 1024L * 1024L,
     /** Large-file pulls running at once per node (design §9, one candidate at a time per file). */
     val maxConcurrentLargeFiles: Int = 2,
+    /**
+     * The close-race grace before a requester treats a channel close as the outcome: a real
+     * DECLINED/PULL_OK arriving just after the close still wins (design §6.6).
+     */
+    val largeFileAnswerGrace: Duration = 300.milliseconds,
+    /** The holder's poll while past the credit window, and after an empty read (design §6.6). */
+    val largeFilePacingDelay: Duration = 50.milliseconds,
+    /** The requester's retry after a deferred append (the engine is still recovering, design §8). */
+    val largeFileDeferRetry: Duration = 100.milliseconds,
+    /** How often a holder that sent every byte rechecks whether its requester is still there. */
+    val largeFileParkedPoll: Duration = 1.seconds,
+    /** Buffered-amount resume watermark for the holder's backpressure wait (design §6.6). */
+    val largeFileBufferedResumeBytes: Long = 1L * 1024L * 1024L,
     /** Idle reservation TTL (design §7.2): partial deposits older than this free their quota. */
     val fileRelayIdleTtl: Duration = 1.hours,
     /**
@@ -268,6 +281,11 @@ internal data class RouterConfig(
         require(largeFileSessionOpenTimeout > Duration.ZERO) { "largeFileSessionOpenTimeout must be > 0" }
         require(largeFileStreamWindowBytes > 0) { "largeFileStreamWindowBytes must be > 0" }
         require(maxConcurrentLargeFiles > 0) { "maxConcurrentLargeFiles must be > 0" }
+        require(largeFileAnswerGrace > Duration.ZERO) { "largeFileAnswerGrace must be > 0" }
+        require(largeFilePacingDelay > Duration.ZERO) { "largeFilePacingDelay must be > 0" }
+        require(largeFileDeferRetry > Duration.ZERO) { "largeFileDeferRetry must be > 0" }
+        require(largeFileParkedPoll > Duration.ZERO) { "largeFileParkedPoll must be > 0" }
+        require(largeFileBufferedResumeBytes > 0) { "largeFileBufferedResumeBytes must be > 0" }
         require(fileRelayIdleTtl > Duration.ZERO) { "fileRelayIdleTtl must be > 0" }
         require(fileRelayIdleTtl < fileTransferTtl) { "fileRelayIdleTtl must be shorter than the transfer TTL" }
         require(relayStoragePledgeBytes > 0) { "relayStoragePledgeBytes must be > 0" }

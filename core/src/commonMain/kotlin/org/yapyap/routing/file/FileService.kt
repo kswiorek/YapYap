@@ -99,7 +99,7 @@ internal class FileService(
     private val relayDoor = RelayDoor(ctx, packets, relayStore, forwards)
 
     // Large-file pull (design §6.6): the pull protocol on dedicated file channels; no
-    // envelopes, no outbox. One actor per channel on each end; state dies with the channel.
+    // envelopes, no outbox. One session per channel on each end; state dies with the channel.
     private val fetchService = LargeFileService(
         devices = ctx.devices,
         transport = ctx.webRtcTransport,

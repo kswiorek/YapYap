@@ -14,7 +14,9 @@ import org.yapyap.routing.router.TransportLimits
  * its code ([BinaryEnvelope.maxContentBytes], [FileHeader.CHUNK_ENCODED_BYTES],
  * [FileHeader.OFFER_ENCODED_BYTES], [FileProtection.CHUNK_OVERHEAD_BYTES],
  * [LargeFileFrame.Data.ENCODED_OVERHEAD_BYTES]);
- * this only subtracts them and hands the router its piece ([FileLimits]). The transport sizes are
+ * this only subtracts them and hands the router its piece ([FileLimits]). The large path's frame
+ * size has no chunk-floor rule: it stores no rows, and its credit window, pacing and the transport
+ * payload limit bound it. The transport sizes are
  * not user settings, so these are fixed while the node runs. A transfer's chunk size is part of
  * its public shape, fixed when it is created, and receivers place chunks by byte range
  * (docs/envelope-redesign.md §5.3), so a different size in a later run reads fine; a size lowered
@@ -29,9 +31,8 @@ internal fun fileLimitsFor(transport: TransportLimits): FileLimits {
         "Transport frames (${transport.maxRoutableBytes} bytes) leave $chunkSize bytes per file chunk; " +
                 "at least $MIN_FILE_CHUNK_SIZE_BYTES are needed"
     }
-    require(largeFileFrame >= MIN_FILE_CHUNK_SIZE_BYTES) {
-        "WebRTC frames (${transport.webRtcMaxPayloadBytes} bytes) leave $largeFileFrame bytes per large-file frame; " +
-                "at least $MIN_FILE_CHUNK_SIZE_BYTES are needed"
+    require(largeFileFrame > 0) {
+        "WebRTC frames (${transport.webRtcMaxPayloadBytes} bytes) leave no room for a large-file frame"
     }
     // The chunk floor is stricter than the seal budget (the OFFER header is larger than a CHUNK's),
     // so a frame that leaves room for a chunk always leaves room for a seal: the derivation above is

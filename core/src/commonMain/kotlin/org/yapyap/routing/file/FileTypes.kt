@@ -1,8 +1,12 @@
 package org.yapyap.routing.file
 
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.LargeFileDeclineReason
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.TransferShape
+import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.store.OutgoingTransfer
 
 /** What happened to an outgoing transfer; its owner (the seal registry or the relay forwards) reacts. */
@@ -50,4 +54,28 @@ internal enum class LargeFileResult {
 
     /** The local receive ended (declined, failed, forgotten): drop the row, no blacklist. */
     ENDED,
+}
+
+/** What one PULL's channel claim found. */
+internal enum class LargeFileServeClaim {
+    /** The channel is now ours to gate and serve. */
+    CLAIMED,
+
+    /** A PULL on this channel is already being handled: ignore the repeat. */
+    ALREADY,
+
+    /** The peer already holds the maximum serves: tell it to come back later. */
+    BUSY,
+}
+
+/** What the large-file serve gate decided for one PULL. */
+internal sealed interface LargeFileAdmission {
+    /** Serve [manifest] to [account]'s device. */
+    data class Allowed(val account: AccountId, val manifest: FileManifest) : LargeFileAdmission
+
+    /** I don't hold it, or I won't serve it: answer DECLINED and close. */
+    data class Declined(val reason: LargeFileDeclineReason) : LargeFileAdmission
+
+    /** The request is structurally unusable (a bad offset): ABORT and close. */
+    data class Abort(val reason: LargeFileAbortReason, val text: String?) : LargeFileAdmission
 }
