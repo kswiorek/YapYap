@@ -21,7 +21,6 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.TransferShape
@@ -43,7 +42,6 @@ import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutgoingSeal
 import org.yapyap.routing.store.OutgoingTransfer
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -117,7 +115,11 @@ internal class SealRegistry(
         val byteFrom: Long,
     )
 
-    /** Seals [fileId] for every device of [target] that has no live seal of it and pushes it. */
+    /**
+     * Seals [fileId] for every device of [target] that has no live seal of it and pushes it.
+     * A held file above the network's small-file limit is a silent no-op (large files are
+     * pull-only); a file this device does not hold still reports Failed as before.
+     */
     suspend fun push(fileId: FileId, target: AccountId) {
         val manifest = plaintext.describe(fileId) ?: run {
             AppLog.warn(
@@ -129,7 +131,7 @@ internal class SealRegistry(
             events.emit(FileEvent.Failed(fileId, target, FileFailureReason.FAILED))
             return
         }
-        if (manifest.totalBytes > SMALL_FILE_MAX_BYTES) return
+        if (manifest.totalBytes > ctx.routerConfig.value.smallFileMaxBytes) return
         val devices = peerDevices(target)
         val plans = mutex.withLock {
             val planned = mutableListOf<SealPlan>()
@@ -158,7 +160,7 @@ internal class SealRegistry(
      */
     suspend fun serve(fileId: FileId, device: PeerId, fromOffset: Long): Boolean {
         val manifest = plaintext.describe(fileId) ?: return false
-        if (manifest.totalBytes > SMALL_FILE_MAX_BYTES) return false
+        if (manifest.totalBytes > ctx.routerConfig.value.smallFileMaxBytes) return false
         val chunkSize = ctx.fileLimits.value.chunkSizeBytes
         val byteFrom = (fromOffset.coerceIn(0, manifest.totalBytes) / chunkSize) * chunkSize
         val key = fileId to device
@@ -254,7 +256,7 @@ internal class SealRegistry(
         }
         while (true) {
             guarded("sweep") { sweep() }
-            delay(maxOf(ctx.routerConfig.value.chunkAckTimeout, 10.seconds))
+            delay(ctx.routerConfig.value.fileSweepInterval)
         }
     }
 
@@ -429,6 +431,20 @@ internal class SealRegistry(
                 event = LogEvent.FILE_TASK_FAILED,
                 message = "Could not seal the file for a device; the pull path covers it",
                 fields = mapOf("fileId" to manifest.fileId, "device" to device, "disposition" to e.disposition),
+            )
+            return false
+        }
+        if (sealBytes.size > ctx.fileLimits.value.maxSealBytes) {
+            AppLog.warn(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Seal exceeds the transport budget; the pull path covers the device",
+                fields = mapOf(
+                    "fileId" to manifest.fileId,
+                    "device" to device,
+                    "sealBytes" to sealBytes.size,
+                    "maxSealBytes" to ctx.fileLimits.value.maxSealBytes,
+                ),
             )
             return false
         }

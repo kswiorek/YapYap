@@ -15,7 +15,12 @@ import org.yapyap.orchestrator.runtime.message.PickedFile
 import org.yapyap.orchestrator.runtime.message.PickedFileSource
 import org.yapyap.orchestrator.runtime.message.SendRefusal
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MAX_FILE_NAME_BYTES
+import org.yapyap.protocol.MAX_FILE_NAME_CHARS
+import org.yapyap.protocol.MAX_MIME_TYPE_BYTES
+import org.yapyap.protocol.MAX_MIME_TYPE_CHARS
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileCarrier
 
@@ -47,7 +52,7 @@ internal interface FileSendService {
     /** The DAG append succeeded: [attachments] are now referenced, not releasable. */
     suspend fun confirm(attachments: List<DagPayload.Attachment>)
 
-    /** Start per-device pushes for small files in [attachments] to [members]. */
+    /** Start per-device pushes of [attachments] to [members]; a large file just no-ops (pull-only). */
     suspend fun startPushes(attachments: List<DagPayload.Attachment>, members: Collection<AccountId>)
 
     /** Delete partial copies left by sends a previous run killed mid-hash. */
@@ -166,7 +171,6 @@ internal class DefaultFileSendService(
         members: Collection<AccountId>,
     ) {
         for (attachment in attachments) { //TODO [File cleanup] Async loops
-            if (attachment.totalBytes > SMALL_FILE_MAX_BYTES) continue
             for (member in members) {
                 try {
                     fileCarrier.pushFile(attachment.fileId, member)

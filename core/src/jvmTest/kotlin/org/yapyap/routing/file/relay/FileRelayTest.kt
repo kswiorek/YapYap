@@ -15,7 +15,6 @@ import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -503,7 +502,8 @@ class FileRelayTest {
     fun largeOffer_declinedAtDoor() = runTest {
         val h = harness()
         // Shape exceeds the small-file range; the seal itself stays valid so the door declines on shape.
-        val result = h.handler.handle(h.depositOffer(shape = TransferShape(chunkSize, 0, SMALL_FILE_MAX_BYTES + 1)))
+        val aboveLimit = h.ctx.routerConfig.value.smallFileMaxBytes + 1
+        val result = h.handler.handle(h.depositOffer(shape = TransferShape(chunkSize, 0, aboveLimit)))
         assertIs<InboundHandleResult.Rejected>(result, "large files never touch relays")
         assertTrue(h.relay.all().isEmpty())
     }
@@ -515,12 +515,12 @@ class FileRelayTest {
         h.forwards.runIn(backgroundScope)
         val transferId = h.depositWhole()
         h.clock.advanceBy(3.days)
-        // Sweep via a fresh forwards run tick: expire and drop. A session started after the
-        // engine is running ticks at chunkAckTimeout / 3 (15 s), and the forwards sweep every
-        // max(chunkAckTimeout, 10 s); wait past both instead of assuming the old first pass.
+        // Sweep via a fresh forwards run tick: expire and drop. The forwards and transfer-session
+        // sweeps run at the configured fileSweepInterval (15 s per session tick at the default);
+        // wait for them instead of assuming an immediate first pass.
         withTimeout(120.seconds) {
             while (h.relay.find(transferId) != null) {
-                // advance clock and let the sweep loop (chunkAckTimeout tick) fire.
+                // Advance the clock and let the sweep loops fire.
                 delay(100.milliseconds)
             }
         }

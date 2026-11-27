@@ -52,7 +52,6 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
 import kotlin.time.TestTimeSource
 import kotlin.uuid.Uuid
 
@@ -87,6 +86,7 @@ class FileRequestCoordinatorTest {
     private suspend fun harness(
         timeSource: TestTimeSource = TestTimeSource(),
         memberships: Map<Pair<RoomId, AccountId>, FakeRoomRepository.Member> = emptyMap(),
+        orchestratorConfig: OrchestratorConfig = OrchestratorConfig(),
     ): Harness {
         val db = openMemoryDatabase().database
         val clock = FakeClock(now)
@@ -103,8 +103,8 @@ class FileRequestCoordinatorTest {
         val work = Path(SystemTemporaryDirectory.toString(), "yapyap-coordtest-${Uuid.random()}")
         files.createDirectories(work)
         val crypto = DefaultCryptoProvider()
-        val config = MutableStateFlow(OrchestratorConfig())
-        val store = DefaultFileStore(descriptors, crypto, files, Path(work.toString(), "store"), config, clock)
+        val config = MutableStateFlow(orchestratorConfig)
+        val store = DefaultFileStore(descriptors, crypto, files, Path(work.toString(), "store"), clock)
         val engine = ReceiveEngine(
             receives = receives,
             descriptors = descriptors,
@@ -182,7 +182,7 @@ class FileRequestCoordinatorTest {
         assertEquals(PendingFileRequestStatus.PENDING, pending.status)
         assertEquals(1, h.router.startedFiles.size)
         assertEquals(fileId, h.router.startedFiles.single().first)
-        assertEquals(now + 60.seconds, h.router.startedFiles.single().second)
+        assertEquals(false, h.router.startedFiles.single().second, "automatic trigger: routing waits the push window")
         h.coordinator.stop()
     }
 
@@ -213,7 +213,7 @@ class FileRequestCoordinatorTest {
     }
 
     @Test
-    fun largeAttachment_belowAutoDownload_triggersImmediately() = runTest {
+    fun largeAttachment_belowAutoDownload_triggersRequest() = runTest {
         val h = harness()
         val mid = Uuid.random()
         val big = DagPayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
@@ -226,11 +226,12 @@ class FileRequestCoordinatorTest {
         h.pipeline.emit(IngestResult.Inserted(payload))
         advanceTimeBy(1.seconds)
         runCurrent()
-        // Nothing is pushed for large files, so there is no grace period.
+        // The orchestrator only decides to ask; routing pins the class and starts a large file
+        // at once without waiting the small path's push window.
         assertNotNull(h.pending.find(fileId))
         assertEquals(1, h.router.startedFiles.size)
         assertEquals(fileId, h.router.startedFiles.single().first)
-        assertEquals(now, h.router.startedFiles.single().second)
+        assertEquals(false, h.router.startedFiles.single().second, "automatic trigger: routing decides by class")
         h.coordinator.stop()
     }
 
@@ -256,6 +257,24 @@ class FileRequestCoordinatorTest {
     }
 
     @Test
+    fun smallAttachment_aboveAutoDownload_waitsForUserAccept() = runTest {
+        val h = harness(orchestratorConfig = OrchestratorConfig(autoDownloadMaxBytes = 0L))
+        val mid = Uuid.random()
+        h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
+        h.messages.attachments[fileId] = listOf(mid)
+        h.coordinator.start(this)
+        runCurrent()
+        h.pipeline.emit(IngestResult.Inserted(textMessage(mid, senderAccount)))
+        runCurrent()
+        // The gate is about the user's attention, not the router's small/large boundary:
+        // even a small file above it waits for the user's accept.
+        assertNull(h.pending.find(fileId), "no request until the user accepts")
+        assertTrue(h.router.startedFiles.isEmpty())
+        assertEquals(FileReceiveStatus.DECLINED, h.receives.find(fileId)?.status)
+        h.coordinator.stop()
+    }
+
+    @Test
     fun requestTotalBytes_prefersAttachmentFallsBackToRow() = runTest {
         val h = harness()
         assertNull(h.source.requestTotalBytes(fileId))
@@ -270,7 +289,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun satisfiedAndReady_dropPending() = runTest {
         val h = harness()
-        h.pending.upsertPending(fileId, now, now)
+        h.pending.upsertPending(fileId, now)
         h.coordinator.start(this)
         advanceTimeBy(1.seconds)
         runCurrent()
@@ -279,7 +298,7 @@ class FileRequestCoordinatorTest {
         runCurrent()
         assertNull(h.pending.find(fileId))
 
-        h.pending.upsertPending(fileId, now, now)
+        h.pending.upsertPending(fileId, now)
         h.receiveEvents.emit(FileReceiveEvent.Ready(fileId))
         advanceTimeBy(1.seconds)
         runCurrent()
@@ -290,7 +309,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun unavailableMarked_declinedTerminalUntilRearmed() = runTest {
         val h = harness()
-        h.pending.upsertPending(fileId, now, now)
+        h.pending.upsertPending(fileId, now)
         h.coordinator.start(this)
         advanceTimeBy(1.seconds)
         runCurrent()
@@ -314,7 +333,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun noDirectConnection_keepsPending() = runTest {
         val h = harness()
-        h.pending.upsertPending(fileId, now, now)
+        h.pending.upsertPending(fileId, now)
         h.coordinator.start(this)
         advanceTimeBy(1.seconds)
         runCurrent()
@@ -408,13 +427,13 @@ class FileRequestCoordinatorTest {
             )
         )
         h.coordinator.start(this)
-        advanceTimeBy(1.seconds)
         runCurrent()
-        assertNull(h.pending.find(fileId), "no trigger before the sweep fires")
+        // The startup sweep runs before the periodic delay, so the stalled request re-opens at once.
+        assertNotNull(h.pending.find(fileId), "the startup sweep re-opens the stalled request")
+        assertTrue(h.router.startedFiles.isNotEmpty())
         advanceTimeBy(61.seconds)
         runCurrent()
-        assertNotNull(h.pending.find(fileId), "stalled receive re-opens the request")
-        assertTrue(h.router.startedFiles.isNotEmpty())
+        assertNotNull(h.pending.find(fileId), "the periodic sweep keeps the request open")
         h.coordinator.stop()
     }
 
@@ -431,7 +450,7 @@ class FileRequestCoordinatorTest {
             )
         )
         // Every holder declined: UNAVAILABLE is terminal until a new message or the user re-opens.
-        h.pending.upsertPending(fileId, now, now)
+        h.pending.upsertPending(fileId, now)
         h.pending.setUnavailable(fileId, now)
         h.coordinator.start(this)
         repeat(3) {
@@ -455,7 +474,7 @@ class FileRequestCoordinatorTest {
                 createdAt = now, updatedAt = now,
             )
         )
-        h.pending.upsertPending(fileId, now, now)
+        h.pending.upsertPending(fileId, now)
         h.pending.setUnavailable(fileId, now)
         h.coordinator.start(this)
         runCurrent()
@@ -537,7 +556,7 @@ class FileRequestCoordinatorTest {
                 createdAt = now, updatedAt = now,
             )
         )
-        h.pending.upsertPending(fileId, now + 60.seconds, now)
+        h.pending.upsertPending(fileId, now)
         h.coordinator.start(this)
         runCurrent()
         // Progress arrives before the grace period ends.
@@ -688,15 +707,15 @@ class FileRequestCoordinatorTest {
     }
 
     private class RecordingFileRouter(
-        val startedFiles: MutableList<Pair<FileId, Instant>> = mutableListOf(),
+        val startedFiles: MutableList<Pair<FileId, Boolean>> = mutableListOf(),
         val abortedFiles: MutableList<FileId> = mutableListOf(),
         val events: MutableSharedFlow<FileEvent> = MutableSharedFlow(extraBufferCapacity = 64),
     ) : NoopFileCarrier() {
         val files: FileCarrier get() = this
         override val fileEvents: Flow<FileEvent> = events
 
-        override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) {
-            startedFiles += fileId to firstAttemptAt
+        override suspend fun startFilePull(fileId: FileId, immediate: Boolean) {
+            startedFiles += fileId to immediate
         }
 
         override suspend fun abortLargeFile(

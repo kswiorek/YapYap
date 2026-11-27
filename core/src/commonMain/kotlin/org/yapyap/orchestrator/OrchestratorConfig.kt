@@ -1,7 +1,6 @@
 package org.yapyap.orchestrator
 
 import kotlinx.serialization.Serializable
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
@@ -15,9 +14,10 @@ internal data class OrchestratorConfig(
     val typingIndicatorInterval: Duration = 3.seconds,
     /** Delay before a freshly created pending sync is first attempted (lets in-flight messages land). */
     val syncGracePeriod: Duration = 60.seconds,
-    /** Delay before a freshly triggered file request is first attempted (lets a pushed OFFER land). */
-    val fileRequestFirstAttemptDelay: Duration = 60.seconds,
-    /** How often the file request coordinator sweeps due requests and stalled receives. */
+    /**
+     * How often the file request coordinator sweeps pending requests and stalled receives. This is
+     * the trigger-state sweep; routing runs its own file sweeps on `RouterConfig.fileSweepInterval`.
+     */
     val fileSweepInterval: Duration = 30.seconds,
     /**
      * Receiver gap trigger (design §8): an IN_FLIGHT receive whose contiguous prefix does not
@@ -29,15 +29,17 @@ internal data class OrchestratorConfig(
      * a pushed or relayed file can arrive before the message that references it.
      */
     val unreferencedFileRetention: Duration = 2.days,
-    /** "Keep a copy" default threshold: at or below, a picked file is copied into the store; above, referenced. */
-    val copyIntoStoreMaxBytes: Long = SMALL_FILE_MAX_BYTES,
     /** Quota over the store's copies; references are never deleted by retention. */
     val storeQuotaBytes: Long = 1024L * 1024L * 1024L,
     /** Staging bound (design §8): chunks beyond the prefix that cannot extend it are deferred past this. */
     val maxStagedBytes: Long = 32L * 1024L * 1024L,
     /** Block mismatches before a receive fails (design §8). */
     val fileHashRetryLimit: Int = 3,
-    /** Large files at or below this are fetched automatically (design §8). */
+    /**
+     * Every file at or below this is fetched automatically, small included; above it only a user
+     * click does (design §8). It is about the user's attention and disk, orthogonal to the router's
+     * small/large boundary.
+     */
     val autoDownloadMaxBytes: Long = 250L * 1024L * 1024L,
     /** Checkpoint cadence (design §8): one append, fsync and prefix commit per this many bytes, */
     val fileCheckpointBytes: Long = 8L * 1024L * 1024L,
@@ -73,19 +75,16 @@ internal data class OrchestratorConfig(
         require(maintenanceInterval > Duration.ZERO) { "maintenanceIntervalSeconds must be > 0" }
         require(typingIndicatorInterval > Duration.ZERO) { "typingIndicatorInterval must be > 0" }
         require(syncGracePeriod >= Duration.ZERO) { "syncGracePeriodSeconds must be >= 0" }
-        require(fileRequestFirstAttemptDelay >= Duration.ZERO) { "fileRequestFirstAttemptDelay must be >= 0" }
         require(fileSweepInterval > Duration.ZERO) { "fileSweepInterval must be > 0" }
         require(fileStallTimeout > Duration.ZERO) { "fileStallTimeout must be > 0" }
         require(unreferencedFileRetention > Duration.ZERO) { "unreferencedFileRetention must be > 0" }
-        require(copyIntoStoreMaxBytes >= 0) { "copyIntoStoreMaxBytes must be >= 0" }
         require(storeQuotaBytes > 0) { "storeQuotaBytes must be > 0" }
         require(maxStagedBytes > 0) { "maxStagedBytes must be > 0" }
         require(fileHashRetryLimit > 0) { "fileHashRetryLimit must be > 0" }
         require(autoDownloadMaxBytes >= 0) { "autoDownloadMaxBytes must be >= 0" }
-        // A file fetched or copied without asking must fit the quota, or the next quota run
-        // evicts it right after it arrived (design §10).
+        // A file fetched without asking must fit the quota, or the next quota run evicts it
+        // right after it arrived (design §10).
         require(storeQuotaBytes >= autoDownloadMaxBytes) { "storeQuotaBytes must hold an auto-downloaded file" }
-        require(storeQuotaBytes >= copyIntoStoreMaxBytes) { "storeQuotaBytes must hold a copied send" }
         require(fileCheckpointBytes > 0) { "fileCheckpointBytes must be > 0" }
         require(fileCheckpointInterval > Duration.ZERO) { "fileCheckpointInterval must be > 0" }
         require(maxStagedBytes >= fileCheckpointBytes) { "maxStagedBytes must hold a checkpoint's worth" }

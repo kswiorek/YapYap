@@ -53,7 +53,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
@@ -198,7 +197,7 @@ class DefaultMessagingServiceTest {
             Message(
                 content = "look at this",
                 pickedFiles = listOf(
-                    PickedFile("photo.jpg", "image/jpeg", PickedFileSource.FilePath("/tmp/photo.jpg")),
+                    PickedFile("photo.jpg", "image/jpeg", PickedFileSource.FilePath("/tmp/photo.jpg"), keepCopy = true),
                 ),
             ),
         )
@@ -220,7 +219,7 @@ class DefaultMessagingServiceTest {
     }
 
     @Test
-    fun sendMessage_withLargePickedFile_publishesWithoutPushing() = runTest(UnconfinedTestDispatcher()) {
+    fun sendMessage_withLargePickedFile_publishesAndHandsThePushToRouting() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
         val fileSendService = FakeFileSendService(
             prepareResult = { files ->
@@ -252,7 +251,12 @@ class DefaultMessagingServiceTest {
 
         assertIs<SendMessageResult.Preparing>(result)
         advanceUntilIdle()
-        assertTrue(fileSendService.pushed.isEmpty(), "large files are pull-only: nothing is pushed")
+        // Sending no longer skips large files: every attachment goes to the carrier, which
+        // silently no-ops a push above the network's small-file limit (large files are pull-only).
+        assertEquals(
+            setOf(localAccount, remoteAccount),
+            fileSendService.pushed.map { it.second }.toSet(),
+        )
     }
 
     @Test
@@ -269,7 +273,7 @@ class DefaultMessagingServiceTest {
         startStack(this, pipeline, service)
 
         val tooMany = List(DagPayload.Attachment.MAX_ATTACHMENTS + 1) {
-            PickedFile("f$it.bin", null, PickedFileSource.FilePath("/tmp/f$it.bin"))
+            PickedFile("f$it.bin", null, PickedFileSource.FilePath("/tmp/f$it.bin"), keepCopy = true)
         }
         val result = service.sendMessage(roomId, Message("too many", pickedFiles = tooMany))
 
@@ -310,7 +314,14 @@ class DefaultMessagingServiceTest {
             roomId,
             Message(
                 "with file",
-                pickedFiles = listOf(PickedFile("a.bin", null, PickedFileSource.FilePath("/tmp/a.bin")))
+                pickedFiles = listOf(
+                    PickedFile(
+                        "a.bin",
+                        null,
+                        PickedFileSource.FilePath("/tmp/a.bin"),
+                        keepCopy = true
+                    )
+                )
             ),
         )
         assertIs<SendMessageResult.Preparing>(result)
@@ -333,7 +344,14 @@ class DefaultMessagingServiceTest {
             roomId,
             Message(
                 "bad",
-                pickedFiles = listOf(PickedFile("missing.bin", null, PickedFileSource.FilePath("/nope.bin")))
+                pickedFiles = listOf(
+                    PickedFile(
+                        "missing.bin",
+                        null,
+                        PickedFileSource.FilePath("/nope.bin"),
+                        keepCopy = true
+                    )
+                )
             ),
         )
         // Async: Preparing at once, then the background prepare refuses.
@@ -368,7 +386,17 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendMessage(
             roomId,
-            Message("slow", pickedFiles = listOf(PickedFile("s.bin", null, PickedFileSource.FilePath("/tmp/s.bin")))),
+            Message(
+                "slow",
+                pickedFiles = listOf(
+                    PickedFile(
+                        "s.bin",
+                        null,
+                        PickedFileSource.FilePath("/tmp/s.bin"),
+                        keepCopy = true
+                    )
+                )
+            ),
         )
         val preparing = assertIs<SendMessageResult.Preparing>(result)
         // Returns before hashing ends: no message yet, preparing visible.
@@ -396,7 +424,17 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendMessage(
             roomId,
-            Message("cancel", pickedFiles = listOf(PickedFile("c.bin", null, PickedFileSource.FilePath("/tmp/c.bin")))),
+            Message(
+                "cancel",
+                pickedFiles = listOf(
+                    PickedFile(
+                        "c.bin",
+                        null,
+                        PickedFileSource.FilePath("/tmp/c.bin"),
+                        keepCopy = true
+                    )
+                )
+            ),
         )
         val preparing = assertIs<SendMessageResult.Preparing>(result)
         service.cancelPreparingSend(preparing.sendId)
@@ -1530,8 +1568,9 @@ private class FakeFileSendService(
         attachments: List<DagPayload.Attachment>,
         members: Collection<AccountId>,
     ) {
-        for ((fileId, _, _, totalBytes) in attachments) {
-            if (totalBytes > SMALL_FILE_MAX_BYTES) continue
+        // Like the real service, hand every attachment to the carrier; the router no-ops a
+        // large file's push (pull-only) above the network's small-file limit.
+        for ((fileId, _, _, _) in attachments) {
             for (m in members) pushed += fileId to m
         }
     }

@@ -161,7 +161,13 @@ class LargeFileServiceTest {
         ingest = gate,
         requests = gate,
         routerConfig = MutableStateFlow(routerConfig),
-        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = chunkSize, largeFileFrameBytes = chunkSize)),
+        fileLimits = MutableStateFlow(
+            FileLimits(
+                chunkSizeBytes = chunkSize,
+                largeFileFrameBytes = chunkSize,
+                maxSealBytes = 64 * 1024
+            )
+        ),
         events = events,
         clock = clock,
     )

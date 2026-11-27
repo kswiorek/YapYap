@@ -10,7 +10,7 @@ internal suspend fun FileStore.importHeld(
     source: FileImportSource,
     fileName: String,
     mimeType: String?,
-    keepCopy: Boolean?,
+    keepCopy: Boolean,
 ): FileDescriptor = when (val result = import(source, fileName, mimeType, keepCopy)) {
     is ImportResult.Imported -> result.descriptor
     else -> error("import refused: $result")

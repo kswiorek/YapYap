@@ -4,7 +4,6 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.envelope.FileProtection
-import org.yapyap.protocol.MAX_SEAL_BYTES
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -48,7 +47,8 @@ internal class RelayDoor(
                 ctx.devices.isKnownNonBanned(header.origin) &&
                 ctx.devices.getDeviceStatus(header.finalTarget) != null &&
                 header.shape.isAcceptable() &&
-                env.content.size in 1..MAX_SEAL_BYTES
+                header.shape.byteTo <= ctx.routerConfig.value.smallFileMaxBytes &&
+                env.content.size in 1..ctx.fileLimits.value.maxSealBytes
         if (!admissible) {
             AppLog.info(
                 component = LogComponent.FILE,

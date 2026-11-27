@@ -14,7 +14,6 @@ import org.yapyap.protocol.MAX_MIME_TYPE_CHARS
 import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SEAL_KEY_BYTES
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
 
@@ -193,6 +192,13 @@ internal sealed interface FileHeader {
         /** A CHUNK header's size: kind(1) + transferId(16) + chunkIndex(4). */
         const val CHUNK_ENCODED_BYTES: Int = 21
 
+        /**
+         * An OFFER header's size: kind(1) + transferId(16) + origin(2+64) + finalTarget(2+64) +
+         * shape(4+8+8). The composition root subtracts it from the transport frame limit to bound
+         * an OFFER's seal content.
+         */
+        const val OFFER_ENCODED_BYTES: Int = 169
+
         const val MAX_MISSING_RANGES: Int = 16
 
         fun decode(bytes: ByteArray): FileHeader {
@@ -256,10 +262,11 @@ internal data class TransferShape(
 
     /**
      * What any receiver accepts (target and relay alike): chunks of at least
-     * [MIN_FILE_CHUNK_SIZE_BYTES] and a small-path range. Anything finer would let a 10 MiB
-     * reservation turn into millions of stored chunks.
+     * [MIN_FILE_CHUNK_SIZE_BYTES]. Anything finer would let a reservation turn into millions of
+     * stored chunks. The small-file size gate is the receiver's own network config, applied by the
+     * target and the relay against their respective classes.
      */
-    fun isAcceptable(): Boolean = chunkSizeBytes >= MIN_FILE_CHUNK_SIZE_BYTES && byteTo <= SMALL_FILE_MAX_BYTES
+    fun isAcceptable(): Boolean = chunkSizeBytes >= MIN_FILE_CHUNK_SIZE_BYTES
 
     /**
      * Coverage in this transfer's own chunk indices for a receiver whose contiguous file prefix
@@ -300,7 +307,7 @@ internal class FileSeal(
     val key: SealKey,
 ) {
     init {
-        require(totalBytes in 0..SMALL_FILE_MAX_BYTES) { "totalBytes out of the small-file range" }
+        require(totalBytes >= 0) { "totalBytes must be >= 0" }
         require(blockSize > 0) { "blockSize must be > 0" }
         require(fileName.isNotBlank()) { "fileName must not be blank" }
         require(fileName.length <= MAX_FILE_NAME_CHARS) { "fileName exceeds $MAX_FILE_NAME_CHARS chars" }

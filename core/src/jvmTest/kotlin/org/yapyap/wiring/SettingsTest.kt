@@ -61,6 +61,17 @@ class SettingsTest {
     }
 
     @Test
+    fun networkSmallFileLimit_reachesTheRouterConfig() {
+        val field = FIELDS.filterIsInstance<NumberField>().single { it.id == "smallFileMaxBytes" }
+        assertEquals(FieldSource.NETWORK, field.source, "the small/large boundary is a network value")
+        assertEquals("Files", field.group)
+        val newValue = 4L * 1024 * 1024
+        val overrides: Overrides = mapOf(field.id to ConfigValue.Number(newValue))
+        assertEquals(ConfigValue.Number(newValue), field.read(derive(overrides)))
+        assertEquals(newValue, derive(overrides).router.smallFileMaxBytes)
+    }
+
+    @Test
     fun write_rejectsInvalidValue() {
         val field = userNumberField()
         assertIs<WriteResult.Invalid>(field.write(RuntimeConfig(), ConfigValue.Period(1.seconds)))

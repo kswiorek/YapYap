@@ -93,7 +93,7 @@ class FileStoreJvmTest {
         val descriptors = DefaultFileDescriptorStore(db)
         val store = DefaultFileStore(
             descriptors, crypto, files, storeDir,
-            MutableStateFlow(OrchestratorConfig()), TickClock(),
+            TickClock(),
         )
         val original = writeSource(work, "photo.bin", ByteArray(100_000) { (it % 251).toByte() })
         val descriptor = store.importHeld(FileImportSource.PathSource(original), "photo.bin", null, keepCopy = true)
@@ -113,7 +113,7 @@ class FileStoreJvmTest {
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
         val store =
-            DefaultFileStore(descriptors, crypto, files, storeDir, MutableStateFlow(OrchestratorConfig()), TickClock())
+            DefaultFileStore(descriptors, crypto, files, storeDir, TickClock())
         val bytes = ByteArray(2_000_000) { (it * 7).toByte() }
         val original = writeSource(work, "orig.bin", bytes)
         val descriptor = store.importHeld(FileImportSource.PathSource(original), "orig.bin", null, keepCopy = false)
@@ -138,12 +138,11 @@ class FileStoreJvmTest {
         val config = MutableStateFlow(
             OrchestratorConfig(
                 storeQuotaBytes = 2_500_000L,
-                autoDownloadMaxBytes = 0L,
-                copyIntoStoreMaxBytes = 0L
+                autoDownloadMaxBytes = 0L
             )
         )
         val descriptors = DefaultFileDescriptorStore(db)
-        val store = DefaultFileStore(descriptors, crypto, files, storeDir, config, TickClock())
+        val store = DefaultFileStore(descriptors, crypto, files, storeDir, TickClock())
         val quota = quotaFor(db, store, work, storeDir, config)
         // Reference file: must survive quota pressure.
         val refPath = writeSource(work, "ref.bin", ByteArray(500_000) { 9 })
@@ -170,12 +169,11 @@ class FileStoreJvmTest {
         val config = MutableStateFlow(
             OrchestratorConfig(
                 storeQuotaBytes = 1L,
-                autoDownloadMaxBytes = 0L,
-                copyIntoStoreMaxBytes = 0L
+                autoDownloadMaxBytes = 0L
             )
         )
         val descriptors = DefaultFileDescriptorStore(db)
-        val store = DefaultFileStore(descriptors, crypto, files, storeDir, config, TickClock())
+        val store = DefaultFileStore(descriptors, crypto, files, storeDir, TickClock())
         val bytes = ByteArray(2_000_000) { (it * 13).toByte() }
         val original = writeSource(work, "pic.bin", bytes)
         val copy = store.importHeld(FileImportSource.PathSource(original), "pic.bin", null, keepCopy = true)
@@ -201,7 +199,7 @@ class FileStoreJvmTest {
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
         val store =
-            DefaultFileStore(descriptors, crypto, files, storeDir, MutableStateFlow(OrchestratorConfig()), TickClock())
+            DefaultFileStore(descriptors, crypto, files, storeDir, TickClock())
         val original = writeSource(work, "doc.bin", ByteArray(1_500_000) { (it % 97).toByte() })
         val copy = store.importHeld(FileImportSource.PathSource(original), "doc.bin", null, keepCopy = true)
         files.delete(Path(copy.path))
@@ -224,7 +222,6 @@ class FileStoreJvmTest {
             crypto,
             files,
             storeDir,
-            MutableStateFlow(OrchestratorConfig()),
             TickClock(),
         )
         val original = writeSource(work, "a.bin", ByteArray(1_200_000) { (it % 31).toByte() })
@@ -261,7 +258,6 @@ class FileStoreJvmTest {
             crypto,
             stalling,
             storeDir,
-            MutableStateFlow(OrchestratorConfig()),
             TickClock(),
         )
         val original = writeSource(work, "big.bin", ByteArray(3_000_000) { (it % 211).toByte() })
@@ -280,7 +276,7 @@ class FileStoreJvmTest {
         val work = tempDir("yapyap-store-refuse")
         val storeDir = Path(work.toString(), "store")
         val config = MutableStateFlow(OrchestratorConfig())
-        val store = DefaultFileStore(DefaultFileDescriptorStore(db), crypto, files, storeDir, config, TickClock())
+        val store = DefaultFileStore(DefaultFileDescriptorStore(db), crypto, files, storeDir, TickClock())
         val missing = Path(work.toString(), "gone.bin")
         assertEquals(
             ImportResult.SourceUnreadable,
@@ -289,7 +285,7 @@ class FileStoreJvmTest {
         val full = object : FileAccess by files {
             override suspend fun freeSpaceBytes(directory: Path): Long = 1_000L
         }
-        val fullStore = DefaultFileStore(DefaultFileDescriptorStore(db), crypto, full, storeDir, config, TickClock())
+        val fullStore = DefaultFileStore(DefaultFileDescriptorStore(db), crypto, full, storeDir, TickClock())
         val original = writeSource(work, "x.bin", ByteArray(1_000_000) { 1 })
         assertEquals(
             ImportResult.NoSpace,
@@ -305,7 +301,7 @@ class FileStoreJvmTest {
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
         val store =
-            DefaultFileStore(descriptors, crypto, files, storeDir, MutableStateFlow(OrchestratorConfig()), TickClock())
+            DefaultFileStore(descriptors, crypto, files, storeDir, TickClock())
         val bytes = ByteArray(2_000_000) { (it * 7).toByte() }
         val original = writeSource(work, "orig.bin", bytes)
         val descriptor = store.importHeld(FileImportSource.PathSource(original), "orig.bin", null, keepCopy = false)
@@ -334,7 +330,7 @@ class FileStoreJvmTest {
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
         val store =
-            DefaultFileStore(descriptors, crypto, files, storeDir, MutableStateFlow(OrchestratorConfig()), TickClock())
+            DefaultFileStore(descriptors, crypto, files, storeDir, TickClock())
         val bytes = ByteArray(100_000) { (it % 251).toByte() }
         val original = writeSource(work, "up.bin", bytes)
         val ref = store.importHeld(FileImportSource.PathSource(original), "up.bin", null, keepCopy = false)

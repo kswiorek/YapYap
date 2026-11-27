@@ -188,7 +188,7 @@ class FileLargeFetchTwoRouterTest {
         files.createDirectories(storeDir)
         files.createDirectories(incomingDir)
         val config = MutableStateFlow(orchestratorConfig)
-        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config)
+        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir)
         val chunkSize = MutableStateFlow(32 * 1024)
 
         fun sessionManager(identity: E2eeIdentityResolverForRouter) =
@@ -242,7 +242,7 @@ class FileLargeFetchTwoRouterTest {
             coverage = engine,
         )
         val peerLinks = PeerLinks(identity, localWebRtc, localTor)
-        val fileLimits = MutableStateFlow(FileLimits(chunkSize.value, chunkSize.value))
+        val fileLimits = MutableStateFlow(FileLimits(chunkSize.value, chunkSize.value, maxSealBytes = 64 * 1024))
         val ctx = RoutingContext(
             localIdentity = identity,
             localDeviceId = localPeer.device.deviceId,

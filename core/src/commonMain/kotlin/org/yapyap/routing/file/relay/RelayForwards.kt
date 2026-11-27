@@ -20,7 +20,6 @@ import org.yapyap.routing.store.FileTransferStatus
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutgoingTransfer
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -89,7 +88,7 @@ internal class RelayForwards(
         }
         while (true) {
             guarded("sweep") { sweep() }
-            delay(maxOf(ctx.routerConfig.value.chunkAckTimeout, 10.seconds))
+            delay(ctx.routerConfig.value.fileSweepInterval)
         }
     }
 

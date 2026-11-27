@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.routing.candidate.AttemptExecutor
 import org.yapyap.routing.candidate.CandidateRequestCore
 import org.yapyap.routing.file.large.LargeFileService
@@ -22,7 +21,6 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FilePullClass
 import kotlin.time.Duration
-import kotlin.time.Instant
 
 /**
  * File pull loop (design §9): one candidate at a time.
@@ -39,7 +37,7 @@ import kotlin.time.Instant
  * Online-but-unconnectable is "no direct connection" (never over Tor).
  */
 internal class FilePullProcessor(
-    ctx: RoutingContext,
+    private val ctx: RoutingContext,
     packets: FilePackets,
     private val pullAttempts: FilePullAttemptStore,
     private val requests: FileRequestSource,
@@ -93,15 +91,27 @@ internal class FilePullProcessor(
             null -> null
         }
 
-    /** Starts asking for [fileId] (idempotent). The class comes from the total bytes;
-     * an unknown total takes the small path (its REQUEST is harmless: holders DECLINE
-     * above the limit and the class pins on first start). */
-    suspend fun start(fileId: FileId, firstAttemptAt: Instant) {
+    /**
+     * Starts asking for [fileId] (idempotent). The class comes from the total bytes; an unknown
+     * total takes the small path (its REQUEST is harmless: holders decline above the limit and
+     * the class pins on first start). [immediate] is the trigger's origin: automatic triggers
+     * wait the push window for a small file, while large files and explicit triggers start now.
+     */
+    suspend fun start(fileId: FileId, immediate: Boolean) {
         val total = requests.requestTotalBytes(fileId)
         val pullClass =
-            if (total != null && total > SMALL_FILE_MAX_BYTES) FilePullClass.LARGE
+            if (total != null && total > ctx.routerConfig.value.smallFileMaxBytes) FilePullClass.LARGE
             else FilePullClass.SMALL
+        val now = ctx.clock.now()
+        val firstAttemptAt = if (immediate || pullClass == FilePullClass.LARGE) {
+            now
+        } else {
+            now + ctx.routerConfig.value.filePullDelay
+        }
         pullAttempts.start(fileId, pullClass, firstAttemptAt)
+        // A known file keeps its row and schedule; explicit intent (accept, stall re-open) still
+        // moves that schedule to now. Automatic re-arms never do.
+        if (immediate) pullAttempts.advanceToNow(listOf(fileId), now)
         wake()
     }
 

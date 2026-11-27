@@ -13,6 +13,7 @@ import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.TransferShape
+import org.yapyap.routing.candidate.CandidateWaiting
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -293,5 +294,76 @@ class FileStoreSemanticsJvmTest {
         incoming.pruneExpired(now)
         assertNull(incoming.findTransfer(dead))
         assertNotNull(incoming.findTransfer(live))
+    }
+
+    @Test
+    fun pullCandidateStore_small_composesWaitingAndDeclinedChildren() = runTest {
+        val store = DefaultFilePullAttemptStore(db())
+        val attemptId = Uuid.random()
+        store.start(fileId, FilePullClass.SMALL, now - 1.seconds)
+        store.setAttempt(fileId, attemptId)
+        val view = store.candidateStore(FilePullClass.SMALL)
+        view.addDeclined(fileId, relay)
+
+        val until = now + 90.seconds
+        view.setWaiting(fileId, device, until)
+
+        val stored = assertNotNull(store.findById(fileId))
+        assertEquals(device, stored.waitingDevice)
+        assertEquals(until, stored.waitingUntil)
+        assertEquals(attemptId, stored.attemptId, "the view resolves the row's request-attempt id")
+
+        val due = view.findDue(now, limit = 10).single()
+        assertEquals(fileId, due.id)
+        assertEquals(setOf(relay), due.declined)
+        assertEquals(CandidateWaiting(device, until), due.waiting)
+
+        view.clearWaiting(fileId)
+        assertNull(store.findById(fileId)?.waitingDevice)
+        assertNull(store.findById(fileId)?.waitingUntil)
+        assertNull(view.findDue(now, limit = 10).single().waiting)
+    }
+
+    @Test
+    fun pullCandidateStore_large_hasNoWaitingState() = runTest {
+        val store = DefaultFilePullAttemptStore(db())
+        val attemptId = Uuid.random()
+        store.start(fileId, FilePullClass.LARGE, now - 1.seconds)
+        store.setAttempt(fileId, attemptId)
+        val view = store.candidateStore(FilePullClass.LARGE)
+        view.addDeclined(fileId, relay)
+
+        val due = view.findDue(now, limit = 10).single()
+        assertEquals(fileId, due.id)
+        assertEquals(setOf(relay), due.declined)
+        assertNull(due.waiting, "the large path's answer and bytes share a channel")
+
+        view.setWaiting(fileId, device, now + 90.seconds)
+        assertNull(store.findById(fileId)?.waitingDevice, "setWaiting is a no-op for LARGE")
+        assertNull(store.findById(fileId)?.waitingUntil)
+        view.clearWaiting(fileId)
+        assertEquals(attemptId, store.findById(fileId)?.attemptId, "clearWaiting leaves LARGE untouched")
+        assertNull(view.findDue(now, limit = 10).single().waiting)
+    }
+
+    @Test
+    fun syncCandidateStore_composesRowsAndHasNoWaiting() = runTest {
+        val store = DefaultSyncAttemptStore(db())
+        val syncId = Uuid.random()
+        store.start(syncId, now - 1.seconds)
+        store.recordAttempt(syncId, now - 10.seconds)
+        val view = store.candidateStore()
+        view.addDeclined(syncId, device)
+
+        val due = view.findDue(now, limit = 10).single()
+        assertEquals(syncId, due.id)
+        assertEquals(1, due.attempts)
+        assertEquals(setOf(device), due.declined)
+        assertNull(due.waiting)
+
+        view.setWaiting(syncId, device, now + 90.seconds)
+        assertNull(view.findDue(now, limit = 10).single().waiting, "sync has no WAITING")
+        view.clearWaiting(syncId)
+        assertNull(view.findDue(now, limit = 10).single().waiting)
     }
 }

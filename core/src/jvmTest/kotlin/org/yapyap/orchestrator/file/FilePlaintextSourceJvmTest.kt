@@ -1,11 +1,9 @@
 package org.yapyap.orchestrator.file
 
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.file.io.PositionedHandle
@@ -122,7 +120,6 @@ class FilePlaintextSourceJvmTest {
             crypto,
             files,
             storeDir,
-            MutableStateFlow(OrchestratorConfig()),
             Clock.System,
         )
         return Fixture(descriptors, store, work, storeDir)

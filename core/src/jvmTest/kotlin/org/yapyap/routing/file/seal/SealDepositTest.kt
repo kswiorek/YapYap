@@ -36,6 +36,8 @@ class SealDepositTest {
         routerConfig = RouterConfig(
             relayBackupAfter = 200.milliseconds,
             chunkAckTimeout = 500.milliseconds,
+            // The session tick runs at a third of the sweep interval; keep it inside the tests' waits.
+            fileSweepInterval = 600.milliseconds,
         ),
     )
 
@@ -111,6 +113,7 @@ class SealDepositTest {
             routerConfig = RouterConfig(
                 relayBackupAfter = 200.milliseconds,
                 chunkAckTimeout = 500.milliseconds,
+                fileSweepInterval = 600.milliseconds,
             ),
         )
         h.engine.runIn(backgroundScope)

@@ -42,7 +42,6 @@ import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketOutbox
 import kotlin.time.Duration
-import kotlin.time.Instant
 
 /**
  * The file concern, both directions, and the orchestrator-facing [FileCarrier]
@@ -153,9 +152,9 @@ internal class FileService(
 
     override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> = seals.sendState(fileId)
 
-    override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) {
+    override suspend fun startFilePull(fileId: FileId, immediate: Boolean) {
         lifecycle.requireStarted("starting file pulls")
-        pullProcessor.start(fileId, firstAttemptAt)
+        pullProcessor.start(fileId, immediate)
     }
 
     override suspend fun abortLargeFile(fileId: FileId, reason: LargeFileAbortReason) {

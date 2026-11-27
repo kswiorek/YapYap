@@ -59,6 +59,9 @@ import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateRow
+import org.yapyap.routing.candidate.CandidateWaiting
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestPort
@@ -305,6 +308,41 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
     override suspend fun removeDeclined(syncId: Uuid, deviceIds: Collection<PeerId>) = mutex.withLock {
         rows[syncId]?.declined?.removeAll(deviceIds.toSet())
         Unit
+    }
+
+    override fun candidateStore(): CandidateAttemptStore<Uuid> = object : CandidateAttemptStore<Uuid> {
+        override suspend fun start(id: Uuid, firstAttemptAt: Instant) =
+            this@InMemorySyncAttemptStore.start(id, firstAttemptAt)
+
+        override suspend fun drop(id: Uuid) = this@InMemorySyncAttemptStore.drop(id)
+
+        override suspend fun earliestDueAt(): Instant? = this@InMemorySyncAttemptStore.earliestDueAt()
+
+        override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<Uuid>> =
+            this@InMemorySyncAttemptStore.findDue(now, limit)
+                .map { CandidateRow(it.syncId, it.attempts, it.declinedDevices) }
+
+        override suspend fun recordAttempt(id: Uuid, nextAttemptAt: Instant) =
+            this@InMemorySyncAttemptStore.recordAttempt(id, nextAttemptAt)
+
+        override suspend fun postpone(id: Uuid, nextAttemptAt: Instant) =
+            this@InMemorySyncAttemptStore.postpone(id, nextAttemptAt)
+
+        override suspend fun advanceToNow(ids: Collection<Uuid>, now: Instant) =
+            this@InMemorySyncAttemptStore.advanceToNow(ids, now)
+
+        override suspend fun declinedDevices(id: Uuid): Set<PeerId> =
+            this@InMemorySyncAttemptStore.declinedDevices(id)
+
+        override suspend fun addDeclined(id: Uuid, device: PeerId) =
+            this@InMemorySyncAttemptStore.addDeclined(id, device)
+
+        override suspend fun removeDeclined(id: Uuid, devices: Collection<PeerId>) =
+            this@InMemorySyncAttemptStore.removeDeclined(id, devices)
+
+        override suspend fun setWaiting(id: Uuid, device: PeerId, until: Instant) = Unit
+
+        override suspend fun clearWaiting(id: Uuid) = Unit
     }
 
     fun contains(syncId: Uuid): Boolean = rows.containsKey(syncId)
@@ -652,6 +690,59 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
     override suspend fun idsOf(pullClass: FilePullClass): List<FileId> = mutex.withLock {
         rows.filterValues { it.pullClass == pullClass }.keys.toList()
     }
+
+    fun nextAttemptAt(fileId: FileId): Instant? = rows[fileId]?.nextAttemptAt
+
+    override fun candidateStore(pullClass: FilePullClass): CandidateAttemptStore<FileId> =
+        object : CandidateAttemptStore<FileId> {
+            override suspend fun start(id: FileId, firstAttemptAt: Instant) =
+                this@InMemoryFilePullAttemptStore.start(id, pullClass, firstAttemptAt)
+
+            override suspend fun drop(id: FileId) = this@InMemoryFilePullAttemptStore.drop(id)
+
+            override suspend fun earliestDueAt(): Instant? =
+                this@InMemoryFilePullAttemptStore.earliestDueAt(pullClass)
+
+            override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<FileId>> =
+                this@InMemoryFilePullAttemptStore.findDue(now, limit, pullClass).map { row ->
+                    val waiting = if (pullClass == FilePullClass.SMALL) row.waitingState() else null
+                    CandidateRow(row.fileId, row.attempts, row.declinedDevices, waiting)
+                }
+
+            override suspend fun recordAttempt(id: FileId, nextAttemptAt: Instant) =
+                this@InMemoryFilePullAttemptStore.recordAttempt(id, nextAttemptAt)
+
+            override suspend fun postpone(id: FileId, nextAttemptAt: Instant) =
+                this@InMemoryFilePullAttemptStore.postpone(id, nextAttemptAt)
+
+            override suspend fun advanceToNow(ids: Collection<FileId>, now: Instant) =
+                this@InMemoryFilePullAttemptStore.advanceToNow(ids, now)
+
+            override suspend fun declinedDevices(id: FileId): Set<PeerId> =
+                this@InMemoryFilePullAttemptStore.declinedDevices(id)
+
+            override suspend fun addDeclined(id: FileId, device: PeerId) =
+                this@InMemoryFilePullAttemptStore.addDeclined(id, device)
+
+            override suspend fun removeDeclined(id: FileId, devices: Collection<PeerId>) =
+                this@InMemoryFilePullAttemptStore.removeDeclined(id, devices)
+
+            override suspend fun setWaiting(id: FileId, device: PeerId, until: Instant) {
+                if (pullClass != FilePullClass.SMALL) return
+                val attemptId = this@InMemoryFilePullAttemptStore.findById(id)?.attemptId ?: return
+                this@InMemoryFilePullAttemptStore.setWaiting(id, device, until, attemptId)
+            }
+
+            override suspend fun clearWaiting(id: FileId) {
+                if (pullClass == FilePullClass.SMALL) this@InMemoryFilePullAttemptStore.clearWaiting(id)
+            }
+
+            private fun FilePullAttempt.waitingState(): CandidateWaiting? {
+                val device = waitingDevice ?: return null
+                val until = waitingUntil ?: return null
+                return CandidateWaiting(device, until)
+            }
+        }
 
     private fun Row.toAttempt(id: FileId) = FilePullAttempt(
         fileId = id,
@@ -1241,7 +1332,13 @@ internal fun testRoutingContext(
         webRtcTransport = webRtc,
         peerLinks = peerLinks,
         transportLimits = MutableStateFlow(testTransportLimits()),
-        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, largeFileFrameBytes = fileChunkSize)),
+        fileLimits = MutableStateFlow(
+            FileLimits(
+                chunkSizeBytes = fileChunkSize,
+                largeFileFrameBytes = fileChunkSize,
+                maxSealBytes = 64 * 1024
+            )
+        ),
         envelopeProtections = protections,
         clock = clock,
         routerConfig = MutableStateFlow(routerConfig),
@@ -1266,7 +1363,13 @@ internal fun testRoutingContext(
         webRtcTransport = webRtc,
         peerLinks = peerLinks,
         transportLimits = MutableStateFlow(testTransportLimits()),
-        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, largeFileFrameBytes = fileChunkSize)),
+        fileLimits = MutableStateFlow(
+            FileLimits(
+                chunkSizeBytes = fileChunkSize,
+                largeFileFrameBytes = fileChunkSize,
+                maxSealBytes = 64 * 1024
+            )
+        ),
         envelopeProtections = protections,
         clock = clock,
         routerConfig = MutableStateFlow(routerConfig),

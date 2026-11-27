@@ -141,6 +141,23 @@ internal data class RouterConfig(
     /** Relays below this reliability score are never used (score 0 = opted out). */
     val minRelayScore: Double = 0.1,
     /**
+     * The network's small/large boundary: at or below it a file may be pushed directly (and
+     * relays may store it); above it the receiver pulls it over WebRTC. A network value, not a
+     * user setting — every device must settle on the same number; receivers enforce their own.
+     */
+    val smallFileMaxBytes: Long = 10L * 1024L * 1024L,
+    /**
+     * The push window before a small file's first automatic pull attempt: the OFFER may be in
+     * flight, or may never come. Large files start at once (nothing is ever pushed).
+     */
+    val filePullDelay: Duration = 60.seconds,
+    /**
+     * Cadence of the routing file sweeps (the seal registry's, the relay forwards' and the target
+     * side's); the transfer session tick runs at a third of it. Distinct from the orchestrator's
+     * `fileSweepInterval`, which paces the request-trigger sweep.
+     */
+    val fileSweepInterval: Duration = 45.seconds,
+    /**
      * A seal's lifetime: every transfer of it, at every hop, and every relay copy expire with it.
      * Must stay below crypto's superseded-session retention (checked in `wiring/ConfigInvariants`),
      * so a seal forwarded late still opens.
@@ -239,6 +256,9 @@ internal data class RouterConfig(
         require(relayTargetSuccessProbability in 0.0..1.0) { "relayTargetSuccessProbability must be in [0,1]" }
         require(maxRelays > 0) { "maxRelays must be > 0" }
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }
+        require(smallFileMaxBytes > 0) { "smallFileMaxBytes must be > 0" }
+        require(filePullDelay >= Duration.ZERO) { "filePullDelay must be >= 0" }
+        require(fileSweepInterval > Duration.ZERO) { "fileSweepInterval must be > 0" }
         require(fileTransferTtl > Duration.ZERO) { "fileTransferTtl must be > 0" }
         require(maxInFlightChunks > 0) { "maxInFlightChunks must be > 0" }
         require(fileChunkRetryDelay > Duration.ZERO) { "fileChunkRetryDelay must be > 0" }

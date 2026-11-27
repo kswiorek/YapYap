@@ -75,7 +75,7 @@ class InboundDedupClearTest {
             webRtcTransport = webRtc,
             peerLinks = PeerLinks(identity, webRtc, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
-            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
             clock = clock,
             routerConfig = config,

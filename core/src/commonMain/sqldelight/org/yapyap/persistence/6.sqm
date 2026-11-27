@@ -58,7 +58,6 @@ CREATE INDEX file_receive_chunks_file_idx ON file_receive_chunks(file_id);
 CREATE TABLE pending_file_requests (
     file_id TEXT NOT NULL PRIMARY KEY,
     status TEXT NOT NULL,
-    next_attempt_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
 

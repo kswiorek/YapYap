@@ -2,28 +2,27 @@ import kotlin.time.Instant;
 import org.yapyap.protocol.FileId;
 import org.yapyap.orchestrator.file.PendingFileRequestStatus;
 
--- Orchestrator-owned file-request triggers (design §9, step 16): one row per file the
--- device wants but does not hold. The router owns the asking (file_pull_attempts);
--- this row is the trigger state: PENDING (waiting out the grace period or the next
--- attempt) or UNAVAILABLE (every candidate declined — terminal until a new message or
--- a user re-open re-arms it). STALLED/EXPIRED receives re-open through this table.
+-- Orchestrator-owned file-request triggers (design §9): one row per file the
+-- device wants but does not hold. The router owns the asking and its schedule
+-- (file_pull_attempts); this row is the trigger state only: PENDING, or
+-- UNAVAILABLE (every candidate declined — terminal until a new message or a
+-- user re-open re-arms it). STALLED/EXPIRED receives re-open through this table.
 CREATE TABLE pending_file_requests (
     file_id TEXT AS FileId NOT NULL PRIMARY KEY,
     status TEXT AS PendingFileRequestStatus NOT NULL,
-    next_attempt_at INTEGER AS Instant NOT NULL,
     updated_at INTEGER AS Instant NOT NULL
 );
 
 insertPendingFileRequest:
 INSERT OR REPLACE INTO pending_file_requests (
-    file_id, status, next_attempt_at, updated_at
-) VALUES (?, ?, ?, ?);
+    file_id, status, updated_at
+) VALUES (?, ?, ?);
 
 selectPendingFileRequestById:
 SELECT * FROM pending_file_requests WHERE file_id = ?;
 
-selectDuePendingFileRequests:
-SELECT * FROM pending_file_requests WHERE status = 'PENDING' AND next_attempt_at <= ?;
+selectPendingFileRequests:
+SELECT * FROM pending_file_requests WHERE status = 'PENDING';
 
 updatePendingFileRequestStatus:
 UPDATE pending_file_requests SET status = ?, updated_at = ? WHERE file_id = ?;

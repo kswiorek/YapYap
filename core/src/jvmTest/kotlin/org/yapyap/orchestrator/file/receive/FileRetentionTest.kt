@@ -52,7 +52,7 @@ class FileRetentionTest {
         files.createDirectories(paths.incomingDir)
         files.createDirectories(paths.storeDir)
         val config = MutableStateFlow(OrchestratorConfig())
-        val store = DefaultFileStore(descriptors, crypto, files, paths.storeDir, config, clock)
+        val store = DefaultFileStore(descriptors, crypto, files, paths.storeDir, clock)
         val engine = ReceiveEngine(receives, descriptors, crypto, files, paths, config, store, clock)
         val retention = FileRetention(
             receives,
@@ -106,7 +106,7 @@ class FileRetentionTest {
         files.createDirectories(paths.incomingDir)
         files.createDirectories(paths.storeDir)
         val config = MutableStateFlow(OrchestratorConfig())
-        val store = DefaultFileStore(descriptors, crypto, files, paths.storeDir, config, clock)
+        val store = DefaultFileStore(descriptors, crypto, files, paths.storeDir, clock)
         val engine = ReceiveEngine(receives, descriptors, crypto, files, paths, config, store, clock)
         val retention =
             FileRetention(receives, descriptors, messages, engine, store, files, paths, emptyFlow(), config, clock)
@@ -169,9 +169,9 @@ class FileRetentionTest {
         files.createDirectories(paths.incomingDir)
         files.createDirectories(paths.storeDir)
         val config = MutableStateFlow(
-            OrchestratorConfig(storeQuotaBytes = quota, autoDownloadMaxBytes = 0L, copyIntoStoreMaxBytes = 0L),
+            OrchestratorConfig(storeQuotaBytes = quota, autoDownloadMaxBytes = 0L),
         )
-        val store = DefaultFileStore(descriptors, crypto, files, paths.storeDir, config, clock)
+        val store = DefaultFileStore(descriptors, crypto, files, paths.storeDir, clock)
         val engine = ReceiveEngine(receives, descriptors, crypto, files, paths, config, store, clock)
         val pins = FilePins()
         val retention = FileRetention(

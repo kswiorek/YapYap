@@ -212,7 +212,7 @@ class LargeFileStrategyTest {
             webRtcTransport = requesterWebRtc,
             peerLinks = PeerLinks(identity, requesterWebRtc, requesterTor),
             transportLimits = MutableStateFlow(testTransportLimits()),
-            fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024)),
+            fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
             clock = clock,
             routerConfig = configFlow,
@@ -250,7 +250,7 @@ class LargeFileStrategyTest {
         val holderEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val attempts = InMemoryFilePullAttemptStore()
         val requesterGate = CompletingSource(candidates = listOf(holderAccount), defaultTotalBytes = largeTotal)
-        val fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024))
+        val fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024, maxSealBytes = 64 * 1024))
         val requesterManager = LargeFileService(
             devices = ctx.devices,
             transport = requesterWebRtc,
@@ -390,7 +390,7 @@ class LargeFileStrategyTest {
     fun satisfied_endToEnd_nothingLargeOverTor() = runBlocking {
         val f = fixture()
         try {
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             withTimeout(20.seconds) {
                 while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
@@ -409,7 +409,7 @@ class LargeFileStrategyTest {
     fun declined_movesToNextCandidate() = runBlocking {
         val f = fixture(holderDevices = listOf(holderDevice, holderDevice2), holderCanServe = { it == holderDevice2 })
         try {
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             withTimeout(20.seconds) {
                 while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
@@ -426,7 +426,7 @@ class LargeFileStrategyTest {
         try {
             val seen = mutableListOf<FileEvent>()
             val collect = launch { f.events.collect { seen += it } }
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             withTimeout(5.seconds) {
                 while (seen.none { it is FileEvent.NoDirectConnection }) delay(50.milliseconds)
             }
@@ -444,7 +444,7 @@ class LargeFileStrategyTest {
         try {
             val seen = mutableListOf<FileEvent>()
             val collect = launch { f.events.collect { seen += it } }
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             withTimeout(10.seconds) {
                 while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
@@ -460,7 +460,7 @@ class LargeFileStrategyTest {
         val f = fixture()
         f.requesterGate.defaultTotalBytes = 1_000L
         try {
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             delay(500.milliseconds)
             // Core owns small files: a sealed REQUEST went through the outbox.
             assertTrue(f.requesterWebRtc.openSessionCalls.isEmpty(), "large path never opens sessions for small files")
@@ -474,7 +474,7 @@ class LargeFileStrategyTest {
         val f = fixture()
         f.requesterGate.appendImpl = { _, _ -> FileAppendResult.NoSpace }
         try {
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             withTimeout(20.seconds) {
                 while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }
@@ -503,7 +503,7 @@ class LargeFileStrategyTest {
             }
         }
         try {
-            f.processor.start(fileId, now)
+            f.processor.start(fileId, immediate = true)
             withTimeout(60.seconds) {
                 while (f.attempts.findById(fileId) != null) delay(50.milliseconds)
             }

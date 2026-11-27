@@ -4,7 +4,6 @@ import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.LargeFileAbortReason
-import kotlin.time.Instant
 
 /**
  * Account-level file operations and events (design §12), declared by routing and implemented
@@ -15,7 +14,10 @@ internal interface FileCarrier {
     /** Hot event flow: send progress and outcomes, serves and request outcomes, account-level only. */
     val fileEvents: Flow<FileEvent>
 
-    /** Start pushing [fileId] to every device of [target] (small path; a large file is pull-only). */
+    /**
+     * Start pushing [fileId] to every device of [target]. A file above the network's small-file
+     * limit is a silent no-op — large files are pull-only, not a failed push (no `Failed` event).
+     */
     suspend fun pushFile(fileId: FileId, target: AccountId)
 
     /** End our push of [fileId] to [target]'s devices (user cancel). */
@@ -25,12 +27,16 @@ internal interface FileCarrier {
     suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState>
 
     /**
-     * Starts asking candidate devices for [fileId] (idempotent), first at [firstAttemptAt]. What to
-     * ask for and which accounts may hold it come from the [FileRequestSource]; routing asks one
-     * candidate at a time until a seal of the file (small) or PULL_OK (large) arrives, or every
-     * candidate declines.
+     * Starts asking candidate devices for [fileId] (idempotent). [immediate] expresses the
+     * trigger's origin, never a size: automatic triggers omit it, and routing pins the class by
+     * the file's total bytes and schedules — a small file waits the push window (`filePullDelay`,
+     * the time a direct OFFER gets to arrive), a large one starts at once. Explicit triggers (the
+     * user's accept, a stall re-open) set it for now at any size. What to ask for and which
+     * accounts may hold it come from the [FileRequestSource]; routing asks one candidate at a
+     * time until a seal of the file (small) or PULL_OK (large) arrives, or every candidate
+     * declines.
      */
-    suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant)
+    suspend fun startFilePull(fileId: FileId, immediate: Boolean = false)
 
     /**
      * Aborts our live large-file pull of [fileId] with [reason] (`STALLED` for the receiver gap

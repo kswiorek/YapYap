@@ -50,8 +50,11 @@ same number. It lives in `RouterConfig` and is surfaced through the settings reg
 (`FieldSource.NETWORK`, `wiring/Settings.kt`): written programmatically, never user-editable, settled from the
 network's page when that exists. A peer that lags behind the settled value loses nothing: **the receiver
 enforces its own** — a small-path OFFER above it is DECLINED, and the receiver's own class pin routes the file
-to its large path (§9), which no sender's limit can block. It is never a field a user or a config file can
-change per device.
+to its large path (§9), which no sender's limit can block. The reverse lag is temporary: a device *ahead*
+of the settled value treats a file between the two limits as small and asks for it with a small REQUEST,
+while lagging holders still treat it as large and decline; that file stays unavailable from them until they
+settle on the same value. The settled value is expected only to increase, so the window is one-way. It is
+never a field a user or a config file can change per device.
 
 The core philosophy transplants the guide's delivery model (§6) to files, with one hard separation on top:
 **the message and the transfer are decoupled. A message with an attachment is a notification — "you may want
@@ -812,8 +815,8 @@ files get their bytes.
 ## 10. Storage and retention
 
 - **Sender/holder: the GUI picks, the core does the rest.** The GUI owns only the platform file chooser and a **"keep a
-  copy" checkbox**, checked by default at or below `copyIntoStoreMaxBytes` (default
-  `smallFileMaxBytes`) and unchecked above it. The orchestrator's send API takes the choice:
+  copy" checkbox**; its default is the GUI's own preference (not core config), and the
+  orchestrator's send API takes the choice:
     - **Copy** — the file is copied into **app-internal storage** before anything is sent, hashed in the same
       pass. The source is immutable across restarts, and a picture survives the user clearing their
       downloads folder. A few MB of extra space is worth that for memes and photos.
@@ -951,7 +954,7 @@ file_receive_chunks (         -- staging is the chunk tracker: staged, not-yet-d
   file_id TEXT, start_offset INT, length INT, plaintext BLOB,
   PRIMARY KEY (file_id, start_offset)
 )
-pending_file_requests (file_id TEXT PK, status TEXT, next_attempt_at, …)
+pending_file_requests (file_id TEXT PK, status TEXT, updated_at)
 
 -- routing (transferId grain: pushing, forwarding, asking)
 file_pushes (                 -- the push engine's per-device transfer state (small path; a large fetch has no row)
@@ -1057,12 +1060,11 @@ file-branch review ([`cleanup.md`](cleanup.md) §2.1):
   receiver-enforced meanwhile (§1).
 - **Local mechanics** — plain `RouterConfig` fields, deliberately not settings; the file fields below.
 - `OrchestratorConfig` file fields (`orchestrator`, implemented in `orchestrator/file`; the receive and
-  store directories are the node layout's, not config): `storeQuotaBytes` (at least `autoDownloadMaxBytes`
-  and `copyIntoStoreMaxBytes`, so a file fetched or copied without asking is never evicted on arrival),
+  store directories are the node layout's, not config): `storeQuotaBytes` (at least
+  `autoDownloadMaxBytes`, so a file fetched without asking is never evicted on arrival),
   `maxStagedBytes`, `fileHashRetryLimit` (e.g. 3, §8);
   `autoDownloadMaxBytes` (per device — **every** file at or below it is fetched without asking, small
-  included; e.g. 250 MB on desktop, lower on mobile, §8); `copyIntoStoreMaxBytes` (the "keep a copy"
-  checkbox default, its own value — no longer defaulted to `smallFileMaxBytes`, §10);
+  included; e.g. 250 MB on desktop, lower on mobile, §8);
   `fileCheckpointBytes` (e.g. 8 MB) and `fileCheckpointInterval` (e.g. 2 s, §8);
   `fileStallTimeout` (the receiver's gap trigger, §8). (`fileRequestFirstAttemptDelay` moved to routing as
   `filePullDelay`: the orchestrator no longer schedules file attempts — it is size-blind beyond
@@ -1075,10 +1077,10 @@ file-branch review ([`cleanup.md`](cleanup.md) §2.1):
   OFFER), `filePullDelay` (the push window before a small file's first REQUEST, §9),
   `largeFileSessionOpenTimeout` (a large request opening its session), `largeFileStreamWindowBytes` (e.g.
   32 MB — how far a holder may run past the last `PROGRESS`, §6.6), `maxConcurrentLargeFiles`
-  (large pulls running at once, e.g. 2), the sweep and tick cadences (the seal registry's, the relay
-  forwards' and the target side's sweeps, and the transfer tick — one stated value each, not ad-hoc
-  floors), and the large path's pacing (the puller's defer retry and parked-channel recheck, the holder's
-  idle and buffered-amount waits, §6.6).
+  (large pulls running at once, e.g. 2), `fileSweepInterval` (the seal registry's, the relay forwards'
+  and the target side's sweeps; the transfer session tick is a third of it — one stated value, not
+  ad-hoc floors), and the large path's pacing (the puller's defer retry and parked-channel recheck,
+  the holder's idle and buffered-amount waits, §6.6).
 - **Storage pledge**: one user-facing `relayStoragePledgeBytes` (default 100 MB) — how much of this device's
   storage the network may use — split by the composition root into the message relay-cache budget and the
   file relay-store budget, each keeping its own eviction semantics (per-row LRU vs whole-transfer LRU). Our
@@ -1098,7 +1100,7 @@ file-branch review ([`cleanup.md`](cleanup.md) §2.1):
 - Startup checks: `maxStagedBytes ≥ fileCheckpointBytes` (staging must hold a checkpoint's worth) and
   `maxStagedBytes ≥ maxInFlightChunks × chunkSizeBytes` (one transfer's out-of-order window must fit; the two values
   live in different layers, so wiring checks it);
-  `copyIntoStoreMaxBytes` and `autoDownloadMaxBytes` are free per device; `smallFileMaxBytes` is settled
+  `autoDownloadMaxBytes` is free per device; `smallFileMaxBytes` is settled
   network-wide and receiver-enforced meanwhile (§1).
 - Reused unchanged: `RelaySelectionPolicy` with `relayTargetSuccessProbability`, `minRelayScore` and the
   `maxRelays` cap (§5); the outbox's own retry/park/expiry behavior.

@@ -412,8 +412,9 @@ Three seams, one principle: *the orchestrator should not care about the sizes.*
   routing's side, since `attempts.start` keeps an existing row's state, so a re-arm costs at most a
   `wake()` — and the pending row keeps only accept/decline/PENDING state for the user. The schedule
   lives in routing's attempt row alone.
-- **`copyIntoStoreMaxBytes` gets its own default** — a separate USER setting about disk cost; defaulting
-  it to the file limit was, in the owner's words, just lazy.
+- **`copyIntoStoreMaxBytes` is removed from the core** — it only decided the GUI's "keep a copy"
+  checkbox default, a user-interface preference rather than network or storage policy. The send API's
+  `keepCopy` is now a required choice the GUI supplies; the core never defaults it.
 
 **Deliberate behavior change, confirmed:** today *small* files auto-request regardless of
 `autoDownloadMaxBytes` (FileRequestCoordinator.kt:212 — the small branch never checks it); after the
@@ -574,7 +575,7 @@ Gate: `SealRegistryTest`, `SealDepositTest`, the router suites.
 with the `ConfigInvariants` assert; `isAcceptable`/`FileSeal` require narrowed; the orchestrator seam per
 §2.9 (`pushFile` always, `onIngest` flattened with its confirmed behavior change,
 `startFilePull(fileId, immediate)` with the trigger flag, `pending_file_requests` descheduled,
-`filePullDelay` moved, `copyIntoStoreMaxBytes` its own default); store-owned candidate views
+`filePullDelay` moved, `copyIntoStoreMaxBytes` removed (the GUI owns the checkbox default)); store-owned candidate views
 per §2.7 (with the `CandidateAttemptStore` KDoc stating its nature, plus the TODO to reconsider its
 name); sweep/tick cadence fields per §2.8.6; the `MIN_FILE_CHUNK_SIZE_BYTES` KDoc.
 Gate: `FileStoreSemanticsJvmTest`; all file suites.

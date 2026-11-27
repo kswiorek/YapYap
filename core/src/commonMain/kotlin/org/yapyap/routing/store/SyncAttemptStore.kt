@@ -5,6 +5,8 @@ import kotlinx.coroutines.withContext
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.PeerId
+import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateRow
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -17,7 +19,7 @@ internal data class SyncAttempt(
 /**
  * Router-owned: how each pending sync is being asked for — attempt count, next attempt time,
  * and the devices that declined. What is missing and who may hold it is the orchestrator's
- * ([PendingSyncRepository]), under the same sync id.
+ * pending sync store, under the same sync id.
  */
 internal interface SyncAttemptStore {
     /** Starts tracking [syncId] (idempotent: a known sync keeps its state). */
@@ -41,10 +43,13 @@ internal interface SyncAttemptStore {
     suspend fun declinedDevices(syncId: Uuid): Set<PeerId>
     suspend fun addDeclined(syncId: Uuid, deviceId: PeerId)
     suspend fun removeDeclined(syncId: Uuid, deviceIds: Collection<PeerId>)
+
+    /** The asking loop's row-state view, composed by the store that owns the tables. */
+    fun candidateStore(): CandidateAttemptStore<Uuid>
 }
 
 internal class DefaultSyncAttemptStore(
-    private val database: YapYapDatabase,
+    database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : SyncAttemptStore {
 
@@ -96,4 +101,33 @@ internal class DefaultSyncAttemptStore(
         if (deviceIds.isEmpty()) return
         withContext(dbDispatcher) { queries.deleteDeclinedDevices(syncId, deviceIds) }
     }
+
+    override fun candidateStore(): CandidateAttemptStore<Uuid> = SyncAttemptView(this)
+}
+
+/**
+ * The sync asking loop's view over [SyncAttemptStore]: the parent row plus its declined children.
+ * The sync path has no WAITING (an ACK means the reply is on its way), so those methods are no-ops.
+ */
+private class SyncAttemptView(
+    private val store: SyncAttemptStore,
+) : CandidateAttemptStore<Uuid> {
+    override suspend fun start(id: Uuid, firstAttemptAt: Instant) = store.start(id, firstAttemptAt)
+    override suspend fun drop(id: Uuid) = store.drop(id)
+    override suspend fun earliestDueAt(): Instant? = store.earliestDueAt()
+    override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<Uuid>> =
+        store.findDue(now, limit).map { CandidateRow(it.syncId, it.attempts, it.declinedDevices) }
+
+    override suspend fun recordAttempt(id: Uuid, nextAttemptAt: Instant) =
+        store.recordAttempt(id, nextAttemptAt)
+
+    override suspend fun postpone(id: Uuid, nextAttemptAt: Instant) = store.postpone(id, nextAttemptAt)
+    override suspend fun advanceToNow(ids: Collection<Uuid>, now: Instant) = store.advanceToNow(ids, now)
+    override suspend fun declinedDevices(id: Uuid): Set<PeerId> = store.declinedDevices(id)
+    override suspend fun addDeclined(id: Uuid, device: PeerId) = store.addDeclined(id, device)
+    override suspend fun removeDeclined(id: Uuid, devices: Collection<PeerId>) =
+        store.removeDeclined(id, devices)
+
+    override suspend fun setWaiting(id: Uuid, device: PeerId, until: Instant) = Unit
+    override suspend fun clearWaiting(id: Uuid) = Unit
 }

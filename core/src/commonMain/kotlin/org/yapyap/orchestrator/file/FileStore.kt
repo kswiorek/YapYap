@@ -1,7 +1,6 @@
 package org.yapyap.orchestrator.file
 
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
 import kotlinx.io.files.Path
@@ -9,7 +8,6 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.AppendHandle
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.file.io.PositionedHandle
@@ -48,7 +46,7 @@ internal interface FileStore {
         source: FileImportSource,
         fileName: String,
         mimeType: String?,
-        keepCopy: Boolean?,
+        keepCopy: Boolean,
         onBytes: (Long) -> Unit = {},
     ): ImportResult
 
@@ -70,21 +68,19 @@ internal class DefaultFileStore(
     private val crypto: CryptoProvider,
     private val files: FileAccess,
     private val storeDirectory: Path,
-    private val config: StateFlow<OrchestratorConfig>,
     private val clock: Clock = Clock.System,
 ) : FileStore {
     override suspend fun import(
         source: FileImportSource,
         fileName: String,
         mimeType: String?,
-        keepCopy: Boolean?,
+        keepCopy: Boolean,
         onBytes: (Long) -> Unit,
     ): ImportResult {
         require(fileName.isNotBlank()) { "fileName must not be blank" }
         val totalBytes = sourceSize(source) ?: return ImportResult.SourceUnreadable
         val picked = Picked(source, fileName, mimeType, totalBytes, blockSizeFor(totalBytes), onBytes)
-        val copy = keepCopy ?: (totalBytes <= config.value.copyIntoStoreMaxBytes)
-        return if (copy) importCopy(picked) else importReference(picked)
+        return if (keepCopy) importCopy(picked) else importReference(picked)
     }
 
     /**

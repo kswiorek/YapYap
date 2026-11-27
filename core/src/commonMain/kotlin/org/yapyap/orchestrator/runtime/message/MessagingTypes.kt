@@ -59,9 +59,9 @@ public data class PickedFile(
     val source: PickedFileSource,
     /**
      * Copy the file into the app's store (it survives the original moving) or only reference it.
-     * Null leaves it to the "keep a copy" size threshold in settings.
+     * The GUI owns the "keep a copy" checkbox and its default; the core takes the choice.
      */
-    val keepCopy: Boolean? = null,
+    val keepCopy: Boolean,
 )
 
 /** Where the bytes of a [PickedFile] live. */

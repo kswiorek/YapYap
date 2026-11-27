@@ -40,6 +40,16 @@ class FileLimitsTest {
     }
 
     @Test
+    fun maxSealBytes_isTheRoutableFrameLessTheOfferHeader() {
+        val routable = minOf(RuntimeConfig().tor.maxPayloadBytes, RuntimeConfig().webRtc.maxPayloadBytes)
+        assertEquals(
+            BinaryEnvelope.maxContentBytes(routable, FileHeader.OFFER_ENCODED_BYTES),
+            defaults.maxSealBytes,
+        )
+        assertTrue(defaults.maxSealBytes > 0, "the default transport leaves room for a seal")
+    }
+
+    @Test
     fun tinyTransport_failsInsteadOfClamping() {
         assertFailsWith<IllegalArgumentException> {
             fileLimitsFor(TransportLimits(torMaxPayloadBytes = 1024, webRtcMaxPayloadBytes = 1024))

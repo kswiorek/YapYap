@@ -174,7 +174,7 @@ class FileReceiveEngineJvmTest {
             files = files,
             paths = paths,
             config = configFlow,
-            fileStore = wrapFileStore(DefaultFileStore(descriptors, crypto, files, b.storeDir, configFlow, clock)),
+            fileStore = wrapFileStore(DefaultFileStore(descriptors, crypto, files, b.storeDir, clock)),
             clock = clock,
         )
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { engine.receiveEvents.collect { ends.all += it } }
@@ -207,7 +207,7 @@ class FileReceiveEngineJvmTest {
         h: Harness,
         config: MutableStateFlow<OrchestratorConfig> = MutableStateFlow(OrchestratorConfig()),
     ): FileRetention {
-        val store = DefaultFileStore(h.descriptors, crypto, h.files, h.backend.storeDir, config, h.clock)
+        val store = DefaultFileStore(h.descriptors, crypto, h.files, h.backend.storeDir, h.clock)
         return FileRetention(
             receives = h.receives,
             descriptors = h.descriptors,
@@ -709,7 +709,6 @@ class FileReceiveEngineJvmTest {
             crypto,
             h.files,
             h.backend.storeDir,
-            MutableStateFlow(OrchestratorConfig()),
             h.clock
         )
         store.importHeld(FileImportSource.PathSource(src), "held.bin", null, keepCopy = true)
@@ -740,8 +739,7 @@ class FileReceiveEngineJvmTest {
         val config = MutableStateFlow(
             OrchestratorConfig(
                 storeQuotaBytes = 1_500_000L,
-                autoDownloadMaxBytes = 0L,
-                copyIntoStoreMaxBytes = 0L
+                autoDownloadMaxBytes = 0L
             )
         )
         val h = harness(config = config.value)
@@ -752,7 +750,7 @@ class FileReceiveEngineJvmTest {
         assertIs<FileIngestResult.Ready>(h.engine.ingest(fileId, 0, bytes))
         // A second copy pushes the store over quota: the received file is least recently accessed.
         val retention = retentionFor(h, config)
-        val store = DefaultFileStore(h.descriptors, crypto, h.files, h.backend.storeDir, config, h.clock)
+        val store = DefaultFileStore(h.descriptors, crypto, h.files, h.backend.storeDir, h.clock)
         h.clock.advanceTo(h.clock.now() + 1.days)
         val otherSrc = Path(h.backend.incomingDir.toString(), "other-src.bin")
         h.files.openAppendWriter(otherSrc, null)

@@ -11,4 +11,9 @@ internal data class FileLimits(
     val chunkSizeBytes: Int,
     /** File bytes per large-path DATA frame on a WebRTC file channel. */
     val largeFileFrameBytes: Int,
+    /**
+     * The most an OFFER's content (a seal) may be: derived from the transports' frame limit minus
+     * the OFFER header, so a seal that fits is routable through either transport.
+     */
+    val maxSealBytes: Int,
 )

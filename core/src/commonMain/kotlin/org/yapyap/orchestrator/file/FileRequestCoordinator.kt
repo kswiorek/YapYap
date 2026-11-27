@@ -15,7 +15,6 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.LargeFileAbortReason
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.routing.file.port.FileCarrier
@@ -30,8 +29,9 @@ import kotlin.time.TimeSource
 import kotlin.uuid.Uuid
 
 /**
- * File request trigger (design §9): decides when this device asks for a file, beside the trigger
- * state (`pending_file_requests`), and starts routing's asking loop through [fileCarrier].
+ * File request trigger (design §9): decides whether this device wants a file, keeps the user-facing
+ * trigger state (`pending_file_requests`), and hands the trigger's origin to routing through
+ * [fileCarrier]. When the ask actually runs is routing's (`file_pull_attempts`).
  *
  * The gap trigger counts time while this device runs (design §8): it tracks the last P advance
  * per file in memory on a monotonic clock started at [start], not against `updatedAt`. A long
@@ -183,8 +183,9 @@ internal class DefaultFileRequestCoordinator(
                 )
             }
             while (true) {
-                delay(config.value.fileSweepInterval)
                 try {
+                    // Also the startup re-fire: every pending row is re-armed unconditionally;
+                    // routing's attempt row keeps its schedule, so this costs at most a wake.
                     sweep(clock.now())
                 } catch (e: CancellationException) {
                     throw e
@@ -196,6 +197,7 @@ internal class DefaultFileRequestCoordinator(
                         throwable = e,
                     )
                 }
+                delay(config.value.fileSweepInterval)
             }
         }
     }
@@ -208,18 +210,18 @@ internal class DefaultFileRequestCoordinator(
     private suspend fun onIngest(payload: DagPayload) {
         val text = payload as? DagPayload.Text ?: return
         if (text.attachments.isEmpty()) return
+        // The orchestrator's only size decision: fetch automatically or wait for the user.
+        // It is about the user's attention and disk, not the router's small/large boundary.
         for (attachment in text.attachments) {
-            if (attachment.totalBytes <= SMALL_FILE_MAX_BYTES) {
-                maybeRequest(attachment.fileId, immediate = false)
-            } else if (attachment.totalBytes <= config.value.autoDownloadMaxBytes) {
-                maybeRequest(attachment.fileId, immediate = true)
+            if (attachment.totalBytes <= config.value.autoDownloadMaxBytes) {
+                maybeRequest(attachment.fileId)
             } else {
                 markDeclined(attachment.fileId, text.messageId)
             }
         }
     }
 
-    private suspend fun maybeRequest(fileId: FileId, immediate: Boolean) {
+    private suspend fun maybeRequest(fileId: FileId) {
         val now = clock.now()
         if (descriptors.findById(fileId)?.status == FileDescriptorStatus.HELD) {
             pending.drop(fileId)
@@ -246,9 +248,9 @@ internal class DefaultFileRequestCoordinator(
         }
         val existing = pending.find(fileId)
         if (existing?.status == PendingFileRequestStatus.PENDING) return
-        val at = if (immediate) now else now + config.value.fileRequestFirstAttemptDelay
-        pending.upsertPending(fileId, at, now)
-        fileCarrier.startFilePull(fileId, at)
+        // Only the trigger state lives here; routing owns the attempt schedule.
+        pending.upsertPending(fileId, now)
+        fileCarrier.startFilePull(fileId, immediate = false)
     }
 
     private suspend fun markDeclined(fileId: FileId, originMessageId: Uuid) {
@@ -259,8 +261,8 @@ internal class DefaultFileRequestCoordinator(
     override suspend fun acceptFile(fileId: FileId) {
         val now = clock.now()
         if (!control.reopen(fileId)) return
-        pending.upsertPending(fileId, now, now)
-        fileCarrier.startFilePull(fileId, now)
+        pending.upsertPending(fileId, now)
+        fileCarrier.startFilePull(fileId, immediate = true)
     }
 
     override suspend fun declineFile(fileId: FileId) {
@@ -270,9 +272,9 @@ internal class DefaultFileRequestCoordinator(
     }
 
     private suspend fun sweep(now: Instant) {
-        // An accepted OFFER covers the grace period: a progressing transfer needs no REQUEST.
+        // An accepted OFFER covers the push window: a progressing transfer needs no REQUEST.
         // Drop pending rows for IN_FLIGHT receives instead of re-arming the router.
-        for (row in pending.due(now)) {
+        for (row in pending.pending()) {
             val receive = receives.find(row.fileId)
             if (receive != null) {
                 when (receive.status) {
@@ -299,7 +301,7 @@ internal class DefaultFileRequestCoordinator(
                 pending.drop(row.fileId)
                 continue
             }
-            fileCarrier.startFilePull(row.fileId, row.nextAttemptAt)
+            fileCarrier.startFilePull(row.fileId, immediate = false)
         }
         // Gap trigger: an IN_FLIGHT receive whose prefix has not advanced for fileStallTimeout
         // (measured on the monotonic clock while this device runs) goes STALLED and re-opens
@@ -321,11 +323,10 @@ internal class DefaultFileRequestCoordinator(
             val mark = progressGuardLocked { lastProgress.getOrPut(row.fileId) { timeSource.markNow() } }
             if (mark.elapsedNow() < stallAfter) continue
             if (control.markStalled(row.fileId, now)) {
-                if (row.totalBytes > SMALL_FILE_MAX_BYTES) {
-                    fileCarrier.abortLargeFile(row.fileId, LargeFileAbortReason.STALLED)
-                }
+                // A large pull ends; for a small file there is no large fetch and this is a no-op.
+                fileCarrier.abortLargeFile(row.fileId, LargeFileAbortReason.STALLED)
                 // A fresh stall re-opens the request, even one that ran out of holders before.
-                pending.upsertPending(row.fileId, now, now)
+                pending.upsertPending(row.fileId, now)
             }
             // A STALLED file re-opens the pending request below.
             progressGuardLocked { lastProgress[row.fileId] = timeSource.markNow() }
@@ -333,11 +334,11 @@ internal class DefaultFileRequestCoordinator(
         for (row in receives.active()) {
             if (row.status != FileReceiveStatus.STALLED) continue
             when (pending.find(row.fileId)?.status) {
-                PendingFileRequestStatus.PENDING -> fileCarrier.startFilePull(row.fileId, now)
+                PendingFileRequestStatus.PENDING -> fileCarrier.startFilePull(row.fileId, immediate = true)
                 // Stalled by a block mismatch: nothing asked for it yet.
                 null -> {
-                    pending.upsertPending(row.fileId, now, now)
-                    fileCarrier.startFilePull(row.fileId, now)
+                    pending.upsertPending(row.fileId, now)
+                    fileCarrier.startFilePull(row.fileId, immediate = true)
                 }
                 // Every holder declined: terminal until a new message or the user re-opens it,
                 // never re-armed by the sweep.

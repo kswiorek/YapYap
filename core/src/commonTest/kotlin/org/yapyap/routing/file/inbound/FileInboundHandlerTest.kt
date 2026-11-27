@@ -8,7 +8,6 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -27,6 +26,7 @@ import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
+import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileSealKind
 import org.yapyap.routing.store.FileSealStatus
 import org.yapyap.routing.store.FileTransferStatus
@@ -379,7 +379,27 @@ class FileInboundHandlerTest {
         assertTrue(TransferShape(c, total, total).isAcceptable(), "an empty range is acceptable")
         assertTrue(TransferShape(c, 0, 0).isAcceptable(), "an empty file is valid: it has no chunks")
         assertFalse(TransferShape(c - 1, 0, total).isAcceptable(), "chunks below the minimum")
-        assertFalse(TransferShape(c, 0, SMALL_FILE_MAX_BYTES + 1).isAcceptable(), "above the small-file limit")
+        assertTrue(
+            TransferShape(c, 0, RouterConfig().smallFileMaxBytes + 1).isAcceptable(),
+            "the shape only enforces the chunk floor; the receiver enforces its small-file limit",
+        )
+    }
+
+    @Test
+    fun offer_aboveReceiverSmallFileLimit_isDeclined() = runTest {
+        val h = harness()
+        val transferId = TransferId(Uuid.random())
+        val aboveLimit = h.ctx.routerConfig.value.smallFileMaxBytes + 1
+        val shape = TransferShape(chunkSize, 0, aboveLimit)
+        val env = offerEnvelope(h, transferId, shape = shape, totalBytes = aboveLimit)
+        val sealId = h.hopProtection.contentId(env.content)
+        val result = h.handler.handle(env)
+        val rejected = assertIs<InboundHandleResult.Rejected>(result)
+        assertEquals(PacketNackReason.DECLINED, rejected.reason)
+        assertNull(h.incomingStore.findTransfer(transferId), "an over-limit OFFER creates no transfer row")
+        assertNull(h.incomingStore.findSeal(sealId), "an over-limit seal is refused before it parks a row")
+        assertTrue(h.incomingStore.sealsByFile(fileId).isEmpty(), "no seal row for the over-limit file")
+        assertTrue(h.ports.offers.isEmpty(), "the receiver refuses before asking the port")
     }
 
     @Test

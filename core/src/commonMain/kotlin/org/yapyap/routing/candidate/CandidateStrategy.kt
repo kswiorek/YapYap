@@ -24,7 +24,15 @@ internal data class CandidateRow<K>(
 /** WAITING for [device]'s answer until [until] (a file REQUEST ACK waits for the OFFER). */
 internal data class CandidateWaiting(val device: PeerId, val until: Instant)
 
-/** Attempt + declined-device state for one asking loop, one row per asked-for id. */
+/**
+ * The asking loop's row-state port — not a plain CRUD table store. It persists exactly what the
+ * loop needs to resume: the next-attempt time, the attempt count, the declined children, and the
+ * WAITING state, written through the same port as the scheduling calls. A store that owns the
+ * candidate tables composes the parent row and its declined children into a view of this
+ * interface; consumers never assemble the join themselves.
+ *
+ * TODO: reconsider the name; it should say "the asking loop's row state", not "database rows".
+ */
 internal interface CandidateAttemptStore<K> {
     /** Starts tracking [id] (idempotent: a known id keeps its state). */
     suspend fun start(id: K, firstAttemptAt: Instant)

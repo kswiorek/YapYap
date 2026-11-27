@@ -35,6 +35,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
+import org.yapyap.routing.store.FilePullClass
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeFileSource
@@ -121,7 +122,7 @@ class FilePullProcessorTest {
             ingest = RefusingFilePorts(),
             requests = RefusingFilePorts(),
             routerConfig = MutableStateFlow(config),
-            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             events = events,
             clock = clock,
         )
@@ -153,7 +154,7 @@ class FilePullProcessorTest {
             webRtcTransport = webRtc,
             peerLinks = PeerLinks(identity, webRtc, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
-            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024)),
+            fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService(),
             clock = clock,
             routerConfig = configFlow,
@@ -192,7 +193,7 @@ class FilePullProcessorTest {
     }
 
     private suspend fun Harness.request(): Uuid {
-        processor.start(fileId, now)
+        processor.start(fileId, immediate = true)
         runFor()
         val row = attempts.findById(fileId)
         return assertNotNull(row?.attemptId, "attempt must record its REQUEST attempt")
@@ -282,7 +283,7 @@ class FilePullProcessorTest {
     fun waitingTimeout_asksNextCandidateWithoutDeclining() = kotlinx.coroutines.runBlocking {
         val h = harness(devices = listOf(holderDevice, otherDevice))
         val clock = FakeClock(now)
-        h.processor.start(fileId, now)
+        h.processor.start(fileId, immediate = true)
         CoroutineScope(SupervisorJob()).let { scope ->
             val job = h.processor.runIn(scope)
             delay(300.milliseconds)
@@ -314,8 +315,8 @@ class FilePullProcessorTest {
         val largeIds = (0 until 10).map { hexFileId(it) }
         val smallId = hexFileId(100)
         h.gate.totalBytesByFile = (largeIds.associateWith { 11L * 1024L * 1024L } + (smallId to 1_000L))
-        for (id in largeIds) h.processor.start(id, now)
-        h.processor.start(smallId, now)
+        for (id in largeIds) h.processor.start(id, immediate = true)
+        h.processor.start(smallId, immediate = true)
 
         h.runFor()
 
@@ -325,6 +326,67 @@ class FilePullProcessorTest {
         assertTrue(
             largeIds.all { h.attempts.findById(it) != null },
             "LARGE rows stay pending on the fetch path",
+        )
+    }
+
+    @Test
+    fun start_automaticSmallFile_waitsThePushWindow() = kotlinx.coroutines.runBlocking {
+        val h = harness()
+        h.gate.totalBytesByFile = mapOf(fileId to 1_000L)
+
+        h.processor.start(fileId, immediate = false)
+
+        val config = h.ctx.routerConfig.value
+        assertEquals(FilePullClass.SMALL, h.attempts.findById(fileId)?.pullClass)
+        assertEquals(now + config.filePullDelay, h.attempts.nextAttemptAt(fileId))
+    }
+
+    @Test
+    fun start_automaticLargeFile_startsAtOnce() = kotlinx.coroutines.runBlocking {
+        val h = harness()
+        val config = h.ctx.routerConfig.value
+        h.gate.totalBytesByFile = mapOf(fileId to config.smallFileMaxBytes + 1)
+
+        h.processor.start(fileId, immediate = false)
+
+        assertEquals(FilePullClass.LARGE, h.attempts.findById(fileId)?.pullClass)
+        assertEquals(now, h.attempts.nextAttemptAt(fileId), "large files never wait the small path's push window")
+    }
+
+    @Test
+    fun start_explicitSmallFile_startsAtOnce() = kotlinx.coroutines.runBlocking {
+        val h = harness()
+        h.gate.totalBytesByFile = mapOf(fileId to 1_000L)
+
+        h.processor.start(fileId, immediate = true)
+
+        assertEquals(FilePullClass.SMALL, h.attempts.findById(fileId)?.pullClass)
+        assertEquals(now, h.attempts.nextAttemptAt(fileId))
+    }
+
+    @Test
+    fun start_explicit_rearmsAnExistingFutureRow() = kotlinx.coroutines.runBlocking {
+        val h = harness()
+        h.gate.totalBytesByFile = mapOf(fileId to 1_000L)
+        h.attempts.start(fileId, FilePullClass.SMALL, now + 5.seconds)
+
+        h.processor.start(fileId, immediate = true)
+
+        assertEquals(now, h.attempts.nextAttemptAt(fileId), "explicit intent moves the existing schedule to now")
+    }
+
+    @Test
+    fun start_automatic_keepsAnExistingSchedule() = kotlinx.coroutines.runBlocking {
+        val h = harness()
+        h.gate.totalBytesByFile = mapOf(fileId to 1_000L)
+        h.attempts.start(fileId, FilePullClass.SMALL, now + 5.seconds)
+
+        h.processor.start(fileId, immediate = false)
+
+        assertEquals(
+            now + 5.seconds,
+            h.attempts.nextAttemptAt(fileId),
+            "an automatic re-arm never moves a known row's schedule",
         )
     }
 

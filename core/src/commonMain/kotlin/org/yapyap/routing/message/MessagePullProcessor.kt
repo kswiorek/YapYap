@@ -6,7 +6,13 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SyncPayload
-import org.yapyap.routing.candidate.*
+import org.yapyap.routing.candidate.AttemptExecutor
+import org.yapyap.routing.candidate.AttemptState
+import org.yapyap.routing.candidate.BuiltAttempt
+import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateRequestCore
+import org.yapyap.routing.candidate.CandidateStrategy
+import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.outbound.OutboxProcessor
@@ -73,7 +79,7 @@ internal class MessagePullProcessor(
     suspend fun onAttemptOutcome(outcome: OutboxOutcome) = core.onAttemptOutcome(outcome)
 }
 
-/** The pull path's plug into the shared candidate core: store adapter, request bytes, ACK-is-quiet. */
+/** The pull path's plug into the shared candidate core: the store's view, request bytes, ACK-is-quiet. */
 private class MessagePullStrategy(
     private val ctx: RoutingContext,
     store: SyncAttemptStore,
@@ -81,7 +87,7 @@ private class MessagePullStrategy(
     private val envelopes: OutboundMessenger,
     private val outboxProcessor: OutboxProcessor,
 ) : CandidateStrategy<Uuid> {
-    override val attempts: CandidateAttemptStore<Uuid> = SyncAttemptDock(store)
+    override val attempts: CandidateAttemptStore<Uuid> = store.candidateStore()
 
     override suspend fun candidateAccounts(id: Uuid): List<AccountId> = syncs.syncCandidates(id)
 
@@ -104,28 +110,4 @@ private class MessagePullStrategy(
         outcome.tag.id.takeIf { outcome.tag.kind == OutboxTag.Kind.SYNC }
 
     override suspend fun onSuccess(id: Uuid, device: PeerId): SuccessAction = SuccessAction.Done
-}
-
-/** Adapts the sync-shaped attempt store to the shared core without touching its shape. */
-//TODO: remove wrapper, update SyncAttemptStore to work with AttemptStore
-private class SyncAttemptDock(
-    private val store: SyncAttemptStore,
-) : CandidateAttemptStore<Uuid> {
-    override suspend fun start(id: Uuid, firstAttemptAt: Instant) = store.start(id, firstAttemptAt)
-    override suspend fun drop(id: Uuid) = store.drop(id)
-    override suspend fun earliestDueAt(): Instant? = store.earliestDueAt()
-    override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<Uuid>> =
-        store.findDue(now, limit).map { CandidateRow(it.syncId, it.attempts, it.declinedDevices) }
-
-    override suspend fun recordAttempt(id: Uuid, nextAttemptAt: Instant) =
-        store.recordAttempt(id, nextAttemptAt)
-
-    override suspend fun postpone(id: Uuid, nextAttemptAt: Instant) = store.postpone(id, nextAttemptAt)
-    override suspend fun advanceToNow(ids: Collection<Uuid>, now: Instant) = store.advanceToNow(ids, now)
-    override suspend fun declinedDevices(id: Uuid): Set<PeerId> = store.declinedDevices(id)
-    override suspend fun addDeclined(id: Uuid, device: PeerId) = store.addDeclined(id, device)
-    override suspend fun removeDeclined(id: Uuid, devices: Collection<PeerId>) =
-        store.removeDeclined(id, devices)
-    override suspend fun setWaiting(id: Uuid, device: PeerId, until: Instant) = Unit
-    override suspend fun clearWaiting(id: Uuid) = Unit
 }

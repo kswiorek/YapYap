@@ -142,7 +142,6 @@ internal class NodeGraph(
         crypto = crypto,
         files = fileAccess,
         storeDirectory = layout.fileStoreDirectory,
-        config = config.orchestratorConfig,
     )
 
     // File machinery the router runs against: the receive engine (ingest port, ended receives)

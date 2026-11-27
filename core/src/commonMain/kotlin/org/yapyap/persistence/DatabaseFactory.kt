@@ -218,7 +218,6 @@ internal class DatabaseFactory(
                 pending_file_requestsAdapter = Pending_file_requests.Adapter(
                     file_idAdapter = FileIdAdapter(),
                     statusAdapter = EnumColumnAdapter(),
-                    next_attempt_atAdapter = InstantEpochSecondsAdapter,
                     updated_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 file_pull_attemptsAdapter = File_pull_attempts.Adapter(

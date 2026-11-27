@@ -5,14 +5,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.file.io.PositionedHandle
@@ -38,7 +36,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 private class NoopCarrier : FileCarrier {
@@ -46,7 +43,7 @@ private class NoopCarrier : FileCarrier {
     override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun sendState(fileId: FileId) = emptyMap<AccountId, FileSendState>()
-    override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) = Unit
+    override suspend fun startFilePull(fileId: FileId, immediate: Boolean) = Unit
     override suspend fun abortLargeFile(fileId: FileId, reason: LargeFileAbortReason) =
         Unit
     override suspend fun endIncoming(fileId: FileId, end: org.yapyap.routing.file.port.FileReceiveEnd) = Unit
@@ -79,7 +76,7 @@ class FileSendServiceTest {
         files.createDirectories(work)
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
-        val store = DefaultFileStore(descriptors, crypto, access, storeDir, MutableStateFlow(OrchestratorConfig()))
+        val store = DefaultFileStore(descriptors, crypto, access, storeDir)
         val pins = FilePins()
         val quota = RecordingQuota(pins)
         val svc = DefaultFileSendService(
@@ -104,7 +101,7 @@ class FileSendServiceTest {
         return p
     }
 
-    private fun picked(path: Path, keepCopy: Boolean? = true) =
+    private fun picked(path: Path, keepCopy: Boolean = true) =
         PickedFile(path.name, null, PickedFileSource.FilePath(path.toString()), keepCopy)
 
     private fun storeFileNames(storeDir: Path): List<String> =
@@ -114,7 +111,7 @@ class FileSendServiceTest {
     fun unreadableSource_isFileUnreadableNotException() = runTest {
         val r = rig()
         val result = r.svc.prepare(
-            listOf(PickedFile("nope.bin", null, PickedFileSource.FilePath("/no/such/file.bin"))),
+            listOf(PickedFile("nope.bin", null, PickedFileSource.FilePath("/no/such/file.bin"), keepCopy = true)),
             onProgress = { _, _ -> },
         )
         assertIs<SendRefusal.FileUnreadable>(assertIs<PrepareResult.Refused>(result).refusal)

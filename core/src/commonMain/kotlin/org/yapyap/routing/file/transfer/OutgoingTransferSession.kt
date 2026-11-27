@@ -25,7 +25,6 @@ import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RetryClass
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -147,7 +146,8 @@ internal class OutgoingTransferSession(
         }
     }
 
-    private fun tickEvery(): Duration = maxOf(ctx.routerConfig.value.chunkAckTimeout / 3, 5.seconds)
+    /** The per-transfer tick: a third of the file sweep cadence. */
+    private fun tickEvery(): Duration = ctx.routerConfig.value.fileSweepInterval / 3
 
     /**
      * Expiry, a lost OFFER re-armed, a stalled window refilled, and the gone signals: before the

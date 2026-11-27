@@ -200,7 +200,7 @@ class FileSmallPushLiveIntegrationTest {
         files.createDirectories(aliceWork)
         val aliceStoreDir = Path(aliceWork.toString(), "store")
         files.createDirectories(aliceStoreDir)
-        val aliceFileStore = DefaultFileStore(aliceDescriptors, crypto, files, aliceStoreDir, fileConfig)
+        val aliceFileStore = DefaultFileStore(aliceDescriptors, crypto, files, aliceStoreDir)
 
         // Receiver side: real receive engine + GUI facade.
         val bobDb = openMemoryDatabase().database
@@ -213,7 +213,7 @@ class FileSmallPushLiveIntegrationTest {
         val bobIncomingDir = Path(bobWork.toString(), "incoming")
         files.createDirectories(bobStoreDir)
         files.createDirectories(bobIncomingDir)
-        val bobFileStore = DefaultFileStore(bobDescriptors, crypto, files, bobStoreDir, fileConfig)
+        val bobFileStore = DefaultFileStore(bobDescriptors, crypto, files, bobStoreDir)
 
         val bobEngine = ReceiveEngine(
             receives = bobReceives,
@@ -244,7 +244,7 @@ class FileSmallPushLiveIntegrationTest {
                 webRtcTransport = webRtc,
                 peerLinks = peerLinks,
                 transportLimits = MutableStateFlow(testTransportLimits()),
-                fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize)),
+                fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize, maxSealBytes = 64 * 1024)),
                 envelopeProtections = protection,
                 clock = clock,
                 routerConfig = MutableStateFlow(RouterConfig()),

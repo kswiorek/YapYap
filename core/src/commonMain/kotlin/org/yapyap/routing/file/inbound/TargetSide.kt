@@ -9,7 +9,6 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.MAX_SEAL_BYTES
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -34,7 +33,6 @@ import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.IncomingSeal
 import org.yapyap.routing.store.IncomingTransfer
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /**
@@ -61,7 +59,7 @@ internal class TargetSide(
             return if (existing.sender == env.source) InboundHandleResult.Success()
             else InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
-        if (!header.shape.isAcceptable() || env.content.size !in 1..MAX_SEAL_BYTES) {
+        if (!header.shape.isAcceptable() || env.content.size !in 1..ctx.fileLimits.value.maxSealBytes) {
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
         val seal = when (val lookup = sealOf(env, header)) {
@@ -144,7 +142,9 @@ internal class TargetSide(
 
     /**
      * The seal [env] carries: recognised by its id, or opened now and stored at once. Refused when
-     * a stored seal of that id came from another origin, or when it can't be opened.
+     * a stored seal of that id came from another origin, when it can't be opened, or when the
+     * receiver's own small-file limit rejects it — the last before storing, so an over-limit seal
+     * never parks a row.
      */
     private suspend fun sealOf(env: BinaryEnvelope, header: FileHeader.Offer): SealLookup {
         val sealId = ctx.envelopeProtections.hop.contentId(env.content)
@@ -163,6 +163,9 @@ internal class TargetSide(
                 if (e is ProtectionException.Duplicate) InboundHandleResult.Rejected(PacketNackReason.PERMANENT_PROTECTION_FAILED)
                 else inboundResultForProtectionFailure(e),
             )
+        }
+        if (seal.totalBytes > ctx.routerConfig.value.smallFileMaxBytes) {
+            return SealLookup.Refused(InboundHandleResult.Rejected(PacketNackReason.DECLINED))
         }
         val stored = IncomingSeal(sealId, header.origin, seal, env.expiresAt)
         incoming.insertSeal(stored)
@@ -256,7 +259,7 @@ internal class TargetSide(
                     throwable = e,
                 )
             }
-            delay(SWEEP_INTERVAL)
+            delay(ctx.routerConfig.value.fileSweepInterval)
         }
     }
 
@@ -276,9 +279,5 @@ internal class TargetSide(
                 fields = mapOf("peer" to peer, "error" to e.toString()),
             )
         }
-    }
-
-    private companion object {
-        val SWEEP_INTERVAL = 5.minutes
     }
 }

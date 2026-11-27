@@ -44,6 +44,22 @@ class FileEnvelopeCodecTest {
     }
 
     @Test
+    fun fileHeader_offer_encodedSizeIsTheSealBudgetBasis() {
+        // The seal budget is derived by subtracting OFFER_ENCODED_BYTES from the transport frame;
+        // pin the arithmetic to 64-char peer ids, the size the derivation assumes.
+        val origin = PeerId("a".repeat(64))
+        val finalTarget = PeerId("b".repeat(64))
+        val header = FileHeader.Offer(
+            transferId = TransferId(Uuid.random()),
+            origin = origin,
+            finalTarget = finalTarget,
+            shape = TransferShape(chunkSizeBytes = 100 * 1024, byteFrom = 0L, byteTo = 999L),
+        )
+        assertEquals(FileHeader.OFFER_ENCODED_BYTES, header.encode().size)
+        assertEquals(169, FileHeader.OFFER_ENCODED_BYTES)
+    }
+
+    @Test
     fun fileHeader_chunk_encodeDecode_roundTrip() {
         val original = FileHeader.Chunk(TransferId(Uuid.random()), chunkIndex = 2)
         val decoded = FileHeader.decode(original.encode()) as FileHeader.Chunk

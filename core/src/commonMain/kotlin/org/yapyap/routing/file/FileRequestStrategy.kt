@@ -11,9 +11,7 @@ import org.yapyap.protocol.envelopes.FileRequest
 import org.yapyap.routing.candidate.AttemptState
 import org.yapyap.routing.candidate.BuiltAttempt
 import org.yapyap.routing.candidate.CandidateAttemptStore
-import org.yapyap.routing.candidate.CandidateRow
 import org.yapyap.routing.candidate.CandidateStrategy
-import org.yapyap.routing.candidate.CandidateWaiting
 import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
@@ -36,40 +34,7 @@ internal class FileRequestStrategy(
     private val outbox: OutboxProcessor,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
-    private val dock = object : CandidateAttemptStore<FileId> {
-        override suspend fun start(id: FileId, firstAttemptAt: Instant) =
-            pullAttempts.start(id, FilePullClass.SMALL, firstAttemptAt)
-
-        override suspend fun drop(id: FileId) = pullAttempts.drop(id)
-        override suspend fun earliestDueAt(): Instant? = pullAttempts.earliestDueAt(FilePullClass.SMALL)
-        override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<FileId>> =
-            pullAttempts.findDue(now, limit, FilePullClass.SMALL).map { row ->
-                val device = row.waitingDevice
-                val until = row.waitingUntil
-                val waiting = if (device != null && until != null) CandidateWaiting(device, until) else null
-                CandidateRow(row.fileId, row.attempts, row.declinedDevices, waiting)
-            }
-
-        override suspend fun recordAttempt(id: FileId, nextAttemptAt: Instant) =
-            pullAttempts.recordAttempt(id, nextAttemptAt)
-
-        override suspend fun postpone(id: FileId, nextAttemptAt: Instant) = pullAttempts.postpone(id, nextAttemptAt)
-        override suspend fun advanceToNow(ids: Collection<FileId>, now: Instant) = pullAttempts.advanceToNow(ids, now)
-        override suspend fun declinedDevices(id: FileId): Set<PeerId> = pullAttempts.declinedDevices(id)
-        override suspend fun addDeclined(id: FileId, device: PeerId) = pullAttempts.addDeclined(id, device)
-        override suspend fun removeDeclined(id: FileId, devices: Collection<PeerId>) =
-            pullAttempts.removeDeclined(id, devices)
-
-        override suspend fun setWaiting(id: FileId, device: PeerId, until: Instant) {
-            val row = pullAttempts.findById(id) ?: return
-            val attemptId = row.attemptId ?: return
-            pullAttempts.setWaiting(id, device, until, attemptId)
-        }
-
-        override suspend fun clearWaiting(id: FileId) = pullAttempts.clearWaiting(id)
-    }
-
-    override val attempts: CandidateAttemptStore<FileId> = dock
+    override val attempts: CandidateAttemptStore<FileId> = pullAttempts.candidateStore(FilePullClass.SMALL)
 
     override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)
 

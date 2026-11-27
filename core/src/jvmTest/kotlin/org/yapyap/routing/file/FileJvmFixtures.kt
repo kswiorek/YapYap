@@ -331,7 +331,7 @@ internal fun jvmRoutingContext(
         webRtcTransport = webRtc,
         peerLinks = peerLinks,
         transportLimits = MutableStateFlow(transportLimits),
-        fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize)),
+        fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize, maxSealBytes = 64 * 1024)),
         envelopeProtections = protections,
         clock = clock,
         routerConfig = MutableStateFlow(routerConfig),

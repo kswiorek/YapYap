@@ -8,7 +8,6 @@ import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileSendState
-import kotlin.time.Instant
 
 /** File carrier fake for tests that never exercise file transfer. */
 internal open class NoopFileCarrier : FileCarrier {
@@ -21,7 +20,7 @@ internal open class NoopFileCarrier : FileCarrier {
     override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> =
         emptyMap()
 
-    override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) = Unit
+    override suspend fun startFilePull(fileId: FileId, immediate: Boolean) = Unit
 
     override suspend fun abortLargeFile(fileId: FileId, reason: LargeFileAbortReason) =
         Unit

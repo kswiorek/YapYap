@@ -24,9 +24,6 @@ public value class FileId(public val value: String) {
 @JvmInline
 public value class TransferId(public val value: Uuid)
 
-/** Network value, not config: small/large threshold (design §1). Until the network config exists. */
-internal const val SMALL_FILE_MAX_BYTES: Long = 10L * 1024L * 1024L
-
 /** Shared file-name cap: attachments, the seal and PULL_OK (design §3). */
 internal const val MAX_FILE_NAME_CHARS: Int = 80
 internal const val MAX_FILE_NAME_BYTES: Int = 255
@@ -35,13 +32,12 @@ internal const val MAX_FILE_NAME_BYTES: Int = 255
 internal const val MAX_MIME_TYPE_CHARS: Int = 128
 internal const val MAX_MIME_TYPE_BYTES: Int = 128
 
-/** Wire bound on a seal (an OFFER's content), checked before it is stored or opened. */
-internal const val MAX_SEAL_BYTES: Int = 64 * 1024
-
 /**
- * Smallest small-path chunk (and large-path frame) a device sends or accepts. A receiver or relay
- * refuses an OFFER chunked finer: one byte per chunk would turn a 10 MiB reservation into ten
- * million stored envelopes.
+ * Smallest small-path chunk a receiver or relay accepts. A transfer's chunk granularity is
+ * peer-chosen in its OFFER and every accepted chunk costs a stored row at a relay, so this floor
+ * is a storage-amplification bound on attacker-chosen granularity (one byte per chunk would turn a
+ * 10 MiB deposit into ten million rows). A format contract, not config: there is no fallback
+ * granularity, so every device must agree on it.
  */
 internal const val MIN_FILE_CHUNK_SIZE_BYTES: Int = 64 * 1024
 

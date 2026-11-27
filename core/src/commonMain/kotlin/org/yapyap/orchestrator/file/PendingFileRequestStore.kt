@@ -17,18 +17,22 @@ public enum class PendingFileRequestStatus {
 internal data class PendingFileRequest(
     val fileId: FileId,
     val status: PendingFileRequestStatus,
-    val nextAttemptAt: Instant,
     val updatedAt: Instant,
 )
 
-/** Owner of `pending_file_requests` (guide §4). */
+/**
+ * Owner of `pending_file_requests` (guide §4): the user-facing trigger state only. When an ask
+ * runs is routing's (`file_pull_attempts`); this row never schedules.
+ */
 internal interface PendingFileRequestStore {
     /** Inserts or re-arms [fileId] as PENDING (a new message re-arms UNAVAILABLE). */
-    suspend fun upsertPending(fileId: FileId, nextAttemptAt: Instant, now: Instant): Unit
+    suspend fun upsertPending(fileId: FileId, now: Instant)
     suspend fun find(fileId: FileId): PendingFileRequest?
-    suspend fun setUnavailable(fileId: FileId, now: Instant): Unit
-    suspend fun drop(fileId: FileId): Unit
-    suspend fun due(now: Instant): List<PendingFileRequest>
+    suspend fun setUnavailable(fileId: FileId, now: Instant)
+    suspend fun drop(fileId: FileId)
+
+    /** Every PENDING row: the coordinator re-arms them each pass; routing owns their schedule. */
+    suspend fun pending(): List<PendingFileRequest>
 }
 
 internal class DefaultPendingFileRequestStore(
@@ -37,31 +41,35 @@ internal class DefaultPendingFileRequestStore(
 ) : PendingFileRequestStore {
     private val queries = database.pendingFileRequestQueries
 
-    override suspend fun upsertPending(fileId: FileId, nextAttemptAt: Instant, now: Instant): Unit =
+    override suspend fun upsertPending(fileId: FileId, now: Instant) {
         withContext(dbDispatcher) {
-            queries.insertPendingFileRequest(fileId, PendingFileRequestStatus.PENDING, nextAttemptAt, now)
+            queries.insertPendingFileRequest(fileId, PendingFileRequestStatus.PENDING, now)
         }
+    }
 
     override suspend fun find(fileId: FileId): PendingFileRequest? = withContext(dbDispatcher) {
         queries.selectPendingFileRequestById(fileId).executeAsOneOrNull()?.toRow()
     }
 
-    override suspend fun setUnavailable(fileId: FileId, now: Instant): Unit = withContext(dbDispatcher) {
-        queries.updatePendingFileRequestStatus(PendingFileRequestStatus.UNAVAILABLE, now, fileId)
+    override suspend fun setUnavailable(fileId: FileId, now: Instant) {
+        withContext(dbDispatcher) {
+            queries.updatePendingFileRequestStatus(PendingFileRequestStatus.UNAVAILABLE, now, fileId)
+        }
     }
 
-    override suspend fun drop(fileId: FileId): Unit = withContext(dbDispatcher) {
-        queries.deletePendingFileRequest(fileId)
+    override suspend fun drop(fileId: FileId) {
+        withContext(dbDispatcher) {
+            queries.deletePendingFileRequest(fileId)
+        }
     }
 
-    override suspend fun due(now: Instant): List<PendingFileRequest> = withContext(dbDispatcher) {
-        queries.selectDuePendingFileRequests(now).executeAsList().map { it.toRow() }
+    override suspend fun pending(): List<PendingFileRequest> = withContext(dbDispatcher) {
+        queries.selectPendingFileRequests().executeAsList().map { it.toRow() }
     }
 
     private fun Pending_file_requests.toRow(): PendingFileRequest = PendingFileRequest(
         fileId = file_id,
         status = status,
-        nextAttemptAt = next_attempt_at,
         updatedAt = updated_at,
     )
 }

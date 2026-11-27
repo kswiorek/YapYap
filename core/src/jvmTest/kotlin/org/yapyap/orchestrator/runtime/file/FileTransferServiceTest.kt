@@ -42,7 +42,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -69,11 +68,11 @@ class FileTransferServiceTest {
 
     private class RecordingFacadeRouter : NoopFileCarrier() {
         val files: FileCarrier get() = this
-        val started = mutableListOf<Pair<FileId, Instant>>()
+        val started = mutableListOf<Pair<FileId, Boolean>>()
         val aborted = mutableListOf<FileId>()
 
-        override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) {
-            started += fileId to firstAttemptAt
+        override suspend fun startFilePull(fileId: FileId, immediate: Boolean) {
+            started += fileId to immediate
         }
 
         override suspend fun abortLargeFile(
@@ -98,7 +97,7 @@ class FileTransferServiceTest {
         val config = MutableStateFlow(OrchestratorConfig())
         val crypto = DefaultCryptoProvider()
         val storeDir = Path(work.toString(), "store")
-        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config, clock)
+        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, clock)
         val engine = ReceiveEngine(
             receives = receives,
             descriptors = descriptors,
@@ -193,7 +192,7 @@ class FileTransferServiceTest {
 
         assertNull(h.receives.find(fileId), "DECLINED removed so PULL_OK can create the row")
         assertEquals(PendingFileRequestStatus.PENDING, h.pending.find(fileId)?.status)
-        assertEquals(listOf(fileId to now), h.router.started)
+        assertEquals(listOf(fileId to true), h.router.started, "a user accept asks at once")
     }
 
     @Test

@@ -11,7 +11,6 @@ import org.yapyap.routing.candidate.AttemptState
 import org.yapyap.routing.candidate.BuiltAttempt
 import org.yapyap.routing.candidate.CallOutcome
 import org.yapyap.routing.candidate.CandidateAttemptStore
-import org.yapyap.routing.candidate.CandidateRow
 import org.yapyap.routing.candidate.CandidateStrategy
 import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.file.large.LargeFileService
@@ -43,36 +42,9 @@ internal class LargeFileStrategy(
     private val fetchService: LargeFileService,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
-    private val dock = object : CandidateAttemptStore<FileId> {
-        override suspend fun start(id: FileId, firstAttemptAt: Instant) =
-            pullAttempts.start(id, FilePullClass.LARGE, firstAttemptAt)
-
-        override suspend fun drop(id: FileId) = pullAttempts.drop(id)
-        override suspend fun earliestDueAt(): Instant? = pullAttempts.earliestDueAt(FilePullClass.LARGE)
-        override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<FileId>> =
-            pullAttempts.findDue(now, limit, FilePullClass.LARGE)
-                .map { CandidateRow(it.fileId, it.attempts, it.declinedDevices) }
-
-        override suspend fun recordAttempt(id: FileId, nextAttemptAt: Instant) =
-            pullAttempts.recordAttempt(id, nextAttemptAt)
-
-        override suspend fun postpone(id: FileId, nextAttemptAt: Instant) = pullAttempts.postpone(id, nextAttemptAt)
-        override suspend fun advanceToNow(ids: Collection<FileId>, now: Instant) = pullAttempts.advanceToNow(ids, now)
-        override suspend fun declinedDevices(id: FileId): Set<PeerId> = pullAttempts.declinedDevices(id)
-        override suspend fun addDeclined(id: FileId, device: PeerId) = pullAttempts.addDeclined(id, device)
-        override suspend fun removeDeclined(id: FileId, devices: Collection<PeerId>) =
-            pullAttempts.removeDeclined(id, devices)
-
-        // The large path has no WAITING state (the answer and the bytes share a channel),
-        // so the core never calls these on this dock.
-        override suspend fun setWaiting(id: FileId, device: PeerId, until: Instant) = Unit
-        override suspend fun clearWaiting(id: FileId) = Unit
-    }
-
-    override val attempts: CandidateAttemptStore<FileId> = dock
+    override val attempts: CandidateAttemptStore<FileId> = pullAttempts.candidateStore(FilePullClass.LARGE)
 
     override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)
-
 
     override suspend fun idsWithCandidate(account: AccountId): List<FileId> =
         pullAttempts.idsOf(FilePullClass.LARGE).filter { id -> account in requests.requestCandidates(id) }

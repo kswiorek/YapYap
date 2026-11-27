@@ -10,7 +10,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -33,6 +32,7 @@ import org.yapyap.routing.file.sealTransferHarness
 import org.yapyap.routing.file.sent
 import org.yapyap.routing.file.transfersFor
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileSealKind
 import org.yapyap.routing.store.FileTransferStatus
 import org.yapyap.routing.store.OutboxTag
@@ -68,7 +68,7 @@ class SealRegistryTest {
 
     @Test
     fun pushFile_refusesLargeFiles() = runTest {
-        val h = sealTransferHarness(totalBytes = SMALL_FILE_MAX_BYTES + 1)
+        val h = sealTransferHarness(totalBytes = RouterConfig().smallFileMaxBytes + 1)
         h.seals.push(fixtureFileId, fixtureAccount)
         assertTrue(h.allTransfers().isEmpty())
         assertTrue(h.sent().isEmpty())
