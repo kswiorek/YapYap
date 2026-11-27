@@ -17,7 +17,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * no launch per message. Callbacks only call [deliver] and [bufferedAmountChanged], from any thread.
  *
  * [close] lets the drainer flush what the channel already received before it reports the channel
- * gone, so a frame sent right before a close (a FETCH_DECLINED, an ABORT) is never dropped.
+ * gone, so a frame sent right before a close (a DECLINED, an ABORT) is never dropped.
  * Queues are unbounded: the fetch's credit window bounds what a well-behaved holder sends, and the
  * requester closes a channel whose holder overruns it.
  */

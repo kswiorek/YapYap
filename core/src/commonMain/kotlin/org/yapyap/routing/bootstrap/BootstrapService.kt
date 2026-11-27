@@ -10,7 +10,14 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.BootstrapAck
+import org.yapyap.routing.router.BootstrapCarrier
+import org.yapyap.routing.router.BootstrapPacketEvent
+import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.OutcomeMailbox
+import org.yapyap.routing.router.RouterLifecycle
+import org.yapyap.routing.router.RouterService
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.OutboxTag
 import kotlin.uuid.Uuid
 
@@ -22,7 +29,9 @@ internal class BootstrapService(
     private val ctx: RoutingContext,
     private val lifecycle: RouterLifecycle,
     outboxProcessor: OutboxProcessor,
-) : BootstrapCarrier {
+) : BootstrapCarrier, RouterService {
+
+    override val outcomeTags: Set<OutboxTag.Kind> = setOf(OutboxTag.Kind.BOOTSTRAP)
 
     private val bootstrapPacketFlow = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
     private val deliveryFlow = MutableSharedFlow<BootstrapAck>(extraBufferCapacity = 64)
@@ -45,9 +54,9 @@ internal class BootstrapService(
         return sender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
     }
 
-    fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
+    override fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
 
-    fun runIn(scope: CoroutineScope): List<Job> = listOf(
+    override fun runIn(scope: CoroutineScope): List<Job> = listOf(
         outcomes.runIn(scope, LogComponent.ROUTER) { outcome ->
             if (outcome.tag.kind != OutboxTag.Kind.BOOTSTRAP) {
                 error("Not a bootstrap outcome: ${outcome.tag.kind}")

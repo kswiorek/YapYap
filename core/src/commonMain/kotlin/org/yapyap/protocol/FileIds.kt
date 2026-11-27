@@ -27,11 +27,11 @@ public value class TransferId(public val value: Uuid)
 /** Network value, not config: small/large threshold (design §1). Until the network config exists. */
 internal const val SMALL_FILE_MAX_BYTES: Long = 10L * 1024L * 1024L
 
-/** Shared file-name cap: attachments, the seal and FETCH_OK (design §3). */
+/** Shared file-name cap: attachments, the seal and PULL_OK (design §3). */
 internal const val MAX_FILE_NAME_CHARS: Int = 80
 internal const val MAX_FILE_NAME_BYTES: Int = 255
 
-/** Shared display-metadata caps for the seal and FETCH_OK. */
+/** Shared display-metadata caps for the seal and PULL_OK. */
 internal const val MAX_MIME_TYPE_CHARS: Int = 128
 internal const val MAX_MIME_TYPE_BYTES: Int = 128
 

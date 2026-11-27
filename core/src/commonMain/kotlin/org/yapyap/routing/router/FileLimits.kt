@@ -10,5 +10,5 @@ internal data class FileLimits(
     /** Plaintext bytes per small-path chunk: one chunk's envelope fits through either transport. */
     val chunkSizeBytes: Int,
     /** File bytes per large-path DATA frame on a WebRTC file channel. */
-    val fetchFrameBytes: Int,
+    val largeFileFrameBytes: Int,
 )

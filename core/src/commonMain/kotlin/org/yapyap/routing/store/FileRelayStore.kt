@@ -5,41 +5,11 @@ import kotlinx.coroutines.withContext
 import org.yapyap.persistence.File_relay_transfers
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
-import org.yapyap.protocol.ContentId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.TransferShape
 import kotlin.time.Instant
 
-/** RESERVED (admitted, chunks landing) → WHOLE (every chunk of the transfer stored). */
-internal enum class FileRelayStatus {
-    RESERVED,
-    WHOLE,
-}
-
-/**
- * A transfer deposited here by [origin] for [finalTarget]: the seal bytes to pass on and the
- * transfer's [shape], whose chunks the relay stores until the transfer is whole.
- */
-internal class RelayTransfer(
-    val transferId: TransferId,
-    val sealId: ContentId,
-    val origin: PeerId,
-    val finalTarget: PeerId,
-    val shape: TransferShape,
-    val sealBytes: ByteArray,
-    val status: FileRelayStatus,
-    /** Bytes reserved against `RouterConfig.fileRelayBudgetBytes` at admission. */
-    val reservedBytes: Long,
-    val createdAt: Instant,
-    val lastChunkAt: Instant,
-    val expiresAt: Instant,
-)
-
-internal data class AdmitResult(val admitted: Boolean, val evicted: List<TransferId>)
-
-/**
- * Routing-owned transient ciphertext for other devices (docs/envelope-redesign.md §5.4): written
+/** Routing-owned transient ciphertext for other devices (docs/envelope-redesign.md §5.4): written
  * by the relay door (admission and chunks) and the forwards (dropping finished transfers). The
  * relay never holds a key.
  */

@@ -88,7 +88,7 @@ class FileChannelInboxTest {
             drained.complete(Unit)
         }
         repeat(100) { inbox.deliver(channel(0), frame(it)) }
-        // The last frame (a FETCH_DECLINED, say) is followed at once by the close.
+        // The last frame (a DECLINED, say) is followed at once by the close.
         inbox.close(channel(0))
         assertFalse(inbox.deliver(channel(0), frame(100)), "a frame after the close is dropped")
         release.complete(Unit)

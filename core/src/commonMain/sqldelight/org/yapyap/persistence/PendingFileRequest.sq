@@ -3,7 +3,7 @@ import org.yapyap.protocol.FileId;
 import org.yapyap.orchestrator.file.PendingFileRequestStatus;
 
 -- Orchestrator-owned file-request triggers (design §9, step 16): one row per file the
--- device wants but does not hold. The router owns the asking (file_request_attempts);
+-- device wants but does not hold. The router owns the asking (file_pull_attempts);
 -- this row is the trigger state: PENDING (waiting out the grace period or the next
 -- attempt) or UNAVAILABLE (every candidate declined — terminal until a new message or
 -- a user re-open re-arms it). STALLED/EXPIRED receives re-open through this table.

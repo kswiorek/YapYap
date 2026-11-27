@@ -10,9 +10,9 @@ import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.fileControl
+import org.yapyap.routing.file.FilePackets
+import org.yapyap.routing.file.IncomingHop
 import org.yapyap.routing.file.inbound.ChunkSink
-import org.yapyap.routing.file.inbound.IncomingHop
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
@@ -33,11 +33,12 @@ import org.yapyap.routing.store.RelayTransfer
  */
 internal class RelayDoor(
     private val ctx: RoutingContext,
-    private val relays: FileRelayStore,
+    private val packets: FilePackets,
+    private val relayStore: FileRelayStore,
     private val forwards: RelayForwards,
 ) : ChunkSink {
     suspend fun offer(env: BinaryEnvelope, header: FileHeader.Offer): InboundHandleResult {
-        val existing = relays.find(header.transferId)
+        val existing = relayStore.find(header.transferId)
         if (existing != null) {
             // The depositor re-sends its OFFER until our ACK lands; only it may.
             return if (existing.origin == env.source) InboundHandleResult.Success()
@@ -72,7 +73,7 @@ internal class RelayDoor(
             lastChunkAt = now,
             expiresAt = env.expiresAt,
         )
-        val admission = relays.admit(transfer, ctx.routerConfig.value.fileRelayBudgetBytes)
+        val admission = relayStore.admit(transfer, ctx.routerConfig.value.fileRelayBudgetBytes)
         admission.evicted.forEach { forwards.drop(it) }
         if (!admission.admitted) return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         if (transfer.status == FileRelayStatus.WHOLE) forwards.onWhole(transfer.transferId)
@@ -80,23 +81,23 @@ internal class RelayDoor(
     }
 
     override suspend fun find(transferId: TransferId): IncomingHop? =
-        relays.find(transferId)?.let { IncomingHop(it.transferId, it.origin, it.shape) }
+        relayStore.find(transferId)?.let { IncomingHop(it.transferId, it.origin, it.shape) }
 
     override suspend fun accept(hop: IncomingHop, index: Int, ciphertext: ByteArray): InboundHandleResult {
-        val status = relays.storeChunk(hop.transferId, index, ciphertext, ctx.clock.now())
+        val status = relayStore.storeChunk(hop.transferId, index, ciphertext, ctx.clock.now())
             ?: return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         if (status == FileRelayStatus.WHOLE) forwards.onWhole(hop.transferId)
-        val stored = relays.chunkIndices(hop.transferId).toHashSet()
+        val stored = relayStore.chunkIndices(hop.transferId).toHashSet()
         var contiguous = -1
         while ((contiguous + 1) in stored) contiguous += 1
-        val relay = relays.find(hop.transferId) ?: return InboundHandleResult.Success()
-        val ack = ctx.fileControl(hop.sender, FileHeader.Ack(hop.transferId, contiguous, emptyList()), relay.expiresAt)
+        val relay = relayStore.find(hop.transferId) ?: return InboundHandleResult.Success()
+        val ack = packets.control(hop.sender, FileHeader.Ack(hop.transferId, contiguous, emptyList()), relay.expiresAt)
         return InboundHandleResult.Success(sideEffects = listOf(InboundSideEffect.EnqueueDirect(ack)))
     }
 
     /** The depositor ended its deposit: forget it. False when [transferId] is no deposit here. */
     suspend fun cancel(transferId: TransferId, from: PeerId): Boolean {
-        val relay = relays.find(transferId) ?: return false
+        val relay = relayStore.find(transferId) ?: return false
         if (relay.origin == from) forwards.drop(transferId)
         return true
     }

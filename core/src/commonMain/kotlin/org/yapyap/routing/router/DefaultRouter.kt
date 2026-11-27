@@ -43,8 +43,8 @@ import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.presence.PingProvider
 import org.yapyap.routing.presence.PresenceService
 import org.yapyap.routing.store.FileIncomingStore
+import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutboxTag
@@ -91,7 +91,7 @@ internal class DefaultRouter(
     fileTransferStore: FileTransferStore,
     fileIncomingStore: FileIncomingStore,
     fileRelayStore: FileRelayStore,
-    fileRequestAttemptStore: FileRequestAttemptStore,
+    filePullAttemptStore: FilePullAttemptStore,
 ) : Router {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -234,7 +234,7 @@ internal class DefaultRouter(
         transferStore = fileTransferStore,
         incomingStore = fileIncomingStore,
         relayStore = fileRelayStore,
-        requestAttempts = fileRequestAttemptStore,
+        pullAttempts = filePullAttemptStore,
         outboxProcessor = outboxProcessor,
         packetOutbox = packetOutbox,
         relaySelection = relaySelectionPolicy,
@@ -245,6 +245,12 @@ internal class DefaultRouter(
     )
 
     private val webRtcSignaler = WebRtcSignaler(ctx, envelopeDispatcher)
+
+    /** The router's services, started uniformly and fed outcomes by the tag kinds they declare. */
+    private val services: List<RouterService> = listOf(messageService, bootstrapService, fileService)
+
+    private val outcomeServices: Map<OutboxTag.Kind, RouterService> =
+        services.flatMap { service -> service.outcomeTags.map { it to service } }.toMap()
 
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = ctx,
@@ -347,7 +353,7 @@ internal class DefaultRouter(
         }
         outboxRetryJob = outboxProcessor.runIn(scope)
 
-        serviceJobs = messageService.runIn(scope) + bootstrapService.runIn(scope) + fileService.runIn(scope)
+        serviceJobs = services.flatMap { it.runIn(scope) }
 
         pingProvider.runIn(scope)
         peerAvailabilityRegistry.start(scope, ctx.localDeviceId)
@@ -433,14 +439,12 @@ internal class DefaultRouter(
     override fun isRunning(): Boolean = lifecycle.isRunning
 
     /**
-     * Each tagged outcome goes to the service that owns its kind — a mailbox hand-off, never a
+     * Each tagged outcome goes to the service that declares its kind — a mailbox hand-off, never a
      * blocking switch: the services consume in their own loops.
      */
     private fun routeOutcome(outcome: OutboxOutcome) {
-        when (outcome.tag.kind) {
-            OutboxTag.Kind.MESSAGE, OutboxTag.Kind.SYNC -> messageService.offerOutcome(outcome)
-            OutboxTag.Kind.BOOTSTRAP -> bootstrapService.offerOutcome(outcome)
-            OutboxTag.Kind.FILE_TRANSFER, OutboxTag.Kind.FILE_REQUEST -> fileService.offerOutcome(outcome)
-        }
+        val service = outcomeServices[outcome.tag.kind]
+            ?: error("No router service owns ${outcome.tag.kind} outcomes")
+        service.offerOutcome(outcome)
     }
 }

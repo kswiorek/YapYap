@@ -8,55 +8,7 @@ import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SealKey
 import kotlin.time.Instant
-
-/** Why a seal exists: our own send, or a serve answering a REQUEST. */
-internal enum class FileSealKind {
-    PUSH,
-    SERVE,
-}
-
-/**
- * A seal's delivery state at its origin (docs/envelope-redesign.md §5.6). SENDING and HANDED_OFF
- * are live; the rest are final.
- */
-internal enum class FileSealStatus {
-    /** Transfers are still carrying it. */
-    SENDING,
-
-    /** The target's prefix plus one relay's whole remainder cover the file: relays deliver. */
-    HANDED_OFF,
-
-    /** The target holds the file: its COMPLETE arrived, or the direct transfer finished. */
-    DELIVERED,
-
-    /** The target refused the file. */
-    DECLINED,
-
-    /** Every transfer ended without delivery or hand-off; the pull path recovers. */
-    ENDED,
-
-    CANCELLED,
-    EXPIRED;
-
-    val isLive: Boolean get() = this == SENDING || this == HANDED_OFF
-}
-
-/** One file sealed for one target device at its origin (us). */
-internal class OutgoingSeal(
-    val sealId: ContentId,
-    val fileId: FileId,
-    val targetDevice: PeerId,
-    val kind: FileSealKind,
-    /** The seal's ratchet frame, attached unchanged to every transfer of it. */
-    val sealBytes: ByteArray,
-    val key: SealKey,
-    val totalBytes: Long,
-    val status: FileSealStatus,
-    val createdAt: Instant,
-    val expiresAt: Instant,
-)
 
 /** Routing-owned `file_seals`: written only by the seal registry. */
 internal interface FileSealStore {

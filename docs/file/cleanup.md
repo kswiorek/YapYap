@@ -75,7 +75,7 @@ authority as the points. Each section names the change step that lands it.
 ### 2.1 Point 1 — naming: stores for their type, components for their concern
 
 Agreed rule: **stores are always named for their type** (`sealStore`, `transferStore`, `relayStore`,
-`incomingStore`, `requestAttempts` — FileService's constructor already reads this way); **live components
+`incomingStore`, `pullAttempts` — FileService's constructor reads this way); **live components
 keep their domain noun** (`engine`, `forwards`, `relayDoor`, `target`, `pullProcessor`, `fetchService`).
 Renamed fields: `TransferEngine.seals/transfers/relays` → `sealStore/transferStore/relayStore`;
 `SealRegistry.seals/transfers` → `sealStore/transferStore`; same treatment in `RelayForwards` and
@@ -499,9 +499,11 @@ scheme, which the codebase already follows for behavior but never applied to dat
 
 The concrete moves in this branch:
 
-- `routing/file/FileTypes.kt` — the file concern's shared vocabulary: the seam types (`FileEvent`,
-  `FileFailureReason`, `FileReceiveEnd`, `FileSendState`, `FileSendStatus`, `FileManifest`;
-  `FileCarrier.kt` shrinks to the interface, `FileManifest.kt` dissolves), the transfer vocabulary
+- `routing/file/port/FilePortTypes.kt` — the orchestrator-facing seam types (`FileEvent`,
+  `FileFailureReason`, `FileReceiveEnd`, `FileSendState`, `FileSendStatus`, `FileManifest`,
+  `FileCoverage`): they stay in the port package so the orchestrator's import surface does not grow
+  beyond `routing/file/port` (`FileCarrier.kt` shrinks to the interface, `FileManifest.kt` dissolves).
+- `routing/file/FileTypes.kt` — the file concern's internal vocabulary: the transfer vocabulary
   (`TransferEvent` out of `TransferEngine.kt`; `TransferOffer` out of `ChunkSource.kt`, which keeps the
   source hierarchy — behavior; `IncomingHop` out of `ChunkSink.kt`, which keeps the interface), and the
   large path's `LargeFileResult` (`FetchResult.kt` dissolves). `FileFetchLabels.kt` is a one-constant

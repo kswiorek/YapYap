@@ -153,17 +153,18 @@ internal fun sealTransferHarness(
     )
     val engine = TransferEngine(
         ctx = ctx,
-        transfers = transferStore,
-        seals = sealStore,
-        relays = DefaultFileRelayStore(db, Dispatchers.Unconfined),
+        packets = FilePackets(ctx),
+        transferStore = transferStore,
+        sealStore = sealStore,
+        relayStore = DefaultFileRelayStore(db, Dispatchers.Unconfined),
         plaintext = plaintext,
         outbox = processor,
         outboxStore = outbox,
     )
     val seals = SealRegistry(
         ctx = ctx,
-        seals = sealStore,
-        transfers = transferStore,
+        sealStore = sealStore,
+        transferStore = transferStore,
         engine = engine,
         plaintext = plaintext,
         relaySelection = relaySelection,

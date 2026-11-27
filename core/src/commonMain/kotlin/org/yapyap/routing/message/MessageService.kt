@@ -26,6 +26,7 @@ import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.OutcomeMailbox
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterLifecycle
+import org.yapyap.routing.router.RouterService
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.routing.store.OutboxTag
@@ -55,7 +56,9 @@ internal class MessageService(
     torLinkKeeper: LinkKeeper,
     webRtcLinkKeeper: LinkKeeper,
     override val frontiers: Flow<PingFrontiers>,
-) : MessageCarrier, MessageInbound {
+) : MessageCarrier, MessageInbound, RouterService {
+
+    override val outcomeTags: Set<OutboxTag.Kind> = setOf(OutboxTag.Kind.MESSAGE, OutboxTag.Kind.SYNC)
 
     private val incomingMessageFlow = MutableSharedFlow<DagPayload>(replay = 1, extraBufferCapacity = 64)
     private val deliveryFlow = MutableSharedFlow<MessageAck>(extraBufferCapacity = 64)
@@ -141,9 +144,9 @@ internal class MessageService(
 
     // --- kernel seams -------------------------------------------------------------------
 
-    fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
+    override fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
 
-    fun runIn(scope: CoroutineScope): List<Job> = listOf(
+    override fun runIn(scope: CoroutineScope): List<Job> = listOf(
         pullProcessor.runIn(scope),
         outcomes.runIn(scope, LogComponent.ROUTER) { outcome ->
             when (outcome.tag.kind) {

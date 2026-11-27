@@ -161,7 +161,7 @@ class DefaultRouterLiveIntegrationTest {
                 fileTransferStore = InMemoryFileTransferStore(),
                 fileIncomingStore = InMemoryFileIncomingStore(),
                 fileRelayStore = InMemoryFileRelayStore(),
-                fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
+                filePullAttemptStore = InMemoryFilePullAttemptStore(),
             )
         }
 

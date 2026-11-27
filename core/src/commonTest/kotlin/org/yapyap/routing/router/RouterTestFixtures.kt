@@ -83,11 +83,11 @@ import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.store.AdmitResult
 import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.FileIncomingStore
+import org.yapyap.routing.store.FilePullAttempt
+import org.yapyap.routing.store.FilePullAttemptStore
+import org.yapyap.routing.store.FilePullClass
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRequestAttempt
-import org.yapyap.routing.store.FileRequestAttemptStore
-import org.yapyap.routing.store.FileRequestClass
 import org.yapyap.routing.store.FileSealStatus
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStatus
@@ -553,24 +553,24 @@ internal class FakeFilePlaintextSource(
         openImpl(fileId, fromOffset)
 }
 
-/** In-memory [FileRequestAttemptStore], mirroring the SQL semantics. */
-internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
+/** In-memory [FilePullAttemptStore], mirroring the SQL semantics. */
+internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
     private data class Row(
         var attempts: Int = 0,
         var nextAttemptAt: Instant = Instant.DISTANT_PAST,
         var waitingDevice: PeerId? = null,
         var waitingUntil: Instant? = null,
         var attemptId: Uuid? = null,
-        var requestClass: FileRequestClass = FileRequestClass.SMALL,
+        var pullClass: FilePullClass = FilePullClass.SMALL,
         val declined: MutableSet<PeerId> = mutableSetOf(),
     )
 
     private val rows = linkedMapOf<FileId, Row>()
     private val mutex = Mutex()
 
-    override suspend fun start(fileId: FileId, requestClass: FileRequestClass, firstAttemptAt: Instant) =
+    override suspend fun start(fileId: FileId, pullClass: FilePullClass, firstAttemptAt: Instant) =
         mutex.withLock {
-            if (fileId !in rows) rows[fileId] = Row(nextAttemptAt = firstAttemptAt, requestClass = requestClass)
+            if (fileId !in rows) rows[fileId] = Row(nextAttemptAt = firstAttemptAt, pullClass = pullClass)
             Unit
         }
 
@@ -578,24 +578,24 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         mutex.withLock { rows.remove(fileId) }
     }
 
-    override suspend fun earliestDueAt(requestClass: FileRequestClass): Instant? = mutex.withLock {
-        rows.values.filter { it.requestClass == requestClass }.minOfOrNull { it.nextAttemptAt }
+    override suspend fun earliestDueAt(pullClass: FilePullClass): Instant? = mutex.withLock {
+        rows.values.filter { it.pullClass == pullClass }.minOfOrNull { it.nextAttemptAt }
     }
 
     override suspend fun findDue(
         now: Instant,
         limit: Int,
-        requestClass: FileRequestClass,
-    ): List<FileRequestAttempt> = mutex.withLock {
-        rows.filterValues { it.nextAttemptAt <= now && it.requestClass == requestClass }
+        pullClass: FilePullClass,
+    ): List<FilePullAttempt> = mutex.withLock {
+        rows.filterValues { it.nextAttemptAt <= now && it.pullClass == pullClass }
             .entries.sortedBy { it.value.nextAttemptAt }.take(limit).map { (id, row) -> row.toAttempt(id) }
     }
 
-    override suspend fun findById(fileId: FileId): FileRequestAttempt? = mutex.withLock {
+    override suspend fun findById(fileId: FileId): FilePullAttempt? = mutex.withLock {
         rows[fileId]?.toAttempt(fileId)
     }
 
-    override suspend fun findByAttemptId(attemptId: Uuid): FileRequestAttempt? = mutex.withLock {
+    override suspend fun findByAttemptId(attemptId: Uuid): FilePullAttempt? = mutex.withLock {
         rows.entries.firstOrNull { it.value.attemptId == attemptId }?.let { (id, row) -> row.toAttempt(id) }
     }
 
@@ -649,18 +649,18 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         Unit
     }
 
-    override suspend fun idsOf(requestClass: FileRequestClass): List<FileId> = mutex.withLock {
-        rows.filterValues { it.requestClass == requestClass }.keys.toList()
+    override suspend fun idsOf(pullClass: FilePullClass): List<FileId> = mutex.withLock {
+        rows.filterValues { it.pullClass == pullClass }.keys.toList()
     }
 
-    private fun Row.toAttempt(id: FileId) = FileRequestAttempt(
+    private fun Row.toAttempt(id: FileId) = FilePullAttempt(
         fileId = id,
         attempts = attempts,
         declinedDevices = declined.toSet(),
         waitingDevice = waitingDevice,
         waitingUntil = waitingUntil,
         attemptId = attemptId,
-        requestClass = requestClass,
+        pullClass = pullClass,
     )
 }
 
@@ -1241,7 +1241,7 @@ internal fun testRoutingContext(
         webRtcTransport = webRtc,
         peerLinks = peerLinks,
         transportLimits = MutableStateFlow(testTransportLimits()),
-        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, fetchFrameBytes = fileChunkSize)),
+        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, largeFileFrameBytes = fileChunkSize)),
         envelopeProtections = protections,
         clock = clock,
         routerConfig = MutableStateFlow(routerConfig),
@@ -1266,7 +1266,7 @@ internal fun testRoutingContext(
         webRtcTransport = webRtc,
         peerLinks = peerLinks,
         transportLimits = MutableStateFlow(testTransportLimits()),
-        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, fetchFrameBytes = fileChunkSize)),
+        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = fileChunkSize, largeFileFrameBytes = fileChunkSize)),
         envelopeProtections = protections,
         clock = clock,
         routerConfig = MutableStateFlow(routerConfig),
@@ -1287,7 +1287,7 @@ internal fun e2eeRouterUnderTest(
     fileTransferStore: FileTransferStore = InMemoryFileTransferStore(),
     fileIncomingStore: FileIncomingStore = InMemoryFileIncomingStore(),
     fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
-    fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
+    fileRequestAttemptStore: FilePullAttemptStore = InMemoryFilePullAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
 ): DefaultRouter {
@@ -1316,7 +1316,7 @@ internal fun e2eeRouterUnderTest(
         fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
         fileRelayStore = fileRelayStore,
-        fileRequestAttemptStore = fileRequestAttemptStore,
+        filePullAttemptStore = fileRequestAttemptStore,
     )
 }
 
@@ -1378,7 +1378,7 @@ internal fun defaultRouterUnderTest(
     fileTransferStore: FileTransferStore = InMemoryFileTransferStore(),
     fileIncomingStore: FileIncomingStore = InMemoryFileIncomingStore(),
     fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
-    fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
+    fileRequestAttemptStore: FilePullAttemptStore = InMemoryFilePullAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
 ): DefaultRouter {
@@ -1407,6 +1407,6 @@ internal fun defaultRouterUnderTest(
         fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
         fileRelayStore = fileRelayStore,
-        fileRequestAttemptStore = fileRequestAttemptStore,
+        filePullAttemptStore = fileRequestAttemptStore,
     )
 }

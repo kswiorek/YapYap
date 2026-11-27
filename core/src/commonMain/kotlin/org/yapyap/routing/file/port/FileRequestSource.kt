@@ -2,7 +2,6 @@ package org.yapyap.routing.file.port
 
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.ByteRange
 
 /**
  * What the request loop and the serve path need to know about a file (design §3.2, §9).
@@ -38,9 +37,3 @@ internal interface FileRequestSource {
      */
     suspend fun canServe(fileId: FileId, requester: AccountId): Boolean
 }
-
-/** Durable held coverage of one file: the contiguous prefix in bytes plus the missing ranges beyond it. */
-internal data class FileCoverage(
-    val contiguousBytes: Long,
-    val missingRanges: List<ByteRange>,
-)

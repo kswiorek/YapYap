@@ -173,20 +173,20 @@ internal data class RouterConfig(
      */
     val chunkAckTimeout: Duration = 45.seconds,
     /**
-     * Large-fetch session budget (design §15): a large request opens a
+     * Large-file session budget (design §15): a large pull opens a
      * WebRTC link through `LinkKeeper.await` with this timeout.
      * Matches the generic session-await budget: signaling round-trips take seconds.
      */
-    val fileSessionOpenTimeout: Duration = 45.seconds,
+    val largeFileSessionOpenTimeout: Duration = 45.seconds,
     /**
-     * Large-fetch credit window (design §6.6, §15): the holder may run at
+     * Large-file credit window (design §6.6, §15): the holder may run at
      * most this far past the last PROGRESS before pausing for the receiver. Bounds
      * a slow disk so frames never pile up in memory; the channel's `bufferedAmount`
      * low threshold bounds the sender side.
      */
-    val fileStreamWindowBytes: Long = 32L * 1024L * 1024L,
-    /** Large fetches running at once per node (design §9, one candidate at a time per file). */
-    val maxConcurrentFetches: Int = 2,
+    val largeFileStreamWindowBytes: Long = 32L * 1024L * 1024L,
+    /** Large-file pulls running at once per node (design §9, one candidate at a time per file). */
+    val maxConcurrentLargeFiles: Int = 2,
     /** Idle reservation TTL (design §7.2): partial deposits older than this free their quota. */
     val fileRelayIdleTtl: Duration = 1.hours,
     /**
@@ -245,9 +245,9 @@ internal data class RouterConfig(
         require(fileRequestAttemptTimeout > Duration.ZERO) { "fileRequestAttemptTimeout must be > 0" }
         require(fileRequestWaitTimeout > Duration.ZERO) { "fileRequestWaitTimeout must be > 0" }
         require(chunkAckTimeout > Duration.ZERO) { "chunkAckTimeout must be > 0" }
-        require(fileSessionOpenTimeout > Duration.ZERO) { "fileSessionOpenTimeout must be > 0" }
-        require(fileStreamWindowBytes > 0) { "fileStreamWindowBytes must be > 0" }
-        require(maxConcurrentFetches > 0) { "maxConcurrentFetches must be > 0" }
+        require(largeFileSessionOpenTimeout > Duration.ZERO) { "largeFileSessionOpenTimeout must be > 0" }
+        require(largeFileStreamWindowBytes > 0) { "largeFileStreamWindowBytes must be > 0" }
+        require(maxConcurrentLargeFiles > 0) { "maxConcurrentLargeFiles must be > 0" }
         require(fileRelayIdleTtl > Duration.ZERO) { "fileRelayIdleTtl must be > 0" }
         require(fileRelayIdleTtl < fileTransferTtl) { "fileRelayIdleTtl must be shorter than the transfer TTL" }
         require(relayStoragePledgeBytes > 0) { "relayStoragePledgeBytes must be > 0" }

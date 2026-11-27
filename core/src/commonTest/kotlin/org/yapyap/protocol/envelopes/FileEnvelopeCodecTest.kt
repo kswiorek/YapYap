@@ -2,11 +2,11 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.FILE_BLOCK_MAX_COUNT
-import org.yapyap.protocol.FileFetchAbortReason
-import org.yapyap.protocol.FileFetchDeclineReason
-import org.yapyap.protocol.FileFetchFrame
-import org.yapyap.protocol.FileFetchKind
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.LargeFileDeclineReason
+import org.yapyap.protocol.LargeFileFrame
+import org.yapyap.protocol.LargeFileFrameKind
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SealKey
 import org.yapyap.protocol.TransferId
@@ -158,123 +158,139 @@ class FileEnvelopeCodecTest {
     }
 
     @Test
-    fun fileFetch_fetch_encodeDecode_roundTrip() {
-        val original = FileFetchFrame.Fetch(fileId = fileId, fromOffset = 12345L)
-        val decoded = FileFetchFrame.Fetch.decode(original.encode())
+    fun largeFileFrame_pull_encodeDecode_roundTrip() {
+        val original = LargeFileFrame.Pull(fileId = fileId, fromOffset = 12345L)
+        val decoded = LargeFileFrame.Pull.decode(original.encode())
         assertEquals(original, decoded)
-        assertEquals(original, FileFetchFrame.decode(original.encode()) as FileFetchFrame.Fetch)
+        assertEquals(original, LargeFileFrame.decode(original.encode()) as LargeFileFrame.Pull)
     }
 
     @Test
-    fun fileFetch_fetchOk_encodeDecode_roundTrip() {
-        val original = FileFetchFrame.FetchOk(
+    fun largeFileFrame_pullOk_encodeDecode_roundTrip() {
+        val original = LargeFileFrame.PullOk(
             totalBytes = 10L * 1024L * 1024L,
             blockSize = 1024 * 1024,
             blockHashes = listOf(ByteArray(32) { 1 }, ByteArray(32) { 2 }),
             fileName = "big.bin",
             mimeType = "application/octet-stream",
         )
-        val decoded = FileFetchFrame.FetchOk.decode(original.encode())
+        val decoded = LargeFileFrame.PullOk.decode(original.encode())
         assertEquals(original, decoded)
     }
 
     @Test
-    fun fileFetch_fetchOk_emptyFile_roundTrip() {
-        val original = FileFetchFrame.FetchOk(
+    fun largeFileFrame_pullOk_emptyFile_roundTrip() {
+        val original = LargeFileFrame.PullOk(
             totalBytes = 0L,
             blockSize = 1024 * 1024,
             blockHashes = emptyList(),
             fileName = "empty",
             mimeType = null,
         )
-        val decoded = FileFetchFrame.FetchOk.decode(original.encode())
+        val decoded = LargeFileFrame.PullOk.decode(original.encode())
         assertEquals(0L, decoded.totalBytes)
         assertTrue(decoded.blockHashes.isEmpty())
     }
 
     @Test
-    fun fileFetch_declined_encodeDecode_roundTrip() {
-        val original = FileFetchFrame.FetchDeclined(reason = FileFetchDeclineReason.NOT_ALLOWED)
-        val decoded = FileFetchFrame.FetchDeclined.decode(original.encode())
+    fun largeFileFrame_declined_encodeDecode_roundTrip() {
+        val original = LargeFileFrame.Declined(reason = LargeFileDeclineReason.NOT_ALLOWED)
+        val decoded = LargeFileFrame.Declined.decode(original.encode())
         assertEquals(original, decoded)
     }
 
     @Test
-    fun fileFetch_progress_encodeDecode_roundTrip() {
-        val original = FileFetchFrame.Progress(contiguousBytes = 8L * 1024L * 1024L)
-        val decoded = FileFetchFrame.Progress.decode(original.encode())
+    fun largeFileFrame_progress_encodeDecode_roundTrip() {
+        val original = LargeFileFrame.Progress(contiguousBytes = 8L * 1024L * 1024L)
+        val decoded = LargeFileFrame.Progress.decode(original.encode())
         assertEquals(original, decoded)
     }
 
     @Test
-    fun fileFetch_abort_encodeDecode_roundTrip() {
-        val original = FileFetchFrame.Abort(reason = FileFetchAbortReason.STALLED, reasonText = "gap")
-        val decoded = FileFetchFrame.Abort.decode(original.encode())
+    fun largeFileFrame_abort_encodeDecode_roundTrip() {
+        val original = LargeFileFrame.Abort(reason = LargeFileAbortReason.STALLED, reasonText = "gap")
+        val decoded = LargeFileFrame.Abort.decode(original.encode())
         assertEquals(original.reason, decoded.reason)
         assertEquals(original.reasonText, decoded.reasonText)
     }
 
     @Test
-    fun fileFetch_abort_nullReasonText_roundTrip() {
-        val original = FileFetchFrame.Abort(reason = FileFetchAbortReason.CANCELLED, reasonText = null)
-        val decoded = FileFetchFrame.Abort.decode(original.encode())
-        assertEquals(FileFetchAbortReason.CANCELLED, decoded.reason)
+    fun largeFileFrame_abort_nullReasonText_roundTrip() {
+        val original = LargeFileFrame.Abort(reason = LargeFileAbortReason.CANCELLED, reasonText = null)
+        val decoded = LargeFileFrame.Abort.decode(original.encode())
+        assertEquals(LargeFileAbortReason.CANCELLED, decoded.reason)
         assertNull(decoded.reasonText)
     }
 
     @Test
-    fun fileFetch_data_encodeDecode_roundTrip() {
-        val original = FileFetchFrame.Data(bytes = byteArrayOf(1, 2, 3, 4, 5))
-        val decoded = FileFetchFrame.Data.decode(original.encode())
+    fun largeFileFrame_data_encodeDecode_roundTrip() {
+        val original = LargeFileFrame.Data(bytes = byteArrayOf(1, 2, 3, 4, 5))
+        val decoded = LargeFileFrame.Data.decode(original.encode())
         assertEquals(original, decoded)
         assertContentEquals(byteArrayOf(1, 2, 3, 4, 5), decoded.bytes)
     }
 
     @Test
-    fun fileFetch_data_empty_roundTrip() {
-        val original = FileFetchFrame.Data(bytes = byteArrayOf())
-        val decoded = FileFetchFrame.Data.decode(original.encode())
+    fun largeFileFrame_data_empty_roundTrip() {
+        val original = LargeFileFrame.Data(bytes = byteArrayOf())
+        val decoded = LargeFileFrame.Data.decode(original.encode())
         assertContentEquals(byteArrayOf(), decoded.bytes)
     }
 
     @Test
-    fun fileFetchKind_wireValuesDistinct() {
-        val wires = FileFetchKind.entries.map { it.wireValue }.toSet()
-        assertEquals(FileFetchKind.entries.size, wires.size)
+    fun largeFileFrameKind_wireValuesDistinct() {
+        val wires = LargeFileFrameKind.entries.map { it.wireValue }.toSet()
+        assertEquals(LargeFileFrameKind.entries.size, wires.size)
     }
 
     @Test
-    fun fileFetch_decode_dispatchesAllKinds() {
-        val fetch = FileFetchFrame.Fetch(fileId, 0L).encode()
-        assertTrue(FileFetchFrame.decode(fetch) is FileFetchFrame.Fetch)
-        val ok = FileFetchFrame.FetchOk(100L, 1024 * 1024, emptyList(), "a", null).encode()
-        assertTrue(FileFetchFrame.decode(ok) is FileFetchFrame.FetchOk)
-        val declined = FileFetchFrame.FetchDeclined(FileFetchDeclineReason.NOT_HELD).encode()
-        assertTrue(FileFetchFrame.decode(declined) is FileFetchFrame.FetchDeclined)
-        val progress = FileFetchFrame.Progress(0L).encode()
-        assertTrue(FileFetchFrame.decode(progress) is FileFetchFrame.Progress)
-        val abort = FileFetchFrame.Abort(FileFetchAbortReason.NO_SPACE, null).encode()
-        assertTrue(FileFetchFrame.decode(abort) is FileFetchFrame.Abort)
-        val data = FileFetchFrame.Data(byteArrayOf(9)).encode()
-        assertTrue(FileFetchFrame.decode(data) is FileFetchFrame.Data)
+    fun largeFileFrameKind_wireValues_pinned() {
+        val kinds = LargeFileFrameKind.entries.associate { it.name to it.wireValue.toInt() }
+        assertEquals(
+            mapOf("PULL" to 21, "PULL_OK" to 22, "DECLINED" to 23, "PROGRESS" to 24, "ABORT" to 25, "DATA" to 26),
+            kinds,
+        )
+        val declines = LargeFileDeclineReason.entries.associate { it.name to it.wireValue.toInt() }
+        assertEquals(mapOf("NOT_HELD" to 1, "NOT_ALLOWED" to 2), declines)
+        val aborts = LargeFileAbortReason.entries.associate { it.name to it.wireValue.toInt() }
+        assertEquals(
+            mapOf("SOURCE_ERROR" to 1, "NO_SPACE" to 2, "STALLED" to 3, "CANCELLED" to 4),
+            aborts,
+        )
     }
 
     @Test
-    fun fileFetch_framesCarryNoTransferId() {
-        // Fetch frames are channel messages (type byte + body), not envelopes:
+    fun largeFileFrame_decode_dispatchesAllKinds() {
+        val fetch = LargeFileFrame.Pull(fileId, 0L).encode()
+        assertTrue(LargeFileFrame.decode(fetch) is LargeFileFrame.Pull)
+        val ok = LargeFileFrame.PullOk(100L, 1024 * 1024, emptyList(), "a", null).encode()
+        assertTrue(LargeFileFrame.decode(ok) is LargeFileFrame.PullOk)
+        val declined = LargeFileFrame.Declined(LargeFileDeclineReason.NOT_HELD).encode()
+        assertTrue(LargeFileFrame.decode(declined) is LargeFileFrame.Declined)
+        val progress = LargeFileFrame.Progress(0L).encode()
+        assertTrue(LargeFileFrame.decode(progress) is LargeFileFrame.Progress)
+        val abort = LargeFileFrame.Abort(LargeFileAbortReason.NO_SPACE, null).encode()
+        assertTrue(LargeFileFrame.decode(abort) is LargeFileFrame.Abort)
+        val data = LargeFileFrame.Data(byteArrayOf(9)).encode()
+        assertTrue(LargeFileFrame.decode(data) is LargeFileFrame.Data)
+    }
+
+    @Test
+    fun largeFileFrame_framesCarryNoTransferId() {
+        // Large-file frames are channel messages (type byte + body), not envelopes:
         // decoding them as FileHeader must fail, and vice versa.
-        val fetch = FileFetchFrame.Fetch(fileId, 0L).encode()
+        val fetch = LargeFileFrame.Pull(fileId, 0L).encode()
         assertFailsWith<IllegalStateException> {
             FileHeader.decode(fetch)
         }
     }
 
     @Test
-    fun fileFetch_fetchCarriesFileIdInClear_channelProtected() {
-        // FETCH carries the fileId in clear inside the DTLS channel (design §4,
+    fun largeFileFrame_pullCarriesFileIdInClear_channelProtected() {
+        // PULL carries the fileId in clear inside the DTLS channel (design §4,
         // invariant 23): only the peer device ever sees the channel. This is
         // expected and distinct from envelope kinds, which must never carry it.
-        val fetch = FileFetchFrame.Fetch(fileId = fileId, fromOffset = 0L).encode()
+        val fetch = LargeFileFrame.Pull(fileId = fileId, fromOffset = 0L).encode()
         assertTrue(fetch.decodeToString().contains(fileId.value.take(8)))
     }
 
@@ -294,8 +310,8 @@ class FileEnvelopeCodecTest {
         writeInt(1024 * 1024)
     }
 
-    private fun fetchOkPrefix(): ByteWriter = ByteWriter(128).apply {
-        writeByte(FileFetchKind.FETCH_OK.wireValue)
+    private fun pullOkPrefix(): ByteWriter = ByteWriter(128).apply {
+        writeByte(LargeFileFrameKind.PULL_OK.wireValue)
         writeLong(100L)
         writeInt(1024 * 1024)
     }
@@ -372,38 +388,38 @@ class FileEnvelopeCodecTest {
     }
 
     @Test
-    fun fetchOk_hugeBlockCount_rejectedBeforeAllocating() {
-        val wire = fetchOkPrefix().apply { writeInt(Int.MAX_VALUE) }.toByteArray()
-        assertRejectedByBound("out of bounds") { FileFetchFrame.FetchOk.decode(wire) }
+    fun pullOk_hugeBlockCount_rejectedBeforeAllocating() {
+        val wire = pullOkPrefix().apply { writeInt(Int.MAX_VALUE) }.toByteArray()
+        assertRejectedByBound("out of bounds") { LargeFileFrame.PullOk.decode(wire) }
     }
 
     @Test
-    fun fetchOk_shortHash_isRejected() {
-        val wire = fetchOkPrefix().apply {
+    fun pullOk_shortHash_isRejected() {
+        val wire = pullOkPrefix().apply {
             writeInt(1)
             writeByteArray(ByteArray(31) { 4 })
             writeString("a")
             writeNullableString(null)
         }.toByteArray()
-        assertRejectedByBound("exactly 32 bytes") { FileFetchFrame.FetchOk.decode(wire) }
+        assertRejectedByBound("exactly 32 bytes") { LargeFileFrame.PullOk.decode(wire) }
     }
 
     @Test
-    fun fetchOk_longFileName_rejectedBeforeAllocating() {
-        val wire = fetchOkPrefix().apply {
+    fun pullOk_longFileName_rejectedBeforeAllocating() {
+        val wire = pullOkPrefix().apply {
             writeInt(0)
             writeShort(0xfffe)
         }.toByteArray()
-        assertRejectedByBound("exceeds max 255") { FileFetchFrame.FetchOk.decode(wire) }
+        assertRejectedByBound("exceeds max 255") { LargeFileFrame.PullOk.decode(wire) }
     }
 
     @Test
     fun abort_longReasonText_rejectedBeforeAllocating() {
         val wire = ByteWriter(8).apply {
-            writeByte(FileFetchKind.ABORT.wireValue)
-            writeByte(FileFetchAbortReason.STALLED.wireValue)
+            writeByte(LargeFileFrameKind.ABORT.wireValue)
+            writeByte(LargeFileAbortReason.STALLED.wireValue)
             writeShort(0xfffe)
         }.toByteArray()
-        assertRejectedByBound("exceeds max") { FileFetchFrame.Abort.decode(wire) }
+        assertRejectedByBound("exceeds max") { LargeFileFrame.Abort.decode(wire) }
     }
 }

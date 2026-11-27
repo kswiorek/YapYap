@@ -1,15 +1,27 @@
-package org.yapyap.routing.file.fetch
+package org.yapyap.routing.file.large
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protocol.*
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.LargeFileDeclineReason
+import org.yapyap.protocol.LargeFileFrame
+import org.yapyap.protocol.PeerId
+import org.yapyap.routing.file.LargeFileResult
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileIngestPort
@@ -19,6 +31,7 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.file.port.PlaintextRead
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.RouterConfig
@@ -32,21 +45,21 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 private sealed interface RequesterInput {
-    data class Frame(val frame: FileFetchFrame) : RequesterInput
+    data class Frame(val frame: LargeFileFrame) : RequesterInput
     data object ChannelClosed : RequesterInput
 }
 
 private sealed interface Answer {
-    data class Ok(val ok: FileFetchFrame.FetchOk) : Answer
+    data class Ok(val ok: LargeFileFrame.PullOk) : Answer
 
-    /** The holder's own FETCH_DECLINED: the only answer that counts as a decline. */
-    data class Declined(val reason: FileFetchDeclineReason) : Answer
+    /** The holder's own DECLINED: the only answer that counts as a decline. */
+    data class Declined(val reason: LargeFileDeclineReason) : Answer
 
     /**
      * Settled on our side or by the holder giving up, never a decline by the holder: our own
-     * refusal or Defer at FETCH_OK, a holder ABORT. [fetch] returns [result] as it is.
+     * refusal or Defer at PULL_OK, a holder ABORT. `fetch` returns [result] as it is.
      */
-    data class Settled(val result: FetchResult) : Answer
+    data class Settled(val result: LargeFileResult) : Answer
 
     /** The channel closed before any answer: backoff, never a decline. */
     data object Closed : Answer
@@ -60,7 +73,7 @@ private class RequesterActor(
 ) {
     val mailbox = Channel<RequesterInput>(Channel.UNLIMITED)
     val answer = CompletableDeferred<Answer>()
-    val result = CompletableDeferred<FetchResult>()
+    val result = CompletableDeferred<LargeFileResult>()
     var nextOffset: Long = fromOffset
     var totalBytes: Long? = null
 
@@ -77,8 +90,8 @@ private class RequesterActor(
 }
 
 /**
- * One incoming FETCH channel (design §6.6): serves the file holder side.
- * Sends FETCH_OK then DATA from a [PlaintextStream], staying within the credit window
+ * One incoming PULL channel (design §6.6): serves the file holder side.
+ * Sends PULL_OK then DATA from a [PlaintextStream], staying within the credit window
  * past the last PROGRESS and the transport's buffered threshold. Ends on channel close
  * or after an idle timeout with no PROGRESS.
  */
@@ -91,14 +104,14 @@ private class HolderActor(
 )
 
 /**
- * Large-path fetch (design §6.6): plain fetch protocol on dedicated WebRTC data channels.
+ * The large-file pull (design §6.6): the plain pull protocol on dedicated WebRTC data channels.
  * No envelopes, no `transferId`, no key, no outbox row.
  *
- * One fetch runs on one channel. The requester ([fetch]) pulls from one holder; each incoming
- * FETCH channel gets a [HolderActor] serving it. State is in memory on both ends and dies with
+ * One pull runs on one channel. The requester ([fetch]) pulls from one holder; each incoming
+ * PULL channel gets a [HolderActor] serving it. State is in memory on both ends and dies with
  * the channel; what is durable is the requester's receive row and request row.
  */
-internal class FileFetchService(
+internal class LargeFileService(
     private val devices: DeviceDirectory,
     private val transport: WebRtcTransport,
     private val plaintext: FilePlaintextSource,
@@ -115,7 +128,7 @@ internal class FileFetchService(
     private val requestersByChannel = mutableMapOf<FileChannelId, RequesterActor>()
     private val holders = mutableMapOf<FileChannelId, HolderActor>()
 
-    /** Channels with a FETCH being gated or served (guarded by [lock]); see [handleFetchRequest]. */
+    /** Channels with a PULL being gated or served (guarded by [lock]); see [handlePullRequest]. */
     private val serveClaims = mutableSetOf<FileChannelId>()
 
     private enum class Claim { CLAIMED, ALREADY, BUSY }
@@ -166,7 +179,7 @@ internal class FileFetchService(
      * Bounded: ends when the channel ends. One fetch per file at a time (the request loop
      * enforces it).
      */
-    suspend fun fetch(peer: PeerId, fileId: FileId, fromOffset: Long): FetchResult {
+    suspend fun fetch(peer: PeerId, fileId: FileId, fromOffset: Long): LargeFileResult {
         val channel = try {
             transport.openFileChannel(peer)
         } catch (e: CancellationException) {
@@ -178,7 +191,7 @@ internal class FileFetchService(
                 message = "Fetch channel open failed",
                 fields = mapOf("peer" to peer, "fileId" to fileId),
             )
-            return FetchResult.UNANSWERED
+            return LargeFileResult.UNANSWERED
         }
         val actor = RequesterActor(fileId, peer, channel, fromOffset)
         val duplicate = lock.withLock {
@@ -192,12 +205,12 @@ internal class FileFetchService(
         }
         if (duplicate) {
             closeQuietly(channel)
-            return FetchResult.UNANSWERED
+            return LargeFileResult.UNANSWERED
         }
-        val job = checkNotNull(scope) { "FileFetchService is not running" }.launch { requesterLoop(actor) }
+        val job = checkNotNull(scope) { "LargeFileService is not running" }.launch { requesterLoop(actor) }
         try {
             try {
-                transport.sendFileFrame(channel, FileFetchFrame.Fetch(fileId, fromOffset).encode())
+                transport.sendFileFrame(channel, LargeFileFrame.Pull(fileId, fromOffset).encode())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -207,21 +220,21 @@ internal class FileFetchService(
                     message = "Fetch request send failed",
                     fields = mapOf("peer" to peer, "fileId" to fileId),
                 )
-                finishRequester(actor, FetchResult.UNANSWERED)
-                return FetchResult.UNANSWERED
+                finishRequester(actor, LargeFileResult.UNANSWERED)
+                return LargeFileResult.UNANSWERED
             }
             val answer = withTimeoutOrNull(routerConfig.value.fileRequestAttemptTimeout) {
                 actor.answer.await()
             }
             if (answer == null) {
-                sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "fetch answer timeout")
-                finishRequester(actor, FetchResult.UNANSWERED)
-                return FetchResult.UNANSWERED
+                sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "fetch answer timeout")
+                finishRequester(actor, LargeFileResult.UNANSWERED)
+                return LargeFileResult.UNANSWERED
             }
             when (answer) {
                 is Answer.Declined -> {
-                    finishRequester(actor, FetchResult.DECLINED)
-                    return FetchResult.DECLINED
+                    finishRequester(actor, LargeFileResult.DECLINED)
+                    return LargeFileResult.DECLINED
                 }
 
                 is Answer.Settled -> {
@@ -230,8 +243,8 @@ internal class FileFetchService(
                 }
 
                 is Answer.Closed -> {
-                    finishRequester(actor, FetchResult.UNANSWERED)
-                    return FetchResult.UNANSWERED
+                    finishRequester(actor, LargeFileResult.UNANSWERED)
+                    return LargeFileResult.UNANSWERED
                 }
 
                 is Answer.Ok -> Unit
@@ -251,7 +264,7 @@ internal class FileFetchService(
      * Abort our live fetch of [fileId] with the real reason (STALLED for the gap trigger,
      * CANCELLED for the user). Aborts only the requester, never our serves of the same file.
      */
-    suspend fun abortFetch(fileId: FileId, reason: FileFetchAbortReason) {
+    suspend fun abortFetch(fileId: FileId, reason: LargeFileAbortReason) {
         val actor = lock.withLock { requestersByFile[fileId] }
         if (actor != null) {
             sendAbort(actor.channel, reason, null)
@@ -263,7 +276,7 @@ internal class FileFetchService(
 
     private suspend fun routeFrame(frame: WebRtcFileFrame) {
         val payload = try {
-            FileFetchFrame.decode(frame.payload)
+            LargeFileFrame.decode(frame.payload)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -275,14 +288,14 @@ internal class FileFetchService(
             return
         }
         when (payload) {
-            is FileFetchFrame.Fetch -> {
-                // Our own requester channel never serves: a holder sending FETCH back is ignored.
+            is LargeFileFrame.Pull -> {
+                // Our own requester channel never serves: a holder sending PULL back is ignored.
                 if (lock.withLock { requestersByChannel.containsKey(frame.channel) }) return
                 // The serve gate does several lookups: off the shared frame collector, so DATA for
-                // every fetch keeps flowing meanwhile (the channel claim stops a duplicate FETCH).
-                checkNotNull(scope) { "FileFetchService is not running" }.launch {
+                // every fetch keeps flowing meanwhile (the channel claim stops a duplicate PULL).
+                checkNotNull(scope) { "LargeFileService is not running" }.launch {
                     try {
-                        handleFetchRequest(frame.channel, payload)
+                        handlePullRequest(frame.channel, payload)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -300,13 +313,13 @@ internal class FileFetchService(
             else -> {
                 val actor = lock.withLock { requestersByChannel[frame.channel] }
                 if (actor != null) {
-                    if (payload is FileFetchFrame.Data && overrunsWindow(actor, payload)) return
+                    if (payload is LargeFileFrame.Data && overrunsWindow(actor, payload)) return
                     actor.mailbox.trySend(RequesterInput.Frame(payload))
                 } else {
                     val holder = lock.withLock { holders[frame.channel] }
                     if (holder != null) {
                         when (payload) {
-                            is FileFetchFrame.Progress -> {
+                            is LargeFileFrame.Progress -> {
                                 // Only real progress keeps a holder alive: a requester repeating
                                 // its P cannot pin our stream and channel forever.
                                 if (payload.contiguousBytes > holder.lastProgress) {
@@ -315,7 +328,7 @@ internal class FileFetchService(
                                 }
                             }
 
-                            is FileFetchFrame.Abort -> cleanupHolder(frame.channel)
+                            is LargeFileFrame.Abort -> cleanupHolder(frame.channel)
                             else -> Unit // DATA on a holder channel: not ours, ignore.
                         }
                     }
@@ -341,14 +354,14 @@ internal class FileFetchService(
     }
 
     /**
-     * The holder may start a frame at most `fileStreamWindowBytes` past the last PROGRESS
+     * The holder may start a frame at most `largeFileStreamWindowBytes` past the last PROGRESS
      * (design §6.6). One that starts further out ignores the window: its frames would pile up
      * here without bound, so the channel is closed and the fetch ends like a drop.
      */
-    private suspend fun overrunsWindow(actor: RequesterActor, data: FileFetchFrame.Data): Boolean {
+    private suspend fun overrunsWindow(actor: RequesterActor, data: LargeFileFrame.Data): Boolean {
         val start = actor.routedEnd
         actor.routedEnd += data.bytes.size
-        if (start <= actor.lastSentProgress + routerConfig.value.fileStreamWindowBytes) return false
+        if (start <= actor.lastSentProgress + routerConfig.value.largeFileStreamWindowBytes) return false
         AppLog.warn(
             component = LogComponent.FILE,
             event = LogEvent.FILE_FETCH_FAILED,
@@ -380,7 +393,7 @@ internal class FileFetchService(
                 fields = mapOf("peer" to actor.device, "fileId" to actor.fileId),
             )
         } finally {
-            settle(actor, FetchResult.UNANSWERED)
+            settle(actor, LargeFileResult.UNANSWERED)
         }
     }
 
@@ -390,33 +403,33 @@ internal class FileFetchService(
                 is RequesterInput.ChannelClosed -> {
                     // The close may have raced an in-flight answer frame (separate flows):
                     // give it a short grace window before treating the close as the outcome.
-                    // A real Declined/FETCH_OK then still wins; otherwise the drop is UNANSWERED.
+                    // A real Declined/PULL_OK then still wins; otherwise the drop is UNANSWERED.
                     var answered = false
-                    val grace = withTimeoutOrNull(300.milliseconds) {
+                    withTimeoutOrNull(300.milliseconds) {
                         for (queued in actor.mailbox) {
                             when (queued) {
                                 is RequesterInput.ChannelClosed -> Unit // extra close, ignore
                                 is RequesterInput.Frame -> when (val frame = queued.frame) {
-                                    is FileFetchFrame.FetchOk -> {
-                                        handleFetchOk(actor, frame)
+                                    is LargeFileFrame.PullOk -> {
+                                        handlePullOk(actor, frame)
                                         answered = true
                                         return@withTimeoutOrNull
                                     }
 
-                                    is FileFetchFrame.FetchDeclined -> {
+                                    is LargeFileFrame.Declined -> {
                                         actor.answer.complete(Answer.Declined(frame.reason))
-                                        actor.result.complete(FetchResult.DECLINED)
+                                        actor.result.complete(LargeFileResult.DECLINED)
                                         answered = true
                                         return@withTimeoutOrNull
                                     }
 
-                                    is FileFetchFrame.Abort -> {
-                                        settle(actor, FetchResult.UNANSWERED)
+                                    is LargeFileFrame.Abort -> {
+                                        settle(actor, LargeFileResult.UNANSWERED)
                                         answered = true
                                         return@withTimeoutOrNull
                                     }
 
-                                    else -> Unit // DATA/PROGRESS/FETCH after close: ignore
+                                    else -> Unit // DATA/PROGRESS/PULL after close: ignore
                                 }
                             }
                             if (actor.result.isCompleted) {
@@ -427,41 +440,41 @@ internal class FileFetchService(
                     }
                     if (!answered) {
                         actor.answer.complete(Answer.Closed)
-                        actor.result.complete(FetchResult.UNANSWERED)
+                        actor.result.complete(LargeFileResult.UNANSWERED)
                     }
                     return
                 }
 
                 is RequesterInput.Frame -> when (val frame = input.frame) {
-                    is FileFetchFrame.FetchOk -> handleFetchOk(actor, frame)
-                    is FileFetchFrame.FetchDeclined -> {
+                    is LargeFileFrame.PullOk -> handlePullOk(actor, frame)
+                    is LargeFileFrame.Declined -> {
                         actor.answer.complete(Answer.Declined(frame.reason))
-                        actor.result.complete(FetchResult.DECLINED)
+                        actor.result.complete(LargeFileResult.DECLINED)
                         return
                     }
 
-                    is FileFetchFrame.Data -> handleData(actor, frame)
-                    is FileFetchFrame.Abort -> {
+                    is LargeFileFrame.Data -> handleData(actor, frame)
+                    is LargeFileFrame.Abort -> {
                         // The holder gave up (a bad block at its source): back to PENDING.
-                        settle(actor, FetchResult.UNANSWERED)
+                        settle(actor, LargeFileResult.UNANSWERED)
                         return
                     }
 
-                    is FileFetchFrame.Progress -> Unit
-                    is FileFetchFrame.Fetch -> Unit
+                    is LargeFileFrame.Progress -> Unit
+                    is LargeFileFrame.Pull -> Unit
                 }
             }
             if (actor.result.isCompleted) return
         }
     }
 
-    private fun settle(actor: RequesterActor, result: FetchResult) {
+    private fun settle(actor: RequesterActor, result: LargeFileResult) {
         actor.answer.complete(Answer.Settled(result))
         actor.result.complete(result)
     }
 
-    private suspend fun handleFetchOk(actor: RequesterActor, frame: FileFetchFrame.FetchOk) {
-        // FETCH_OK carries no fileId (one fetch = one channel = one file); the block list is
+    private suspend fun handlePullOk(actor: RequesterActor, frame: LargeFileFrame.PullOk) {
+        // PULL_OK carries no fileId (one fetch = one channel = one file); the block list is
         // checked against our fileId before a byte is accepted (design §2).
         val verdict = try {
             ingest.checkOffer(
@@ -484,7 +497,7 @@ internal class FileFetchService(
                 throwable = e,
                 fields = mapOf("fileId" to actor.fileId),
             )
-            settle(actor, FetchResult.UNANSWERED)
+            settle(actor, LargeFileResult.UNANSWERED)
             return
         }
         when (verdict) {
@@ -492,49 +505,49 @@ internal class FileFetchService(
                 actor.totalBytes = frame.totalBytes
                 if (!actor.answer.complete(Answer.Ok(frame))) return
                 if (frame.totalBytes == 0L || actor.nextOffset >= frame.totalBytes) {
-                    actor.result.complete(FetchResult.SATISFIED)
+                    actor.result.complete(LargeFileResult.SATISFIED)
                 }
             }
 
             is FileOfferVerdict.AlreadyReady -> {
                 actor.answer.complete(Answer.Ok(frame))
-                actor.result.complete(FetchResult.SATISFIED)
+                actor.result.complete(LargeFileResult.SATISFIED)
             }
 
             is FileOfferVerdict.Refuse -> when (verdict.reason) {
                 // Only a bad block list counts against the holder; a local refusal never does.
                 FileRefusalReason.INVALID_OFFER -> {
-                    sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "refused")
-                    settle(actor, FetchResult.DECLINED)
+                    sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "refused")
+                    settle(actor, LargeFileResult.DECLINED)
                 }
 
                 FileRefusalReason.NO_SPACE -> {
-                    sendAbort(actor.channel, FileFetchAbortReason.NO_SPACE, null)
-                    settle(actor, FetchResult.NO_SPACE)
+                    sendAbort(actor.channel, LargeFileAbortReason.NO_SPACE, null)
+                    settle(actor, LargeFileResult.NO_SPACE)
                 }
 
                 FileRefusalReason.NOT_RETRYABLE -> {
-                    sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "refused")
-                    settle(actor, FetchResult.ENDED)
+                    sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "refused")
+                    settle(actor, LargeFileResult.ENDED)
                 }
             }
 
             is FileOfferVerdict.Defer -> {
-                sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "deferred")
-                settle(actor, FetchResult.UNANSWERED)
+                sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "deferred")
+                settle(actor, LargeFileResult.UNANSWERED)
             }
         }
     }
 
-    private suspend fun handleData(actor: RequesterActor, frame: FileFetchFrame.Data) {
+    private suspend fun handleData(actor: RequesterActor, frame: LargeFileFrame.Data) {
         if (!actor.answer.isCompleted) return
         if (actor.result.isCompleted) return
         if (frame.bytes.isEmpty()) return
         val total = actor.totalBytes ?: return
         if (actor.nextOffset + frame.bytes.size > total) {
-            // More bytes than FETCH_OK announced: the holder is broken; end like a drop.
-            sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "overrun")
-            actor.result.complete(FetchResult.UNANSWERED)
+            // More bytes than PULL_OK announced: the holder is broken; end like a drop.
+            sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "overrun")
+            actor.result.complete(LargeFileResult.UNANSWERED)
             return
         }
         // Defer suspends: retry the same bytes until the engine takes them or the channel goes.
@@ -553,8 +566,8 @@ internal class FileFetchService(
                     throwable = e,
                     fields = mapOf("fileId" to actor.fileId),
                 )
-                sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "append failed")
-                actor.result.complete(FetchResult.UNANSWERED)
+                sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "append failed")
+                actor.result.complete(LargeFileResult.UNANSWERED)
                 return
             }
             when (result) {
@@ -571,36 +584,36 @@ internal class FileFetchService(
                 is FileAppendResult.Ready -> {
                     actor.nextOffset += frame.bytes.size
                     sendProgress(actor.channel, total)
-                    actor.result.complete(FetchResult.SATISFIED)
+                    actor.result.complete(LargeFileResult.SATISFIED)
                     return
                 }
 
                 is FileAppendResult.Mismatch -> {
-                    sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, "mismatch")
-                    actor.result.complete(FetchResult.MISMATCH)
+                    sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, "mismatch")
+                    actor.result.complete(LargeFileResult.MISMATCH)
                     return
                 }
 
                 is FileAppendResult.NoSpace -> {
-                    sendAbort(actor.channel, FileFetchAbortReason.NO_SPACE, null)
+                    sendAbort(actor.channel, LargeFileAbortReason.NO_SPACE, null)
                     // The engine declined the receive; drop the row, never blacklist.
-                    actor.result.complete(FetchResult.NO_SPACE)
+                    actor.result.complete(LargeFileResult.NO_SPACE)
                     return
                 }
 
                 is FileAppendResult.Ended -> {
-                    sendAbort(actor.channel, FileFetchAbortReason.CANCELLED, null)
-                    actor.result.complete(FetchResult.ENDED)
+                    sendAbort(actor.channel, LargeFileAbortReason.CANCELLED, null)
+                    actor.result.complete(LargeFileResult.ENDED)
                     return
                 }
 
                 is FileAppendResult.Defer -> delay(DEFER_RETRY)
             }
         }
-        actor.result.complete(FetchResult.UNANSWERED)
+        actor.result.complete(LargeFileResult.UNANSWERED)
     }
 
-    private suspend fun finishRequester(actor: RequesterActor, result: FetchResult) {
+    private suspend fun finishRequester(actor: RequesterActor, result: LargeFileResult) {
         settle(actor, result)
         actor.mailbox.close()
         closeQuietly(actor.channel)
@@ -613,11 +626,11 @@ internal class FileFetchService(
     // -- Holder --------------------------------------------------------------------
 
     /**
-     * A FETCH claims its channel before the gate runs: a repeated FETCH on the same channel is
+     * A PULL claims its channel before the gate runs: a repeated PULL on the same channel is
      * ignored at once, and one peer holds at most [MAX_SERVES_PER_PEER] serves (each an open
      * stream and channel); past that it is told to come back later, never declined.
      */
-    private suspend fun handleFetchRequest(channel: FileChannelId, frame: FileFetchFrame.Fetch) {
+    private suspend fun handlePullRequest(channel: FileChannelId, frame: LargeFileFrame.Pull) {
         val claim = lock.withLock {
             when {
                 channel in serveClaims -> Claim.ALREADY
@@ -631,7 +644,7 @@ internal class FileFetchService(
         when (claim) {
             Claim.ALREADY -> return
             Claim.BUSY -> {
-                sendAbort(channel, FileFetchAbortReason.CANCELLED, "busy")
+                sendAbort(channel, LargeFileAbortReason.CANCELLED, "busy")
                 closeQuietly(channel)
                 return
             }
@@ -647,7 +660,7 @@ internal class FileFetchService(
     }
 
     /** Runs the serve gate and starts the serve; false when no serve started. */
-    private suspend fun gateAndServe(channel: FileChannelId, frame: FileFetchFrame.Fetch): Boolean {
+    private suspend fun gateAndServe(channel: FileChannelId, frame: LargeFileFrame.Pull): Boolean {
         val peer = channel.peer
         val account = try {
             devices.getAccountIdForDevice(peer)
@@ -663,7 +676,7 @@ internal class FileFetchService(
             null
         }
         if (account == null) {
-            sendDeclined(channel, FileFetchDeclineReason.NOT_ALLOWED)
+            sendDeclined(channel, LargeFileDeclineReason.NOT_ALLOWED)
             return false
         }
         // Removed or revoked devices never serve, even when the visibility rule would allow them.
@@ -680,7 +693,7 @@ internal class FileFetchService(
                 throwable = e,
                 fields = mapOf("fileId" to frame.fileId),
             )
-            sendDeclined(channel, FileFetchDeclineReason.NOT_ALLOWED)
+            sendDeclined(channel, LargeFileDeclineReason.NOT_ALLOWED)
             return false
         }
         val accountStatus = try {
@@ -695,11 +708,11 @@ internal class FileFetchService(
                 throwable = e,
                 fields = mapOf("fileId" to frame.fileId),
             )
-            sendDeclined(channel, FileFetchDeclineReason.NOT_ALLOWED)
+            sendDeclined(channel, LargeFileDeclineReason.NOT_ALLOWED)
             return false
         }
         if (deviceStatus != IdentityStatus.ACTIVE || accountStatus == IdentityStatus.BANNED) {
-            sendDeclined(channel, FileFetchDeclineReason.NOT_ALLOWED)
+            sendDeclined(channel, LargeFileDeclineReason.NOT_ALLOWED)
             return false
         }
         val allowed = try {
@@ -717,7 +730,7 @@ internal class FileFetchService(
             false
         }
         if (!allowed) {
-            sendDeclined(channel, FileFetchDeclineReason.NOT_ALLOWED)
+            sendDeclined(channel, LargeFileDeclineReason.NOT_ALLOWED)
             return false
         }
         val info = try {
@@ -735,15 +748,15 @@ internal class FileFetchService(
             null
         }
         if (info == null) {
-            sendDeclined(channel, FileFetchDeclineReason.NOT_HELD)
+            sendDeclined(channel, LargeFileDeclineReason.NOT_HELD)
             return false
         }
         if (frame.fromOffset > info.totalBytes) {
-            sendAbort(channel, FileFetchAbortReason.SOURCE_ERROR, "bad offset")
+            sendAbort(channel, LargeFileAbortReason.SOURCE_ERROR, "bad offset")
             closeQuietly(channel)
             return false
         }
-        if (!sendFetchOk(channel, info)) {
+        if (!sendPullOk(channel, info)) {
             closeQuietly(channel)
             return false
         }
@@ -755,7 +768,7 @@ internal class FileFetchService(
             lastProgressAt = clock.now().toEpochMilliseconds(),
         )
         lock.withLock { holders[channel] = holder }
-        checkNotNull(scope) { "FileFetchService is not running" }.launch { serveLoop(holder, info, frame.fromOffset) }
+        checkNotNull(scope) { "LargeFileService is not running" }.launch { serveLoop(holder, info, frame.fromOffset) }
         try {
             events.emit(FileEvent.ServeStarted(frame.fileId, account))
         } catch (e: CancellationException) {
@@ -784,17 +797,17 @@ internal class FileFetchService(
                 throwable = e,
                 fields = mapOf("fileId" to info.fileId),
             )
-            sendAbort(holder.channel, FileFetchAbortReason.SOURCE_ERROR, null)
+            sendAbort(holder.channel, LargeFileAbortReason.SOURCE_ERROR, null)
             cleanupHolder(holder.channel)
             return
         }
         if (stream == null) {
-            sendAbort(holder.channel, FileFetchAbortReason.SOURCE_ERROR, null)
+            sendAbort(holder.channel, LargeFileAbortReason.SOURCE_ERROR, null)
             cleanupHolder(holder.channel)
             return
         }
         try {
-            val window = routerConfig.value.fileStreamWindowBytes
+            val window = routerConfig.value.largeFileStreamWindowBytes
             var offset = fromOffset
             while (offset < info.totalBytes) {
                 // Idle timeout with no PROGRESS: the requester is gone; end the serve so a
@@ -815,7 +828,7 @@ internal class FileFetchService(
                 // reading, and the idle check above does not run while we wait here.
                 val drained = try {
                     withTimeoutOrNull(routerConfig.value.fileRequestAttemptTimeout) {
-                        transport.awaitBufferedBelow(holder.channel, FILE_FETCH_BUFFERED_RESUME_BYTES)
+                        transport.awaitBufferedBelow(holder.channel, LARGE_FILE_BUFFERED_RESUME_BYTES)
                     } != null
                 } catch (e: CancellationException) {
                     throw e
@@ -829,7 +842,8 @@ internal class FileFetchService(
                     break
                 }
                 if (!drained) break
-                val maxBytes = minOf(fileLimits.value.fetchFrameBytes.toLong(), info.totalBytes - offset).toInt().coerceAtLeast(1)
+                val maxBytes = minOf(fileLimits.value.largeFileFrameBytes.toLong(), info.totalBytes - offset).toInt()
+                    .coerceAtLeast(1)
                 val read = try {
                     stream.read(maxBytes)
                 } catch (e: CancellationException) {
@@ -842,7 +856,7 @@ internal class FileFetchService(
                         throwable = e,
                         fields = mapOf("fileId" to info.fileId),
                     )
-                    sendAbort(holder.channel, FileFetchAbortReason.SOURCE_ERROR, null)
+                    sendAbort(holder.channel, LargeFileAbortReason.SOURCE_ERROR, null)
                     cleanupHolder(holder.channel)
                     return
                 }
@@ -853,7 +867,7 @@ internal class FileFetchService(
                             continue
                         }
                         val sent = try {
-                            transport.sendFileFrame(holder.channel, FileFetchFrame.Data(read.bytes).encode())
+                            transport.sendFileFrame(holder.channel, LargeFileFrame.Data(read.bytes).encode())
                             true
                         } catch (e: CancellationException) {
                             throw e
@@ -877,7 +891,7 @@ internal class FileFetchService(
                     // The source ended short of totalBytes: the serve ends (cleaned up below).
                     is PlaintextRead.Eof -> break
                     is PlaintextRead.SourceLost -> {
-                        sendAbort(holder.channel, FileFetchAbortReason.SOURCE_ERROR, null)
+                        sendAbort(holder.channel, LargeFileAbortReason.SOURCE_ERROR, null)
                         cleanupHolder(holder.channel)
                         return
                     }
@@ -901,12 +915,12 @@ internal class FileFetchService(
         }
     }
 
-    /** False when FETCH_OK could not be sent: no serve starts on that channel. */
-    private suspend fun sendFetchOk(channel: FileChannelId, info: FileManifest): Boolean {
+    /** False when PULL_OK could not be sent: no serve starts on that channel. */
+    private suspend fun sendPullOk(channel: FileChannelId, info: FileManifest): Boolean {
         return try {
             transport.sendFileFrame(
                 channel,
-                FileFetchFrame.FetchOk(
+                LargeFileFrame.PullOk(
                     totalBytes = info.totalBytes,
                     blockSize = info.blockSize,
                     blockHashes = info.blockHashes,
@@ -921,7 +935,7 @@ internal class FileFetchService(
             AppLog.warn(
                 component = LogComponent.FILE,
                 event = LogEvent.FILE_FETCH_FAILED,
-                message = "Failed to send FETCH_OK",
+                message = "Failed to send PULL_OK",
                 fields = mapOf("fileId" to info.fileId, "error" to e.toString()),
             )
             false
@@ -929,14 +943,14 @@ internal class FileFetchService(
     }
 
     /** A lost DECLINED still ends the fetch: the channel closes right after. */
-    private suspend fun sendDeclined(channel: FileChannelId, reason: FileFetchDeclineReason) {
-        sendBestEffort(channel, FileFetchFrame.FetchDeclined(reason).encode(), "FETCH_DECLINED")
+    private suspend fun sendDeclined(channel: FileChannelId, reason: LargeFileDeclineReason) {
+        sendBestEffort(channel, LargeFileFrame.Declined(reason).encode(), "DECLINED")
         closeQuietly(channel)
     }
 
     /** A lost ABORT still ends the fetch: every abort is followed by the channel's close. */
-    private suspend fun sendAbort(channel: FileChannelId, reason: FileFetchAbortReason, text: String?) {
-        sendBestEffort(channel, FileFetchFrame.Abort(reason, text).encode(), "ABORT")
+    private suspend fun sendAbort(channel: FileChannelId, reason: LargeFileAbortReason, text: String?) {
+        sendBestEffort(channel, LargeFileFrame.Abort(reason, text).encode(), "ABORT")
     }
 
     private suspend fun sendBestEffort(channel: FileChannelId, frame: ByteArray, kind: String) {
@@ -981,7 +995,7 @@ internal class FileFetchService(
     /** A lost PROGRESS frame only delays the sender's window; the next one carries a later P. */
     private suspend fun sendProgress(channel: FileChannelId, contiguousBytes: Long) {
         try {
-            transport.sendFileFrame(channel, FileFetchFrame.Progress(contiguousBytes).encode())
+            transport.sendFileFrame(channel, LargeFileFrame.Progress(contiguousBytes).encode())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

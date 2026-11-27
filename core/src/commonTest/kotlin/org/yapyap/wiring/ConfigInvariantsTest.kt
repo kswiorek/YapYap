@@ -48,9 +48,9 @@ class ConfigInvariantsTest {
     )
 
     @Test
-    fun fetchWindow_mustExceedACheckpoint() = assertBreaksOne(
-        defaults.copy(router = defaults.router.copy(fileStreamWindowBytes = defaults.orchestrator.fileCheckpointBytes)),
-        "Fetch window",
+    fun largeFileStreamWindow_mustExceedACheckpoint() = assertBreaksOne(
+        defaults.copy(router = defaults.router.copy(largeFileStreamWindowBytes = defaults.orchestrator.fileCheckpointBytes)),
+        "Large-file stream window",
     )
 
     @Test

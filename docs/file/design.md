@@ -987,7 +987,7 @@ file_relay_chunks (transfer_id, chunk_index PK, blob)
 file_pull_attempts / file_pull_declined_devices     -- sync-shaped (candidate views over parent + children)
 ```
 
-The outbox table gains the file tag kinds (`FILE_PUSH`, `FILE_FORWARD`, `FILE_REQUEST`) and `retry_class`
+The outbox table gains the file tag kinds (`FILE_TRANSFER`, `FILE_REQUEST`) and `retry_class`
 (0 standard, 1 flat for chunks); its queries change as §6.2 says. The receive staging table and the
 relay store share a
 `((scope), index-or-range) → blob` **shape** and never a **table**: routing stores ciphertext for foreign

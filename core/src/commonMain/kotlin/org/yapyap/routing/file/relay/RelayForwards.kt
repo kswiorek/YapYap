@@ -11,8 +11,8 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.TransferId
+import org.yapyap.routing.file.TransferEvent
 import org.yapyap.routing.file.transfer.TransferEngine
-import org.yapyap.routing.file.transfer.TransferEvent
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
@@ -31,17 +31,17 @@ import kotlin.uuid.Uuid
  */
 internal class RelayForwards(
     private val ctx: RoutingContext,
-    private val relays: FileRelayStore,
-    private val transfers: FileTransferStore,
+    private val relayStore: FileRelayStore,
+    private val transferStore: FileTransferStore,
     private val engine: TransferEngine,
 ) {
     private val mutex = Mutex()
 
     /** [relayTransferId] became whole: start its forward (at most one). */
     suspend fun onWhole(relayTransferId: TransferId) = mutex.withLock {
-        val relay = relays.find(relayTransferId) ?: return@withLock
+        val relay = relayStore.find(relayTransferId) ?: return@withLock
         if (relay.status != FileRelayStatus.WHOLE) return@withLock
-        if (transfers.byRelayTransfer(relayTransferId).isNotEmpty()) return@withLock
+        if (transferStore.byRelayTransfer(relayTransferId).isNotEmpty()) return@withLock
         engine.start(
             OutgoingTransfer(
                 transferId = TransferId(Uuid.random()),
@@ -67,11 +67,11 @@ internal class RelayForwards(
 
     /** Forgets a deposit: its forward stops and its stored ciphertext goes. */
     suspend fun drop(relayTransferId: TransferId) = mutex.withLock {
-        for (forward in transfers.byRelayTransfer(relayTransferId)) {
+        for (forward in transferStore.byRelayTransfer(relayTransferId)) {
             if (forward.status.isLive) engine.cancel(forward.transferId)
-            transfers.delete(forward.transferId)
+            transferStore.delete(forward.transferId)
         }
-        relays.delete(relayTransferId)
+        relayStore.delete(relayTransferId)
     }
 
     /**
@@ -96,8 +96,8 @@ internal class RelayForwards(
     private suspend fun sweep() {
         val now = ctx.clock.now()
         val idleTtl = ctx.routerConfig.value.fileRelayIdleTtl
-        for (relay in relays.all()) {
-            val forwards = transfers.byRelayTransfer(relay.transferId)
+        for (relay in relayStore.all()) {
+            val forwards = transferStore.byRelayTransfer(relay.transferId)
             when {
                 now >= relay.expiresAt -> drop(relay.transferId)
                 relay.status == FileRelayStatus.RESERVED && relay.lastChunkAt + idleTtl <= now -> drop(relay.transferId)

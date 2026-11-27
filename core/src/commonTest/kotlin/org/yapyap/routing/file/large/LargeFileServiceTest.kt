@@ -1,4 +1,4 @@
-package org.yapyap.routing.file.fetch
+package org.yapyap.routing.file.large
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -12,12 +12,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileFetchAbortReason
-import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.LargeFileFrame
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.routing.file.LargeFileResult
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
@@ -45,10 +46,10 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Focused unit tests for [FileFetchService]: serve gating, block-list checks,
+ * Focused unit tests for [LargeFileService]: serve gating, block-list checks,
  * session-drop cleanup, slow-disk backpressure, and frame purity.
  */
-class FileFetchServiceTest {
+class LargeFileServiceTest {
 
     private val aliceDevice = PeerId("fetch-alice-device-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     private val bobDevice = PeerId("fetch-bob-device-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -153,14 +154,14 @@ class FileFetchServiceTest {
         chunkSize: Int = 32 * 1024,
         events: MutableSharedFlow<FileEvent> = MutableSharedFlow(extraBufferCapacity = 64),
         clock: FakeClock = FakeClock(now),
-    ) = FileFetchService(
+    ) = LargeFileService(
         devices = devices,
         transport = transport,
         plaintext = plaintext,
         ingest = gate,
         requests = gate,
         routerConfig = MutableStateFlow(routerConfig),
-        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = chunkSize, fetchFrameBytes = chunkSize)),
+        fileLimits = MutableStateFlow(FileLimits(chunkSizeBytes = chunkSize, largeFileFrameBytes = chunkSize)),
         events = events,
         clock = clock,
     )
@@ -237,7 +238,7 @@ class FileFetchServiceTest {
             val outcome = withTimeout(10.seconds) {
                 requester.fetch(aliceDevice, fileId, 0L)
             }
-            assertEquals(FetchResult.DECLINED, outcome, "unknown account must decline")
+            assertEquals(LargeFileResult.DECLINED, outcome, "unknown account must decline")
             assertEquals(0, requesterGate.appendCalls, "nothing written on decline")
         } finally {
             pumpJob.cancel()
@@ -278,7 +279,7 @@ class FileFetchServiceTest {
             val outcome = withTimeout(10.seconds) {
                 requester.fetch(aliceDevice, fileId, 0L)
             }
-            assertEquals(FetchResult.DECLINED, outcome, "bad block list must decline, got $outcome")
+            assertEquals(LargeFileResult.DECLINED, outcome, "bad block list must decline, got $outcome")
             assertEquals(0, requesterGate.appendCalls, "no bytes accepted before the list check")
         } finally {
             pumpJob.cancel()
@@ -287,13 +288,13 @@ class FileFetchServiceTest {
     }
 
     @Test
-    fun localRefusalsAtFetchOk_areNeverAHolderDecline() = runBlocking {
-        // Our own outcomes at FETCH_OK must not blacklist the holder: only its FETCH_DECLINED
+    fun localRefusalsAtPullOk_areNeverAHolderDecline() = runBlocking {
+        // Our own outcomes at PULL_OK must not blacklist the holder: only its DECLINED
         // (or a block list that fails the fileId) counts as a decline.
         val cases = listOf(
-            FileOfferVerdict.Defer to FetchResult.UNANSWERED,
-            FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE) to FetchResult.NO_SPACE,
-            FileOfferVerdict.Refuse(FileRefusalReason.NOT_RETRYABLE) to FetchResult.ENDED,
+            FileOfferVerdict.Defer to LargeFileResult.UNANSWERED,
+            FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE) to LargeFileResult.NO_SPACE,
+            FileOfferVerdict.Refuse(FileRefusalReason.NOT_RETRYABLE) to LargeFileResult.ENDED,
         )
         for ((verdict, expected) in cases) {
             val aliceTransport = RecordingWebRtcTransport()
@@ -367,7 +368,7 @@ class FileFetchServiceTest {
         requester.runIn(scope)
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
-            var result: FetchResult? = null
+            var result: LargeFileResult? = null
             val fetchJob = launch {
                 result = requester.fetch(aliceDevice, fileId, 0L)
             }
@@ -417,7 +418,7 @@ class FileFetchServiceTest {
             aliceTransport,
             plaintext,
             TestGate(canServe = true),
-            routerConfig = RouterConfig(fileStreamWindowBytes = window),
+            routerConfig = RouterConfig(largeFileStreamWindowBytes = window),
             chunkSize = chunk,
         )
         var appends = 0
@@ -447,11 +448,11 @@ class FileFetchServiceTest {
             }
             fun sentBytes() = aliceTransport.sendFileFrameCalls.toList().sumOf { (_, payload) ->
                 val frame = try {
-                    FileFetchFrame.decode(payload)
+                    LargeFileFrame.decode(payload)
                 } catch (_: Exception) {
                     null
                 }
-                if (frame is FileFetchFrame.Data) frame.bytes.size else 0
+                if (frame is LargeFileFrame.Data) frame.bytes.size else 0
             }
             // The holder must actually fill its window (a holder that sent nothing would pass a
             // bound alone), then stay within it while P does not move.
@@ -501,7 +502,7 @@ class FileFetchServiceTest {
                     bobTransport.sendFileFrameCalls.map { it.second }
             assertTrue(allPayloads.isNotEmpty(), "fetch must send frames")
             for (payload in allPayloads) {
-                FileFetchFrame.decode(payload)
+                LargeFileFrame.decode(payload)
             }
             assertTrue(aliceTransport.sendEnvelopeCalls.isEmpty())
             assertTrue(bobTransport.sendEnvelopeCalls.isEmpty())
@@ -543,16 +544,16 @@ class FileFetchServiceTest {
             val result = withTimeout(10.seconds) {
                 requester.fetch(aliceDevice, fileId, 0L)
             }
-            assertEquals(FetchResult.NO_SPACE, result)
+            assertEquals(LargeFileResult.NO_SPACE, result)
             // Local refusal never counts against the holder: no declined outcome, just an ABORT.
             val aborts = bobTransport.sendFileFrameCalls.mapNotNull { (_, payload) ->
                 try {
-                    FileFetchFrame.decode(payload) as? FileFetchFrame.Abort
+                    LargeFileFrame.decode(payload) as? LargeFileFrame.Abort
                 } catch (_: Exception) {
                     null
                 }
             }
-            assertTrue(aborts.any { it.reason == FileFetchAbortReason.NO_SPACE }, "ABORT NO_SPACE sent")
+            assertTrue(aborts.any { it.reason == LargeFileAbortReason.NO_SPACE }, "ABORT NO_SPACE sent")
         } finally {
             pumpJob.cancel()
             scope.cancel()
@@ -591,7 +592,7 @@ class FileFetchServiceTest {
             val result = withTimeout(10.seconds) {
                 requester.fetch(aliceDevice, fileId, 0L)
             }
-            assertEquals(FetchResult.MISMATCH, result)
+            assertEquals(LargeFileResult.MISMATCH, result)
         } finally {
             pumpJob.cancel()
             scope.cancel()
@@ -637,7 +638,7 @@ class FileFetchServiceTest {
             val result = withTimeout(10.seconds) {
                 requester.fetch(aliceDevice, fileId, 0L)
             }
-            assertEquals(FetchResult.SATISFIED, result)
+            assertEquals(LargeFileResult.SATISFIED, result)
             assertTrue(defers >= 3, "deferred frames retried, none dropped")
             // Retries re-append the same bytes, so the counted total includes them.
             assertTrue(requesterGate.ingestedBytes >= data.size.toLong())
@@ -651,7 +652,7 @@ class FileFetchServiceTest {
     private suspend fun fetchWith(
         requesterGate: TestGate,
         data: ByteArray = ByteArray(64 * 1024) { it.toByte() },
-        block: suspend (requester: FileFetchService) -> Unit,
+        block: suspend (requester: LargeFileService) -> Unit,
     ) {
         val aliceTransport = RecordingWebRtcTransport()
         val bobTransport = RecordingWebRtcTransport()
@@ -680,7 +681,7 @@ class FileFetchServiceTest {
     fun appendAfterTheReceiveEnded_endsWithoutBlame() = runBlocking {
         val gate = TestGate(totalBytes = 64 * 1024L, appendImpl = { _, _ -> FileAppendResult.Ended })
         fetchWith(gate) { requester ->
-            assertEquals(FetchResult.ENDED, withTimeout(10.seconds) { requester.fetch(aliceDevice, fileId, 0L) })
+            assertEquals(LargeFileResult.ENDED, withTimeout(10.seconds) { requester.fetch(aliceDevice, fileId, 0L) })
         }
     }
 
@@ -691,9 +692,9 @@ class FileFetchServiceTest {
             coroutineScope {
                 val result = async { requester.fetch(aliceDevice, fileId, 0L) }
                 withTimeout(10.seconds) { while (gate.appendCalls == 0) delay(10.milliseconds) }
-                requester.abortFetch(fileId, FileFetchAbortReason.CANCELLED)
+                requester.abortFetch(fileId, LargeFileAbortReason.CANCELLED)
                 // The retry loop sees the abort; the fetch is bounded even while the engine defers.
-                assertEquals(FetchResult.UNANSWERED, withTimeout(10.seconds) { result.await() })
+                assertEquals(LargeFileResult.UNANSWERED, withTimeout(10.seconds) { result.await() })
             }
         }
     }
@@ -707,7 +708,7 @@ class FileFetchServiceTest {
         val gate = TestGate(totalBytes = 1024 * 1024L, appendImpl = { _, _ -> FileAppendResult.Appended(0L) })
         val requester = service(
             bobDevice, FakeDevices(mapOf(aliceDevice to aliceAccount)), bobTransport, BytePlaintext(null, ByteArray(0)),
-            gate, routerConfig = RouterConfig(fileStreamWindowBytes = window),
+            gate, routerConfig = RouterConfig(largeFileStreamWindowBytes = window),
         )
         val scope = CoroutineScope(SupervisorJob())
         requester.runIn(scope)
@@ -718,21 +719,21 @@ class FileFetchServiceTest {
                     while (bobTransport.sendFileFrameCalls.isEmpty()) delay(10.milliseconds)
                     bobTransport.sendFileFrameCalls.first().first
                 }
-                val ok = FileFetchFrame.FetchOk(1024 * 1024L, 1024 * 1024, emptyList(), "big.bin", null)
+                val ok = LargeFileFrame.PullOk(1024 * 1024L, 1024 * 1024, emptyList(), "big.bin", null)
                 assertTrue(bobTransport.tryEmitFileFrame(WebRtcFileFrame(channel, ok.encode())))
                 // A rogue holder streams the whole file regardless of PROGRESS.
                 repeat(32) {
                     while (!bobTransport.tryEmitFileFrame(
                             WebRtcFileFrame(
                                 channel,
-                                FileFetchFrame.Data(ByteArray(frame)).encode()
+                                LargeFileFrame.Data(ByteArray(frame)).encode()
                             )
                         )
                     ) {
                         delay(5.milliseconds)
                     }
                 }
-                assertEquals(FetchResult.UNANSWERED, withTimeout(10.seconds) { result.await() })
+                assertEquals(LargeFileResult.UNANSWERED, withTimeout(10.seconds) { result.await() })
                 assertTrue(channel in bobTransport.closeFileChannelCalls, "the overrun channel is closed")
                 assertTrue(
                     gate.ingestedBytes <= window + frame,

@@ -14,55 +14,54 @@ import org.yapyap.routing.candidate.CandidateAttemptStore
 import org.yapyap.routing.candidate.CandidateRow
 import org.yapyap.routing.candidate.CandidateStrategy
 import org.yapyap.routing.candidate.SuccessAction
-import org.yapyap.routing.file.fetch.FetchResult
-import org.yapyap.routing.file.fetch.FileFetchService
+import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.SessionOutcome
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileRequestAttemptStore
-import org.yapyap.routing.store.FileRequestClass
+import org.yapyap.routing.store.FilePullAttemptStore
+import org.yapyap.routing.store.FilePullClass
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 
 /**
- * Large-path plug into the shared candidate core (design §9, §6.6): the same
+ * Large-file plug into the shared candidate core (design §9, §6.6): the same
  * one-candidate-at-a-time loop as small REQUESTs, but each attempt opens a WebRTC
- * session and runs a fetch instead of enqueueing a packet. FETCH_OK plays the ACK
- * and FETCH_DECLINED the DECLINED, with no WAITING state — the answer and the bytes
+ * session and runs a fetch instead of enqueueing a packet. PULL_OK plays the ACK
+ * and DECLINED the DECLINED, with no WAITING state — the answer and the bytes
  * come on the same channel. An unreachable candidate is not a decline: the request
  * stays PENDING until a candidate comes online. Online-but-unconnectable is reported
  * as "no direct connection" and never falls back to Tor.
  */
-internal class FileFetchStrategy(
+internal class LargeFileStrategy(
     private val ctx: RoutingContext,
-    private val store: FileRequestAttemptStore,
+    private val pullAttempts: FilePullAttemptStore,
     private val requests: FileRequestSource,
     private val webRtcLinks: LinkKeeper,
-    private val fetchService: FileFetchService,
+    private val fetchService: LargeFileService,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
     private val dock = object : CandidateAttemptStore<FileId> {
         override suspend fun start(id: FileId, firstAttemptAt: Instant) =
-            store.start(id, FileRequestClass.LARGE, firstAttemptAt)
+            pullAttempts.start(id, FilePullClass.LARGE, firstAttemptAt)
 
-        override suspend fun drop(id: FileId) = store.drop(id)
-        override suspend fun earliestDueAt(): Instant? = store.earliestDueAt(FileRequestClass.LARGE)
+        override suspend fun drop(id: FileId) = pullAttempts.drop(id)
+        override suspend fun earliestDueAt(): Instant? = pullAttempts.earliestDueAt(FilePullClass.LARGE)
         override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<FileId>> =
-            store.findDue(now, limit, FileRequestClass.LARGE)
+            pullAttempts.findDue(now, limit, FilePullClass.LARGE)
                 .map { CandidateRow(it.fileId, it.attempts, it.declinedDevices) }
 
         override suspend fun recordAttempt(id: FileId, nextAttemptAt: Instant) =
-            store.recordAttempt(id, nextAttemptAt)
+            pullAttempts.recordAttempt(id, nextAttemptAt)
 
-        override suspend fun postpone(id: FileId, nextAttemptAt: Instant) = store.postpone(id, nextAttemptAt)
-        override suspend fun advanceToNow(ids: Collection<FileId>, now: Instant) = store.advanceToNow(ids, now)
-        override suspend fun declinedDevices(id: FileId): Set<PeerId> = store.declinedDevices(id)
-        override suspend fun addDeclined(id: FileId, device: PeerId) = store.addDeclined(id, device)
+        override suspend fun postpone(id: FileId, nextAttemptAt: Instant) = pullAttempts.postpone(id, nextAttemptAt)
+        override suspend fun advanceToNow(ids: Collection<FileId>, now: Instant) = pullAttempts.advanceToNow(ids, now)
+        override suspend fun declinedDevices(id: FileId): Set<PeerId> = pullAttempts.declinedDevices(id)
+        override suspend fun addDeclined(id: FileId, device: PeerId) = pullAttempts.addDeclined(id, device)
         override suspend fun removeDeclined(id: FileId, devices: Collection<PeerId>) =
-            store.removeDeclined(id, devices)
+            pullAttempts.removeDeclined(id, devices)
 
         // The large path has no WAITING state (the answer and the bytes share a channel),
         // so the core never calls these on this dock.
@@ -76,7 +75,7 @@ internal class FileFetchStrategy(
 
 
     override suspend fun idsWithCandidate(account: AccountId): List<FileId> =
-        store.idsOf(FileRequestClass.LARGE).filter { id -> account in requests.requestCandidates(id) }
+        pullAttempts.idsOf(FilePullClass.LARGE).filter { id -> account in requests.requestCandidates(id) }
 
     override suspend fun isWanted(id: FileId): Boolean = requests.heldCoverage(id) != null
 
@@ -102,10 +101,10 @@ internal class FileFetchStrategy(
      * mid-fetch never re-asks at once; every outcome below only steers the next pass.
      * Unexpected failures propagate: the core logs them and counts the attempt unanswered.
      */
-    suspend fun runFetch(id: FileId, device: PeerId): CallOutcome {
+    suspend fun runPull(id: FileId, device: PeerId): CallOutcome {
         // READY meanwhile: nothing to ask for.
         val coverage = requests.heldCoverage(id) ?: return CallOutcome.Satisfied
-        val link = webRtcLinks.await(device, ctx.routerConfig.value.fileSessionOpenTimeout)
+        val link = webRtcLinks.await(device, ctx.routerConfig.value.largeFileSessionOpenTimeout)
         if (link != SessionOutcome.Connected) {
             // Timeout opening the session: offline stays PENDING silently;
             // online-but-unconnectable is "no direct connection" (never Tor).
@@ -115,19 +114,19 @@ internal class FileFetchStrategy(
             return CallOutcome.NoDirectConnection
         }
         return when (fetchService.fetch(device, id, coverage.contiguousBytes)) {
-            FetchResult.SATISFIED -> {
+            LargeFileResult.SATISFIED -> {
                 emitBestEffort(FileEvent.RequestSatisfied(id))
                 CallOutcome.Satisfied
             }
 
-            FetchResult.DECLINED -> CallOutcome.Declined
+            LargeFileResult.DECLINED -> CallOutcome.Declined
             // The receive ended locally (no space, declined, failed): drop the row, never
             // blacklist. No satisfaction event: the GUI learns how the receive ended from the engine.
-            FetchResult.NO_SPACE, FetchResult.ENDED -> CallOutcome.Satisfied
+            LargeFileResult.NO_SPACE, LargeFileResult.ENDED -> CallOutcome.Satisfied
             // A block failed its hash: back to PENDING in the usual candidate order.
-            FetchResult.MISMATCH -> CallOutcome.Unanswered
-            FetchResult.UNANSWERED -> CallOutcome.Unanswered
-            FetchResult.NO_DIRECT_CONNECTION -> CallOutcome.NoDirectConnection
+            LargeFileResult.MISMATCH -> CallOutcome.Unanswered
+            LargeFileResult.UNANSWERED -> CallOutcome.Unanswered
+            LargeFileResult.NO_DIRECT_CONNECTION -> CallOutcome.NoDirectConnection
         }
     }
 

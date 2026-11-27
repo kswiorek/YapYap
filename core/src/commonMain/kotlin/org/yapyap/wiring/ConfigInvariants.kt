@@ -60,9 +60,9 @@ internal object ConfigInvariants {
         // The fetch holder pauses after a window without PROGRESS, and the receiver reports
         // PROGRESS at checkpoints: a window no larger than a checkpoint would leave the holder
         // waiting for the timed checkpoint on every window.
-        if (router.fileStreamWindowBytes <= orchestrator.fileCheckpointBytes) {
+        if (router.largeFileStreamWindowBytes <= orchestrator.fileCheckpointBytes) {
             add(
-                "Fetch window (${router.fileStreamWindowBytes} bytes) must be larger than the checkpoint " +
+                "Large-file stream window (${router.largeFileStreamWindowBytes} bytes) must be larger than the checkpoint " +
                         "size (${orchestrator.fileCheckpointBytes} bytes)",
             )
         }

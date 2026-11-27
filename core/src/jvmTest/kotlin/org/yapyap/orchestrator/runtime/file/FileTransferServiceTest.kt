@@ -27,8 +27,8 @@ import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -72,13 +72,13 @@ class FileTransferServiceTest {
         val started = mutableListOf<Pair<FileId, Instant>>()
         val aborted = mutableListOf<FileId>()
 
-        override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) {
+        override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) {
             started += fileId to firstAttemptAt
         }
 
-        override suspend fun abortFileFetch(
+        override suspend fun abortLargeFile(
             fileId: FileId,
-            reason: FileFetchAbortReason
+            reason: LargeFileAbortReason
         ) {
             aborted += fileId
         }
@@ -191,7 +191,7 @@ class FileTransferServiceTest {
 
         h.service.acceptFile(fileId)
 
-        assertNull(h.receives.find(fileId), "DECLINED removed so FETCH_OK can create the row")
+        assertNull(h.receives.find(fileId), "DECLINED removed so PULL_OK can create the row")
         assertEquals(PendingFileRequestStatus.PENDING, h.pending.find(fileId)?.status)
         assertEquals(listOf(fileId to now), h.router.started)
     }

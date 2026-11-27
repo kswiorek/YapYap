@@ -3,6 +3,7 @@ package org.yapyap.routing.file.transfer
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.TransferShape
+import org.yapyap.routing.file.TransferOffer
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
@@ -24,8 +25,6 @@ internal interface ChunkSource : AutoCloseable {
 
     override fun close() {}
 }
-
-internal class TransferOffer(val origin: PeerId, val finalTarget: PeerId, val sealBytes: ByteArray)
 
 /**
  * Our own seal: plaintext from the orchestrator (block-checked at the source), encrypted under the

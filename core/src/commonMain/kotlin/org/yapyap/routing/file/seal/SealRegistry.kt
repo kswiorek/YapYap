@@ -1,22 +1,42 @@
 package org.yapyap.routing.file.seal
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ContentId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.TransferShape
-import org.yapyap.routing.file.port.*
+import org.yapyap.routing.file.TransferEvent
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileSendState
+import org.yapyap.routing.file.port.FileSendStatus
 import org.yapyap.routing.file.transfer.TransferEngine
-import org.yapyap.routing.file.transfer.TransferEvent
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.FileSealKind
+import org.yapyap.routing.store.FileSealStatus
+import org.yapyap.routing.store.FileSealStore
+import org.yapyap.routing.store.FileTransferStatus
+import org.yapyap.routing.store.FileTransferStore
+import org.yapyap.routing.store.OutgoingSeal
+import org.yapyap.routing.store.OutgoingTransfer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -38,8 +58,8 @@ import kotlin.uuid.Uuid
  */
 internal class SealRegistry(
     private val ctx: RoutingContext,
-    private val seals: FileSealStore,
-    private val transfers: FileTransferStore,
+    private val sealStore: FileSealStore,
+    private val transferStore: FileTransferStore,
     private val engine: TransferEngine,
     private val plaintext: FilePlaintextSource,
     private val relaySelection: RelaySelectionPolicy,
@@ -64,7 +84,7 @@ internal class SealRegistry(
         mutex.withLock {
             for (device in peerDevices(target)) {
                 val live =
-                    seals.byFileAndTarget(fileId, device).any { it.kind == FileSealKind.PUSH && it.status.isLive }
+                    sealStore.byFileAndTarget(fileId, device).any { it.kind == FileSealKind.PUSH && it.status.isLive }
                 if (!live) createSeal(manifest, device, FileSealKind.PUSH, byteFrom = 0)
             }
         }
@@ -84,9 +104,10 @@ internal class SealRegistry(
         val byteFrom = (fromOffset.coerceIn(0, manifest.totalBytes) / chunkSize) * chunkSize
         mutex.withLock {
             val now = ctx.clock.now()
-            val direct = seals.byFileAndTarget(fileId, device).filter { it.status.isLive }
+            val direct = sealStore.byFileAndTarget(fileId, device).filter { it.status.isLive }
                 .flatMap { seal ->
-                    transfers.bySeal(seal.sealId).filter { it.peer == device && it.status.isLive }.map { seal to it }
+                    transferStore.bySeal(seal.sealId).filter { it.peer == device && it.status.isLive }
+                        .map { seal to it }
                 }
             val underWay = direct.any { (seal, transfer) ->
                 seal.kind == FileSealKind.SERVE && transfer.shape.byteFrom <= byteFrom &&
@@ -105,9 +126,9 @@ internal class SealRegistry(
     suspend fun cancel(fileId: FileId, target: AccountId) {
         mutex.withLock {
             for (device in peerDevices(target)) {
-                for (seal in seals.byFileAndTarget(fileId, device)) {
+                for (seal in sealStore.byFileAndTarget(fileId, device)) {
                     if (seal.kind != FileSealKind.PUSH || !seal.status.isLive) continue
-                    seals.setStatus(seal.sealId, FileSealStatus.CANCELLED)
+                    sealStore.setStatus(seal.sealId, FileSealStatus.CANCELLED)
                     endLiveTransfers(seal)
                 }
             }
@@ -117,12 +138,12 @@ internal class SealRegistry(
 
     /** The seal's target holds the file. */
     suspend fun onComplete(sealId: ContentId, from: PeerId) {
-        val seal = seals.find(sealId) ?: return
+        val seal = sealStore.find(sealId) ?: return
         if (from != seal.targetDevice) return
         mutex.withLock {
-            val current = seals.find(sealId) ?: return
+            val current = sealStore.find(sealId) ?: return
             if (current.status != FileSealStatus.DELIVERED) {
-                seals.setStatus(sealId, FileSealStatus.DELIVERED)
+                sealStore.setStatus(sealId, FileSealStatus.DELIVERED)
                 endLiveTransfers(current)
             }
         }
@@ -152,7 +173,7 @@ internal class SealRegistry(
     }
 
     private suspend fun onTransferEvent(event: TransferEvent) {
-        val seal = seals.find(event.transfer.sealId) ?: return
+        val seal = sealStore.find(event.transfer.sealId) ?: return
         when (event) {
             is TransferEvent.Progress -> if (event.transfer.peer == seal.targetDevice) report(seal)
             is TransferEvent.Gone -> if (event.transfer.peer == seal.targetDevice) deposit(seal, event.transfer)
@@ -170,14 +191,14 @@ internal class SealRegistry(
      */
     private suspend fun deposit(seal: OutgoingSeal, direct: OutgoingTransfer) {
         mutex.withLock {
-            val current = seals.find(seal.sealId) ?: return
+            val current = sealStore.find(seal.sealId) ?: return
             if (current.status != FileSealStatus.SENDING) return
             val shape = direct.shape
             val byteFrom = shape.chunkOffset(direct.contiguousAcked + 1).coerceAtMost(shape.byteTo)
             if (byteFrom >= shape.byteTo && shape.chunkCount > 0) return
             val relays = relaySelection.selectRelays(seal.targetDevice).filter { it != seal.targetDevice }
             if (relays.isEmpty()) return
-            if (!seals.claimDeposit(seal.sealId, ctx.clock.now())) return
+            if (!sealStore.claimDeposit(seal.sealId, ctx.clock.now())) return
             for (relay in relays) {
                 engine.start(newTransfer(seal, relay, TransferShape(shape.chunkSizeBytes, byteFrom, shape.byteTo)))
             }
@@ -192,9 +213,9 @@ internal class SealRegistry(
 
     /** Derives the seal's state from its transfers (see the class doc) and acts on the change. */
     private suspend fun settle(sealId: ContentId) {
-        val seal = seals.find(sealId) ?: return
+        val seal = sealStore.find(sealId) ?: return
         if (!seal.status.isLive) return
-        val all = transfers.bySeal(sealId)
+        val all = transferStore.bySeal(sealId)
         val direct = all.filter { it.peer == seal.targetDevice }
         val deposits = all - direct.toSet()
         val next = when {
@@ -206,7 +227,7 @@ internal class SealRegistry(
             else -> FileSealStatus.SENDING
         }
         if (next == seal.status) return
-        seals.setStatus(sealId, next)
+        sealStore.setStatus(sealId, next)
         when (next) {
             FileSealStatus.DELIVERED, FileSealStatus.DECLINED -> endLiveTransfers(seal)
             // The relays deliver the rest; pushing it directly too would only duplicate traffic.
@@ -218,17 +239,17 @@ internal class SealRegistry(
     /** Expired seals go, with their transfers; a seal still sending reports EXPIRED first. */
     private suspend fun sweep() {
         val now = ctx.clock.now()
-        for (seal in seals.live()) mutex.withLock { settle(seal.sealId) }
-        for (seal in seals.expiredAt(now)) {
+        for (seal in sealStore.live()) mutex.withLock { settle(seal.sealId) }
+        for (seal in sealStore.expiredAt(now)) {
             mutex.withLock {
-                if (seal.status == FileSealStatus.SENDING) seals.setStatus(seal.sealId, FileSealStatus.EXPIRED)
+                if (seal.status == FileSealStatus.SENDING) sealStore.setStatus(seal.sealId, FileSealStatus.EXPIRED)
                 endLiveTransfers(seal)
             }
             report(seal)
             mutex.withLock {
-                transfers.bySeal(seal.sealId).forEach { transfers.delete(it.transferId) }
-                seals.delete(seal.sealId)
-                if (seals.byFile(seal.fileId).isEmpty()) reported.keys.removeAll { it.first == seal.fileId }
+                transferStore.bySeal(seal.sealId).forEach { transferStore.delete(it.transferId) }
+                sealStore.delete(seal.sealId)
+                if (sealStore.byFile(seal.fileId).isEmpty()) reported.keys.removeAll { it.first == seal.fileId }
             }
         }
     }
@@ -282,7 +303,7 @@ internal class SealRegistry(
             createdAt = now,
             expiresAt = now + ctx.routerConfig.value.fileTransferTtl,
         )
-        seals.insert(seal)
+        sealStore.insert(seal)
         val shape = TransferShape(ctx.fileLimits.value.chunkSizeBytes, byteFrom, manifest.totalBytes)
         engine.start(newTransfer(seal, device, shape))
         return true
@@ -303,7 +324,7 @@ internal class SealRegistry(
     )
 
     private suspend fun endLiveTransfers(seal: OutgoingSeal) {
-        transfers.bySeal(seal.sealId).filter { it.status.isLive }.forEach { engine.cancel(it.transferId) }
+        transferStore.bySeal(seal.sealId).filter { it.status.isLive }.forEach { engine.cancel(it.transferId) }
     }
 
     // --- account-level reporting ------------------------------------------------------------
@@ -335,10 +356,10 @@ internal class SealRegistry(
 
     private suspend fun pushesByAccount(fileId: FileId): Map<AccountId, List<Pair<OutgoingSeal, List<OutgoingTransfer>>>> {
         val byAccount = mutableMapOf<AccountId, MutableList<Pair<OutgoingSeal, List<OutgoingTransfer>>>>()
-        for (seal in seals.byFile(fileId)) {
+        for (seal in sealStore.byFile(fileId)) {
             if (seal.kind != FileSealKind.PUSH) continue
             val account = ctx.devices.getAccountIdForDevice(seal.targetDevice) ?: continue
-            byAccount.getOrPut(account) { mutableListOf() } += seal to transfers.bySeal(seal.sealId)
+            byAccount.getOrPut(account) { mutableListOf() } += seal to transferStore.bySeal(seal.sealId)
         }
         return byAccount
     }

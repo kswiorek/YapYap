@@ -12,36 +12,29 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.fileControl
+import org.yapyap.routing.file.FilePackets
+import org.yapyap.routing.file.TransferEvent
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileSealStore
+import org.yapyap.routing.store.FileTransferStatus
+import org.yapyap.routing.store.FileTransferStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.OutgoingTransfer
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.RetryClass
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
-
-/** What happened to an outgoing transfer; its owner (the seal registry or the relay forwards) reacts. */
-internal sealed interface TransferEvent {
-    val transfer: OutgoingTransfer
-
-    /** The peer's coverage moved. */
-    data class Progress(override val transfer: OutgoingTransfer) : TransferEvent
-
-    /** The peer looks gone (no link, no ACK in time, or its link closed): a deposit trigger. */
-    data class Gone(override val transfer: OutgoingTransfer) : TransferEvent
-
-    /** The transfer ended; [OutgoingTransfer.status] says how. */
-    data class Ended(override val transfer: OutgoingTransfer) : TransferEvent
-}
 
 /**
  * Runs every transfer this device sends (docs/envelope-redesign.md §5.3–§5.4): ours and relay
@@ -57,9 +50,10 @@ internal sealed interface TransferEvent {
 //TODO: logic seems ok, but messy, to be rewritten
 internal class TransferEngine(
     private val ctx: RoutingContext,
-    private val transfers: FileTransferStore,
-    private val seals: FileSealStore,
-    private val relays: FileRelayStore,
+    private val packets: FilePackets,
+    private val transferStore: FileTransferStore,
+    private val sealStore: FileSealStore,
+    private val relayStore: FileRelayStore,
     private val plaintext: FilePlaintextSource,
     private val outbox: OutboxProcessor,
     private val outboxStore: PacketOutbox,
@@ -82,7 +76,7 @@ internal class TransferEngine(
 
     /** Inserts [transfer] and sends its OFFER (re-armed by the tick if it can't go now). */
     suspend fun start(transfer: OutgoingTransfer) {
-        transfers.insert(transfer)
+        transferStore.insert(transfer)
         //TODO: untangle nested lambdas: we insert transfer, check some things and look it up in the db again, messy
         guarded("offer") { withLive(transfer.transferId) { current, run -> sendOffer(current, run) } }
     }
@@ -91,13 +85,13 @@ internal class TransferEngine(
     suspend fun cancel(transferId: TransferId) {
         withLive(transferId) { current, _ ->
             val cancel = FileHeader.Cancel(transferId, FileCancelReason.ABORT)
-            outbox.enqueueAndWake(ctx.fileControl(current.peer, cancel, current.expiresAt), ctx.clock.now())
+            outbox.enqueueAndWake(packets.control(current.peer, cancel, current.expiresAt), ctx.clock.now())
             end(current, FileTransferStatus.CANCELLED)
         }
     }
 
     /** True when [transferId] is a transfer we send (live or ended), so inbound control for it is ours. */
-    suspend fun owns(transferId: TransferId): Boolean = transfers.find(transferId) != null
+    suspend fun owns(transferId: TransferId): Boolean = transferStore.find(transferId) != null
 
     /** The peer's coverage ACK, in the transfer's own chunk indices. */
     suspend fun onAck(transferId: TransferId, from: PeerId, highestContiguousIndex: Int) {
@@ -108,7 +102,7 @@ internal class TransferEngine(
             run.lastProgressAt = ctx.clock.now()
             val moved =
                 current.copy(contiguousAcked = covered, nextChunkIndex = maxOf(current.nextChunkIndex, covered + 1))
-            transfers.setProgress(moved.transferId, moved.nextChunkIndex, moved.contiguousAcked)
+            transferStore.setProgress(moved.transferId, moved.nextChunkIndex, moved.contiguousAcked)
             eventFlow.emit(TransferEvent.Progress(moved))
             settle(moved, run)
         }
@@ -135,7 +129,7 @@ internal class TransferEngine(
                     run.lastProgressAt = ctx.clock.now()
                     if (isOffer) {
                         if (current.status == FileTransferStatus.OFFERED) {
-                            transfers.setStatus(current.transferId, FileTransferStatus.STREAMING)
+                            transferStore.setStatus(current.transferId, FileTransferStatus.STREAMING)
                         }
                         settle(current.copy(status = FileTransferStatus.STREAMING), run)
                     } else {
@@ -158,7 +152,7 @@ internal class TransferEngine(
                     else -> {
                         val index = forgetChunk(current, run, outcome.packetId) ?: return@withLive
                         val rewound = current.copy(nextChunkIndex = minOf(current.nextChunkIndex, index))
-                        transfers.setProgress(rewound.transferId, rewound.nextChunkIndex, rewound.contiguousAcked)
+                        transferStore.setProgress(rewound.transferId, rewound.nextChunkIndex, rewound.contiguousAcked)
                         settle(rewound, run)
                     }
                 }
@@ -178,7 +172,7 @@ internal class TransferEngine(
     }
 
     private suspend fun onLinkDown(peer: PeerId) {
-        for (transfer in transfers.live()) {
+        for (transfer in transferStore.live()) {
             if (transfer.peer != peer) continue
             withLive(transfer.transferId) { current, run ->
                 if (current.status == FileTransferStatus.OFFERED || run.queued.isNotEmpty()) reportGone(current, run)
@@ -194,7 +188,7 @@ internal class TransferEngine(
     private suspend fun tick() {
         val now = ctx.clock.now()
         val config = ctx.routerConfig.value
-        for (transfer in transfers.live()) {
+        for (transfer in transferStore.live()) {
             withLive(transfer.transferId) { current, run ->
                 if (now >= current.expiresAt) return@withLive end(current, FileTransferStatus.EXPIRED)
                 val linked = ctx.peerLinks.linksOf(current.peer).isNotEmpty()
@@ -234,46 +228,34 @@ internal class TransferEngine(
             }
             val ciphertext = run.source.chunk(next)
                 ?: return end(transfer.copy(nextChunkIndex = next), FileTransferStatus.ENDED)
-            val envelope = ctx.envelope(
-                packetType = PacketType.FILE,
-                target = transfer.peer,
-                routingHeader = FileHeader.Chunk(transfer.transferId, next).encode(),
-                content = ciphertext,
-                expiresAt = transfer.expiresAt,
-                dispositionRequested = true,
-            )
+            val envelope = packets.chunk(transfer, next, ciphertext)
             outbox.enqueueAndWake(envelope, ctx.clock.now(), tag = tag(transfer), retryClass = RetryClass.FLAT)
-            transfers.recordChunk(transfer.transferId, next, envelope.packetId)
+            transferStore.recordChunk(transfer.transferId, next, envelope.packetId)
             run.queued += next
             next += 1
         }
-        if (next != transfer.nextChunkIndex) transfers.setProgress(transfer.transferId, next, transfer.contiguousAcked)
+        if (next != transfer.nextChunkIndex) transferStore.setProgress(
+            transfer.transferId,
+            next,
+            transfer.contiguousAcked
+        )
         // Every chunk queued and every queued chunk ACKed: the peer holds them all.
         if (next >= count && run.queued.isEmpty()) end(transfer.copy(nextChunkIndex = next), FileTransferStatus.DONE)
     }
 
     private suspend fun sendOffer(transfer: OutgoingTransfer, run: Running) {
-        val offer = run.source.offer
-        val envelope = ctx.envelope(
-            packetType = PacketType.FILE,
-            target = transfer.peer,
-            routingHeader = FileHeader.Offer(transfer.transferId, offer.origin, offer.finalTarget, transfer.shape)
-                .encode(),
-            content = offer.sealBytes,
-            expiresAt = transfer.expiresAt,
-            dispositionRequested = true,
-        )
+        val envelope = packets.offer(transfer, run.source.offer)
         outbox.enqueueAndWake(envelope, ctx.clock.now(), tag = tag(transfer), retryClass = RetryClass.STANDARD)
-        transfers.setOffer(transfer.transferId, envelope.packetId)
+        transferStore.setOffer(transfer.transferId, envelope.packetId)
         run.offerSentAt = ctx.clock.now()
     }
 
     /** Drops a chunk row's mapping; returns its index, or null when it was not one of ours. */
     private suspend fun forgetChunk(transfer: OutgoingTransfer, run: Running, packetId: Uuid): Int? {
-        val (owner, index) = transfers.chunkByPacket(packetId) ?: return null
+        val (owner, index) = transferStore.chunkByPacket(packetId) ?: return null
         if (owner != transfer.transferId) return null
         run.queued -= index
-        transfers.deleteChunk(packetId)
+        transferStore.deleteChunk(packetId)
         return index
     }
 
@@ -284,9 +266,9 @@ internal class TransferEngine(
     }
 
     private suspend fun end(transfer: OutgoingTransfer, status: FileTransferStatus) {
-        transfers.setStatus(transfer.transferId, status)
+        transferStore.setStatus(transfer.transferId, status)
         outboxStore.deleteByTag(tag(transfer))
-        transfers.deleteChunks(transfer.transferId)
+        transferStore.deleteChunks(transfer.transferId)
         registryLock.withLock { running.remove(transfer.transferId) }?.source?.close()
         AppLog.info(
             component = LogComponent.FILE,
@@ -307,7 +289,7 @@ internal class TransferEngine(
     ) {
         val lock = registryLock.withLock { locks.getOrPut(transferId) { Mutex() } }
         lock.withLock {
-            val current = transfers.find(transferId)?.takeIf { it.status.isLive }
+            val current = transferStore.find(transferId)?.takeIf { it.status.isLive }
             if (current == null) {
                 registryLock.withLock { locks.remove(transferId) }
                 return
@@ -327,8 +309,8 @@ internal class TransferEngine(
         val source = sourceFor(transfer) ?: return null
         val stillQueued = outboxStore.packetIdsByTag(tag(transfer)).toSet()
         val queued = mutableSetOf<Int>()
-        for ((index, packetId) in transfers.chunks(transfer.transferId)) {
-            if (packetId in stillQueued) queued += index else transfers.deleteChunk(packetId)
+        for ((index, packetId) in transferStore.chunks(transfer.transferId)) {
+            if (packetId in stillQueued) queued += index else transferStore.deleteChunk(packetId)
         }
         val now = ctx.clock.now()
         // A fresh start (also after a restart) is not evidence the peer is gone: clocks start now.
@@ -340,9 +322,9 @@ internal class TransferEngine(
     private suspend fun sourceFor(transfer: OutgoingTransfer): ChunkSource? {
         val relayTransferId = transfer.relayTransferId
         return if (relayTransferId != null) {
-            relays.find(relayTransferId)?.let { RelayChunkSource(it, relays) }
+            relayStore.find(relayTransferId)?.let { RelayChunkSource(it, relayStore) }
         } else {
-            seals.find(transfer.sealId)?.let {
+            sealStore.find(transfer.sealId)?.let {
                 SealChunkSource(ctx.localDeviceId, it, transfer.shape, plaintext, ctx.envelopeProtections.file)
             }
         }

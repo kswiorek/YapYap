@@ -13,8 +13,8 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.FileCancelReason
@@ -248,7 +248,7 @@ internal class DefaultFileRequestCoordinator(
         if (existing?.status == PendingFileRequestStatus.PENDING) return
         val at = if (immediate) now else now + config.value.fileRequestFirstAttemptDelay
         pending.upsertPending(fileId, at, now)
-        fileCarrier.startFileRequest(fileId, at)
+        fileCarrier.startFilePull(fileId, at)
     }
 
     private suspend fun markDeclined(fileId: FileId, originMessageId: Uuid) {
@@ -260,11 +260,11 @@ internal class DefaultFileRequestCoordinator(
         val now = clock.now()
         if (!control.reopen(fileId)) return
         pending.upsertPending(fileId, now, now)
-        fileCarrier.startFileRequest(fileId, now)
+        fileCarrier.startFilePull(fileId, now)
     }
 
     override suspend fun declineFile(fileId: FileId) {
-        fileCarrier.abortFileFetch(fileId, FileFetchAbortReason.CANCELLED)
+        fileCarrier.abortLargeFile(fileId, LargeFileAbortReason.CANCELLED)
         pending.drop(fileId)
         control.decline(fileId, messages.findFileAttachment(fileId), clock.now())
     }
@@ -299,7 +299,7 @@ internal class DefaultFileRequestCoordinator(
                 pending.drop(row.fileId)
                 continue
             }
-            fileCarrier.startFileRequest(row.fileId, row.nextAttemptAt)
+            fileCarrier.startFilePull(row.fileId, row.nextAttemptAt)
         }
         // Gap trigger: an IN_FLIGHT receive whose prefix has not advanced for fileStallTimeout
         // (measured on the monotonic clock while this device runs) goes STALLED and re-opens
@@ -322,7 +322,7 @@ internal class DefaultFileRequestCoordinator(
             if (mark.elapsedNow() < stallAfter) continue
             if (control.markStalled(row.fileId, now)) {
                 if (row.totalBytes > SMALL_FILE_MAX_BYTES) {
-                    fileCarrier.abortFileFetch(row.fileId, FileFetchAbortReason.STALLED)
+                    fileCarrier.abortLargeFile(row.fileId, LargeFileAbortReason.STALLED)
                 }
                 // A fresh stall re-opens the request, even one that ran out of holders before.
                 pending.upsertPending(row.fileId, now, now)
@@ -333,11 +333,11 @@ internal class DefaultFileRequestCoordinator(
         for (row in receives.active()) {
             if (row.status != FileReceiveStatus.STALLED) continue
             when (pending.find(row.fileId)?.status) {
-                PendingFileRequestStatus.PENDING -> fileCarrier.startFileRequest(row.fileId, now)
+                PendingFileRequestStatus.PENDING -> fileCarrier.startFilePull(row.fileId, now)
                 // Stalled by a block mismatch: nothing asked for it yet.
                 null -> {
                     pending.upsertPending(row.fileId, now, now)
-                    fileCarrier.startFileRequest(row.fileId, now)
+                    fileCarrier.startFilePull(row.fileId, now)
                 }
                 // Every holder declined: terminal until a new message or the user re-opens it,
                 // never re-armed by the sweep.

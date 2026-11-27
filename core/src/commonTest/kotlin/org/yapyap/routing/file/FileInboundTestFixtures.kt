@@ -10,10 +10,10 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.inbound.FileInboundHandler
 import org.yapyap.routing.file.inbound.FileServeHandler
 import org.yapyap.routing.file.inbound.TargetSide
+import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
@@ -33,8 +33,8 @@ import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFileIncomingStore
+import org.yapyap.routing.router.InMemoryFilePullAttemptStore
 import org.yapyap.routing.router.InMemoryFileRelayStore
-import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.InMemoryFileSealStore
 import org.yapyap.routing.router.InMemoryFileTransferStore
 import org.yapyap.routing.router.RouterConfig
@@ -44,8 +44,8 @@ import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.router.passthroughProtections
 import org.yapyap.routing.router.testRoutingContext
 import org.yapyap.routing.store.FileIncomingStore
+import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.testfixtures.FakeClock
@@ -124,7 +124,7 @@ internal class FileInboundHarness(
     val transferStore: FileTransferStore,
     val incomingStore: FileIncomingStore,
     val relayStore: FileRelayStore,
-    val requestAttempts: FileRequestAttemptStore,
+    val pullAttempts: FilePullAttemptStore,
     val outbox: TrackingPacketOutbox,
     val outboxProcessor: OutboxProcessor,
     val ports: ScriptedFilePorts,
@@ -185,13 +185,14 @@ internal fun fileInboundHarness(
     val transferStore: FileTransferStore = InMemoryFileTransferStore()
     val incomingStore: FileIncomingStore = InMemoryFileIncomingStore()
     val relayStore: FileRelayStore = InMemoryFileRelayStore()
-    val requestAttempts = InMemoryFileRequestAttemptStore()
+    val pullAttempts = InMemoryFilePullAttemptStore()
     val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
-    val engine = TransferEngine(ctx, transferStore, sealStore, relayStore, plaintext, outboxProcessor, outbox)
+    val packets = FilePackets(ctx)
+    val engine = TransferEngine(ctx, packets, transferStore, sealStore, relayStore, plaintext, outboxProcessor, outbox)
     val seals = SealRegistry(ctx, sealStore, transferStore, engine, plaintext, NoRelaySelection, events)
     val forwards = RelayForwards(ctx, relayStore, transferStore, engine)
-    val door = RelayDoor(ctx, relayStore, forwards)
-    val fetchService = FileFetchService(
+    val door = RelayDoor(ctx, packets, relayStore, forwards)
+    val fetchService = LargeFileService(
         devices = ctx.devices,
         transport = ctx.webRtcTransport,
         plaintext = plaintext,
@@ -202,9 +203,10 @@ internal fun fileInboundHarness(
         events = events,
         clock = clock,
     )
-    val requestProcessor = FileRequestProcessor(
+    val requestProcessor = FilePullProcessor(
         ctx = ctx,
-        attempts = requestAttempts,
+        packets = packets,
+        pullAttempts = pullAttempts,
         requests = ports,
         outboxProcessor = outboxProcessor,
         peerPolicy = DefaultSyncPeerPolicy(ctx),
@@ -214,7 +216,7 @@ internal fun fileInboundHarness(
         webRtcLinks = idleLinkKeeper(ctx, clock, routerConfig, webRtc = true),
         fetchService = fetchService,
     )
-    val target = TargetSide(ctx, incomingStore, ports, ports, requestProcessor, outboxProcessor)
+    val target = TargetSide(ctx, packets, incomingStore, ports, ports, requestProcessor, outboxProcessor)
     val handler = FileInboundHandler(
         ctx = ctx,
         target = target,
@@ -234,7 +236,7 @@ internal fun fileInboundHarness(
         transferStore = transferStore,
         incomingStore = incomingStore,
         relayStore = relayStore,
-        requestAttempts = requestAttempts,
+        pullAttempts = pullAttempts,
         outbox = outbox,
         outboxProcessor = outboxProcessor,
         ports = ports,

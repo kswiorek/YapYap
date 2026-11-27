@@ -26,12 +26,13 @@ import org.yapyap.protocol.envelopes.TransferShape
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.file.FilePackets
 import org.yapyap.routing.file.ScriptedFilePorts
 import org.yapyap.routing.file.ScriptedPlaintext
-import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.inbound.FileInboundHandler
 import org.yapyap.routing.file.inbound.FileServeHandler
 import org.yapyap.routing.file.inbound.TargetSide
+import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.seal.SealRegistry
 import org.yapyap.routing.file.transfer.TransferEngine
 import org.yapyap.routing.link.LinkKeeper
@@ -46,8 +47,8 @@ import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.router.passthroughProtections
 import org.yapyap.routing.router.testRoutingContext
 import org.yapyap.routing.store.DefaultFileIncomingStore
+import org.yapyap.routing.store.DefaultFilePullAttemptStore
 import org.yapyap.routing.store.DefaultFileRelayStore
-import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.FileRelayStatus
@@ -145,7 +146,7 @@ class FileRelayTest {
         val transfers = DefaultFileTransferStore(db, Dispatchers.Unconfined)
         val seals = DefaultFileSealStore(db, Dispatchers.Unconfined)
         val incoming = DefaultFileIncomingStore(db, Dispatchers.Unconfined)
-        val attempts = DefaultFileRequestAttemptStore(db, Dispatchers.Unconfined)
+        val attempts = DefaultFilePullAttemptStore(db, Dispatchers.Unconfined)
         val outbox = TrackingPacketOutbox()
         val processor = outboxProcessorUnderTest(
             tor = tor, webRtc = webRtc, identity = identity, outbox = outbox, clock = clock, routerConfig = config,
@@ -153,12 +154,13 @@ class FileRelayTest {
         val plaintext = ScriptedPlaintext()
         val ports = ScriptedFilePorts()
         val events = MutableSharedFlow<org.yapyap.routing.file.port.FileEvent>(extraBufferCapacity = 64)
-        val engine = TransferEngine(ctx, transfers, seals, relay, plaintext, processor, outbox)
+        val packets = FilePackets(ctx)
+        val engine = TransferEngine(ctx, packets, transfers, seals, relay, plaintext, processor, outbox)
         val forwards = RelayForwards(ctx, relay, transfers, engine)
-        val door = RelayDoor(ctx, relay, forwards)
+        val door = RelayDoor(ctx, packets, relay, forwards)
         // Target side for offers addressed to us (not exercised: our offers are for others).
         // Build a minimal target with a dummy request processor that never runs.
-        val fetchService = FileFetchService(
+        val fetchService = LargeFileService(
             devices = ctx.devices,
             transport = ctx.webRtcTransport,
             plaintext = plaintext,
@@ -173,13 +175,13 @@ class FileRelayTest {
             name = "idle", sessions = ctx.peerLinks.tor, targets = { emptyList() },
             ready = flowOf(false), config = MutableStateFlow(config.torLinkKeeperConfig), clock = clock,
         )
-        val requestProcessor = org.yapyap.routing.file.FileRequestProcessor(
-            ctx = ctx, attempts = attempts, requests = ports, outboxProcessor = processor,
+        val requestProcessor = org.yapyap.routing.file.FilePullProcessor(
+            ctx = ctx, packets = packets, pullAttempts = attempts, requests = ports, outboxProcessor = processor,
             peerPolicy = org.yapyap.routing.policy.DefaultSyncPeerPolicy(ctx),
             maxIdlePoll = MutableStateFlow(1.seconds), events = events,
             linkKeeper = idleKeeper, webRtcLinks = idleKeeper, fetchService = fetchService,
         )
-        val target = TargetSide(ctx, incoming, ports, ports, requestProcessor, processor)
+        val target = TargetSide(ctx, packets, incoming, ports, ports, requestProcessor, processor)
         val sealRegistry = SealRegistry(ctx, seals, transfers, engine, plaintext, NoRelaySelection, events)
         val serve = FileServeHandler(ctx, ports, sealRegistry)
         val handler = FileInboundHandler(ctx, target, door, engine, sealRegistry, serve)

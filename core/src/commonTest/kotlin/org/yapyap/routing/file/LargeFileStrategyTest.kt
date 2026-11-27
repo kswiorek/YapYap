@@ -21,7 +21,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.fetch.FileFetchService
+import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
@@ -38,7 +38,7 @@ import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.FileLimits
-import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
+import org.yapyap.routing.router.InMemoryFilePullAttemptStore
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
@@ -63,12 +63,12 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * Large request path, routing side: the fetch strategy opens a WebRTC
- * session ([LinkKeeper.await]) and then runs a fetch. FETCH_OK and
- * FETCH_DECLINED are the attempt's outcomes with no WAITING state; unreachable
+ * session ([LinkKeeper.await]) and then runs a fetch. PULL_OK and
+ * DECLINED are the attempt's outcomes with no WAITING state; unreachable
  * candidates stay PENDING; online-but-unconnectable reports "no direct
  * connection". Nothing large touches the outbox or Tor.
  */
-class FileFetchStrategyTest {
+class LargeFileStrategyTest {
 
     private val localDevice = PeerId("large-loop-local-device-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     private val holderDevice = PeerId("large-loop-holder-device-bbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -161,8 +161,8 @@ class FileFetchStrategyTest {
 
     private class Fixture(
         val scope: CoroutineScope,
-        val processor: FileRequestProcessor,
-        val attempts: InMemoryFileRequestAttemptStore,
+        val processor: FilePullProcessor,
+        val attempts: InMemoryFilePullAttemptStore,
         val events: MutableSharedFlow<FileEvent>,
         val requesterWebRtc: RecordingWebRtcTransport,
         val requesterTor: RecordingTorTransport,
@@ -185,7 +185,7 @@ class FileFetchStrategyTest {
         simulateSession: Boolean = true,
         advanceClock: Boolean = false,
         routerConfig: RouterConfig = RouterConfig(
-            fileSessionOpenTimeout = 300.milliseconds,
+            largeFileSessionOpenTimeout = 300.milliseconds,
             fileRequestAttemptTimeout = 2.seconds,
         ),
         dataBytes: ByteArray = ByteArray(largeTotal.toInt()) { (it * 7).toByte() },
@@ -248,10 +248,10 @@ class FileFetchStrategyTest {
         val scope = CoroutineScope(SupervisorJob())
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val holderEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
-        val attempts = InMemoryFileRequestAttemptStore()
+        val attempts = InMemoryFilePullAttemptStore()
         val requesterGate = CompletingSource(candidates = listOf(holderAccount), defaultTotalBytes = largeTotal)
         val fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024))
-        val requesterManager = FileFetchService(
+        val requesterManager = LargeFileService(
             devices = ctx.devices,
             transport = requesterWebRtc,
             plaintext = BytePlaintext(ByteArray(0)),
@@ -262,9 +262,10 @@ class FileFetchStrategyTest {
             events = events,
             clock = clock,
         )
-        val processor = FileRequestProcessor(
+        val processor = FilePullProcessor(
             ctx = ctx,
-            attempts = attempts,
+            packets = FilePackets(ctx),
+            pullAttempts = attempts,
             requests = requesterGate,
             outboxProcessor = outboxProcessor,
             peerPolicy = DefaultSyncPeerPolicy(ctx),
@@ -277,7 +278,7 @@ class FileFetchStrategyTest {
         val holderTransports = holderDevices.associateWith { RecordingWebRtcTransport() }
         val holderManagers = holderDevices.associateWith { device ->
             val holderGate = CompletingSource(serveAllowed = holderCanServe(device))
-            FileFetchService(
+            LargeFileService(
                 devices = MapDevices(mapOf(localDevice to holderAccount)),
                 transport = holderTransports.getValue(device),
                 plaintext = BytePlaintext(dataBytes),

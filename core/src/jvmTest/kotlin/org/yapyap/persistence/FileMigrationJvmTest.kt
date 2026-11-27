@@ -20,7 +20,7 @@ private val fileIndexes = listOf(
     "file_transfers_out_seal_idx",
     "file_transfers_out_relay_idx",
     "file_transfer_chunks_packet_idx",
-    "file_request_attempts_due_idx",
+    "file_pull_attempts_due_idx",
 )
 private val fileTables = listOf(
     "message_attachments",
@@ -33,8 +33,8 @@ private val fileTables = listOf(
     "file_seals",
     "file_transfers_out",
     "file_transfer_chunks",
-    "file_request_declined_devices",
-    "file_request_attempts",
+    "file_pull_declined_devices",
+    "file_pull_attempts",
     "file_relay_chunks",
     "file_relay_transfers",
 )

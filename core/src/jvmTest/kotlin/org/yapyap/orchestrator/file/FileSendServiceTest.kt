@@ -24,8 +24,8 @@ import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.MAX_FILE_NAME_BYTES
 import org.yapyap.protocol.MAX_FILE_NAME_CHARS
 import org.yapyap.protocol.envelopes.DagPayload
@@ -46,8 +46,8 @@ private class NoopCarrier : FileCarrier {
     override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun sendState(fileId: FileId) = emptyMap<AccountId, FileSendState>()
-    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
-    override suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason) =
+    override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) = Unit
+    override suspend fun abortLargeFile(fileId: FileId, reason: LargeFileAbortReason) =
         Unit
     override suspend fun endIncoming(fileId: FileId, end: org.yapyap.routing.file.port.FileReceiveEnd) = Unit
 }

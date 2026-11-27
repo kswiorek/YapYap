@@ -1,0 +1,84 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.FileId;
+import org.yapyap.protocol.PeerId;
+import kotlin.uuid.Uuid;
+
+-- Router-owned: how a pending file pull is being asked for. Mirrors SyncAttempt.sq,
+-- keyed by fileId instead of syncId, plus the WAITING state (ACK received, OFFER pending)
+-- and the in-flight REQUEST's attempt id for outcome correlation.
+CREATE TABLE file_pull_attempts(
+    file_id TEXT AS FileId NOT NULL PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER AS Instant NOT NULL,
+    waiting_device TEXT AS PeerId,
+    waiting_until INTEGER AS Instant,
+    request_attempt_id TEXT AS Uuid,
+    pull_class TEXT NOT NULL
+);
+
+CREATE TABLE file_pull_declined_devices(
+    file_id TEXT AS FileId NOT NULL,
+    device_id TEXT AS PeerId NOT NULL,
+    PRIMARY KEY (file_id, device_id),
+    FOREIGN KEY (file_id) REFERENCES file_pull_attempts(file_id) ON DELETE CASCADE
+);
+
+insertFilePullAttempt:
+INSERT OR IGNORE INTO file_pull_attempts (file_id, attempts, next_attempt_at, pull_class)
+VALUES (?, 0, ?, ?);
+
+deleteFilePullAttempt:
+DELETE FROM file_pull_attempts WHERE file_id = ?;
+
+-- Per class: the small and large loops each sleep until their own next due row.
+selectEarliestDueFilePullAt:
+SELECT MIN(next_attempt_at) FROM file_pull_attempts WHERE pull_class = ?;
+
+selectDueFilePullAttempts:
+SELECT * FROM file_pull_attempts WHERE next_attempt_at <= ? AND pull_class = ?
+ORDER BY next_attempt_at ASC
+LIMIT ?;
+
+recordFilePullAttempt:
+UPDATE file_pull_attempts SET attempts = attempts + 1, next_attempt_at = ? WHERE file_id = ?;
+
+updateFilePullNextAttemptAt:
+UPDATE file_pull_attempts SET next_attempt_at = ? WHERE file_id = ?;
+
+-- Brings the given files forward to :now; never pushes one back.
+advanceFilePullsToNow:
+UPDATE file_pull_attempts SET next_attempt_at = :now
+WHERE next_attempt_at > :now AND file_id IN :fileIds;
+
+selectFilePullById:
+SELECT * FROM file_pull_attempts WHERE file_id = ?;
+
+selectFilePullByAttemptId:
+SELECT * FROM file_pull_attempts WHERE request_attempt_id = ?;
+
+setFilePullWaiting:
+UPDATE file_pull_attempts
+SET waiting_device = ?, waiting_until = ?, request_attempt_id = ?
+WHERE file_id = ?;
+
+clearFilePullWaiting:
+UPDATE file_pull_attempts
+SET waiting_device = NULL, waiting_until = NULL, request_attempt_id = NULL
+WHERE file_id = ?;
+
+setFilePullAttempt:
+UPDATE file_pull_attempts SET request_attempt_id = ? WHERE file_id = ?;
+
+selectDeclinedFilePullDevices:
+SELECT device_id FROM file_pull_declined_devices WHERE file_id = ?;
+
+insertDeclinedFilePullDevice:
+INSERT OR IGNORE INTO file_pull_declined_devices (file_id, device_id) VALUES (?, ?);
+
+selectFilePullIdsByClass:
+SELECT file_id FROM file_pull_attempts WHERE pull_class = ?;
+
+deleteDeclinedFilePullDevices:
+DELETE FROM file_pull_declined_devices WHERE file_id = :fileId AND device_id IN :deviceIds;
+
+CREATE INDEX file_pull_attempts_due_idx ON file_pull_attempts(next_attempt_at);

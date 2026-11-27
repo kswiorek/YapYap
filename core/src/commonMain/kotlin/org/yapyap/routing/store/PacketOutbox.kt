@@ -131,8 +131,8 @@ internal data class OutboxTag(val kind: Kind, val id: Uuid) {
         SYNC(2),
 
         /**
-         * One attempt of a file request; [id] is the attempt id. The outcome
-         * routes to the file request processor, which correlates it to the
+         * One attempt of a file REQUEST; [id] is the attempt id. The outcome
+         * routes to the file pull processor, which correlates it to the
          * file through its attempts row.
          */
         FILE_REQUEST(4),

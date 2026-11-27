@@ -8,28 +8,10 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.TransferShape
 import kotlin.time.Instant
-
-/** A seal opened here: what [origin] sealed for us, kept until it expires. */
-internal class IncomingSeal(
-    val sealId: ContentId,
-    val origin: PeerId,
-    val seal: FileSeal,
-    val expiresAt: Instant,
-)
-
-/** A hop delivering chunks of seal [sealId] to us from [sender]. */
-internal data class IncomingTransfer(
-    val transferId: TransferId,
-    val sealId: ContentId,
-    val sender: PeerId,
-    val shape: TransferShape,
-    val expiresAt: Instant,
-)
 
 /** Routing-owned `file_incoming_seals` and `file_incoming_transfers`: written only by the target side. */
 internal interface FileIncomingStore {

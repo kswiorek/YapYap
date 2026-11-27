@@ -1,12 +1,8 @@
 package org.yapyap.routing.file.inbound
 
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.TransferShape
+import org.yapyap.routing.file.IncomingHop
 import org.yapyap.routing.router.InboundHandleResult
-
-/** A transfer delivering to us: who sends it and what it describes. */
-internal class IncomingHop(val transferId: TransferId, val sender: PeerId, val shape: TransferShape)
 
 /**
  * Where an incoming transfer's chunks go (docs/envelope-redesign.md §5.1): the target decrypts

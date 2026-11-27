@@ -1,11 +1,22 @@
 package org.yapyap.routing.presence
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountReach
+import org.yapyap.routing.router.LocalLinkStatus
+import org.yapyap.routing.router.Presence
+import org.yapyap.routing.router.RouterLifecycle
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.localLinkStatus
 import org.yapyap.routing.store.PeerAvailabilityStore
 import kotlin.time.Instant
 
@@ -14,6 +25,8 @@ import kotlin.time.Instant
  * [accountReach], [localLinkStatus]) and us telling them what we look like ([announceOnline]).
  * The device-level registry stays internal; the orchestrator only ever sees accounts.
  */
+//TODO: consider conforming PresenceService to RouterService later: it has no outbox outcomes and no
+// inbound handler, and it takes its scope in the constructor instead of via runIn.
 internal class PresenceService(
     private val ctx: RoutingContext,
     private val lifecycle: RouterLifecycle,

@@ -1,7 +1,7 @@
 package org.yapyap.wiring
 
 import org.yapyap.protection.envelope.FileProtection
-import org.yapyap.protocol.FileFetchFrame
+import org.yapyap.protocol.LargeFileFrame
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.routing.router.TransportLimits
@@ -31,12 +31,12 @@ class FileLimitsTest {
     }
 
     @Test
-    fun fetchFrame_isTheWebRtcFrameLessTheDataKind() {
+    fun largeFileFrame_isTheWebRtcFrameLessTheDataKind() {
         val webRtc = RuntimeConfig().webRtc.maxPayloadBytes
-        assertEquals(webRtc - FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES, defaults.fetchFrameBytes)
-        // Tor never carries fetch frames.
+        assertEquals(webRtc - LargeFileFrame.Data.ENCODED_OVERHEAD_BYTES, defaults.largeFileFrameBytes)
+        // Tor never carries large-file frames.
         val smallTor = fileLimitsFor(TransportLimits(torMaxPayloadBytes = 100 * 1024, webRtcMaxPayloadBytes = webRtc))
-        assertEquals(defaults.fetchFrameBytes, smallTor.fetchFrameBytes)
+        assertEquals(defaults.largeFileFrameBytes, smallTor.largeFileFrameBytes)
     }
 
     @Test

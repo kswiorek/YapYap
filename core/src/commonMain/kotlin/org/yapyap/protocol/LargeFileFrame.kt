@@ -2,72 +2,72 @@ package org.yapyap.protocol
 
 
 /**
- * Large-path fetch frames (design §6.6): plain fetch protocol on a dedicated
+ * Large-file pull frames (design §6.6): the plain pull protocol on a dedicated
  * WebRTC data channel. No envelope, no `transferId`, no key, no outbox row.
- * One fetch = one channel between the requesting device and one holder.
+ * One pull = one channel between the requesting device and one holder.
  *
  * Each channel message is one frame: a type byte, then the body. `DATA` is the
  * type byte followed by raw bytes (SCTP preserves message boundaries, so no
  * length prefix is needed). All other frames use [ByteWriter]/[ByteReader].
  *
- * The `fileId` appears in `FETCH` in the clear inside the channel — DTLS
+ * The `fileId` appears in `PULL` in the clear inside the channel — DTLS
  * covers it, and only the peer device ever sees the channel (design §4,
- * invariant 23). This is intentionally *not* part of the FILE envelope family ([org.yapyap.protocol.envelopes.FileHeader]): fetch
+ * invariant 23). This is intentionally *not* part of the FILE envelope family ([org.yapyap.protocol.envelopes.FileHeader]): pull
  * frames never go through the envelope pipeline, protection or the outbox.
  */
-internal enum class FileFetchKind(val wireValue: Byte) {
-    FETCH(21),
-    FETCH_OK(22),
-    FETCH_DECLINED(23),
+internal enum class LargeFileFrameKind(val wireValue: Byte) {
+    PULL(21),
+    PULL_OK(22),
+    DECLINED(23),
     PROGRESS(24),
     ABORT(25),
     DATA(26);
 
     companion object {
-        fun fromWireValue(value: Byte): FileFetchKind =
+        fun fromWireValue(value: Byte): LargeFileFrameKind =
             entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported file fetch kind wire value: $value")
+                ?: error("Unsupported large-file frame kind wire value: $value")
     }
 }
 
-internal enum class FileFetchDeclineReason(val wireValue: Byte) {
+internal enum class LargeFileDeclineReason(val wireValue: Byte) {
     NOT_HELD(1),
     NOT_ALLOWED(2);
 
     companion object {
-        fun fromWireValue(value: Byte): FileFetchDeclineReason =
+        fun fromWireValue(value: Byte): LargeFileDeclineReason =
             entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported fetch decline reason wire value: $value")
+                ?: error("Unsupported large-file decline reason wire value: $value")
     }
 }
 
-internal enum class FileFetchAbortReason(val wireValue: Byte) {
+internal enum class LargeFileAbortReason(val wireValue: Byte) {
     SOURCE_ERROR(1),
     NO_SPACE(2),
     STALLED(3),
     CANCELLED(4);
 
     companion object {
-        fun fromWireValue(value: Byte): FileFetchAbortReason =
+        fun fromWireValue(value: Byte): LargeFileAbortReason =
             entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported fetch abort reason wire value: $value")
+                ?: error("Unsupported large-file abort reason wire value: $value")
     }
 }
 
-internal sealed interface FileFetchFrame {
-    val kind: FileFetchKind
+internal sealed interface LargeFileFrame {
+    val kind: LargeFileFrameKind
 
     fun encode(): ByteArray
 
-    data class Fetch(
+    data class Pull(
         val fileId: FileId,
         val fromOffset: Long,
-    ) : FileFetchFrame {
+    ) : LargeFileFrame {
         init {
             require(fromOffset >= 0) { "fromOffset must be >= 0" }
         }
 
-        override val kind: FileFetchKind = FileFetchKind.FETCH
+        override val kind: LargeFileFrameKind = LargeFileFrameKind.PULL
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(80)
@@ -78,12 +78,12 @@ internal sealed interface FileFetchFrame {
         }
 
         companion object {
-            fun decode(bytes: ByteArray): Fetch {
+            fun decode(bytes: ByteArray): Pull {
                 val reader = ByteReader(bytes)
-                require(FileFetchKind.fromWireValue(reader.readByte()) == FileFetchKind.FETCH) {
-                    "Expected FETCH frame kind"
+                require(LargeFileFrameKind.fromWireValue(reader.readByte()) == LargeFileFrameKind.PULL) {
+                    "Expected PULL frame kind"
                 }
-                val payload = Fetch(
+                val payload = Pull(
                     fileId = FileId(reader.readBoundedString(64)),
                     fromOffset = reader.readLong(),
                 )
@@ -93,13 +93,13 @@ internal sealed interface FileFetchFrame {
         }
     }
 
-    data class FetchOk(
+    data class PullOk(
         val totalBytes: Long,
         val blockSize: Int,
         val blockHashes: List<ByteArray>,
         val fileName: String,
         val mimeType: String?,
-    ) : FileFetchFrame {
+    ) : LargeFileFrame {
         init {
             require(totalBytes >= 0) { "totalBytes must be >= 0" }
             require(blockSize > 0) { "blockSize must be > 0" }
@@ -127,7 +127,7 @@ internal sealed interface FileFetchFrame {
             }
         }
 
-        override val kind: FileFetchKind = FileFetchKind.FETCH_OK
+        override val kind: LargeFileFrameKind = LargeFileFrameKind.PULL_OK
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64 + blockHashes.size * 32 + fileName.length)
@@ -144,7 +144,7 @@ internal sealed interface FileFetchFrame {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other == null || this::class != other::class) return false
-            other as FetchOk
+            other as PullOk
             if (totalBytes != other.totalBytes) return false
             if (blockSize != other.blockSize) return false
             if (blockHashes.size != other.blockHashes.size) return false
@@ -166,10 +166,10 @@ internal sealed interface FileFetchFrame {
         }
 
         companion object {
-            fun decode(bytes: ByteArray): FetchOk {
+            fun decode(bytes: ByteArray): PullOk {
                 val reader = ByteReader(bytes)
-                require(FileFetchKind.fromWireValue(reader.readByte()) == FileFetchKind.FETCH_OK) {
-                    "Expected FETCH_OK frame kind"
+                require(LargeFileFrameKind.fromWireValue(reader.readByte()) == LargeFileFrameKind.PULL_OK) {
+                    "Expected PULL_OK frame kind"
                 }
                 val totalBytes = reader.readLong()
                 val blockSize = reader.readInt()
@@ -179,7 +179,7 @@ internal sealed interface FileFetchFrame {
                 val fileName = reader.readBoundedString(MAX_FILE_NAME_BYTES)
                 val mimeType = reader.readBoundedNullableString(MAX_MIME_TYPE_BYTES)
                 reader.requireFullyRead()
-                return FetchOk(
+                return PullOk(
                     totalBytes = totalBytes,
                     blockSize = blockSize,
                     blockHashes = hashes,
@@ -190,10 +190,10 @@ internal sealed interface FileFetchFrame {
         }
     }
 
-    data class FetchDeclined(
-        val reason: FileFetchDeclineReason,
-    ) : FileFetchFrame {
-        override val kind: FileFetchKind = FileFetchKind.FETCH_DECLINED
+    data class Declined(
+        val reason: LargeFileDeclineReason,
+    ) : LargeFileFrame {
+        override val kind: LargeFileFrameKind = LargeFileFrameKind.DECLINED
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(2)
@@ -203,12 +203,12 @@ internal sealed interface FileFetchFrame {
         }
 
         companion object {
-            fun decode(bytes: ByteArray): FetchDeclined {
+            fun decode(bytes: ByteArray): Declined {
                 val reader = ByteReader(bytes)
-                require(FileFetchKind.fromWireValue(reader.readByte()) == FileFetchKind.FETCH_DECLINED) {
-                    "Expected FETCH_DECLINED frame kind"
+                require(LargeFileFrameKind.fromWireValue(reader.readByte()) == LargeFileFrameKind.DECLINED) {
+                    "Expected DECLINED frame kind"
                 }
-                val payload = FetchDeclined(reason = FileFetchDeclineReason.fromWireValue(reader.readByte()))
+                val payload = Declined(reason = LargeFileDeclineReason.fromWireValue(reader.readByte()))
                 reader.requireFullyRead()
                 return payload
             }
@@ -217,12 +217,12 @@ internal sealed interface FileFetchFrame {
 
     data class Progress(
         val contiguousBytes: Long,
-    ) : FileFetchFrame {
+    ) : LargeFileFrame {
         init {
             require(contiguousBytes >= 0) { "contiguousBytes must be >= 0" }
         }
 
-        override val kind: FileFetchKind = FileFetchKind.PROGRESS
+        override val kind: LargeFileFrameKind = LargeFileFrameKind.PROGRESS
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(9)
@@ -234,7 +234,7 @@ internal sealed interface FileFetchFrame {
         companion object {
             fun decode(bytes: ByteArray): Progress {
                 val reader = ByteReader(bytes)
-                require(FileFetchKind.fromWireValue(reader.readByte()) == FileFetchKind.PROGRESS) {
+                require(LargeFileFrameKind.fromWireValue(reader.readByte()) == LargeFileFrameKind.PROGRESS) {
                     "Expected PROGRESS frame kind"
                 }
                 val payload = Progress(contiguousBytes = reader.readLong())
@@ -245,16 +245,16 @@ internal sealed interface FileFetchFrame {
     }
 
     data class Abort(
-        val reason: FileFetchAbortReason,
+        val reason: LargeFileAbortReason,
         val reasonText: String?,
-    ) : FileFetchFrame {
+    ) : LargeFileFrame {
         init {
             require(reasonText == null || reasonText.encodeToByteArray().size <= MAX_REASON_TEXT_BYTES) {
                 "reasonText exceeds $MAX_REASON_TEXT_BYTES bytes"
             }
         }
 
-        override val kind: FileFetchKind = FileFetchKind.ABORT
+        override val kind: LargeFileFrameKind = LargeFileFrameKind.ABORT
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(16 + (reasonText?.length ?: 0))
@@ -270,11 +270,11 @@ internal sealed interface FileFetchFrame {
 
             fun decode(bytes: ByteArray): Abort {
                 val reader = ByteReader(bytes)
-                require(FileFetchKind.fromWireValue(reader.readByte()) == FileFetchKind.ABORT) {
+                require(LargeFileFrameKind.fromWireValue(reader.readByte()) == LargeFileFrameKind.ABORT) {
                     "Expected ABORT frame kind"
                 }
                 val payload = Abort(
-                    reason = FileFetchAbortReason.fromWireValue(reader.readByte()),
+                    reason = LargeFileAbortReason.fromWireValue(reader.readByte()),
                     reasonText = reader.readBoundedNullableString(MAX_REASON_TEXT_BYTES),
                 )
                 reader.requireFullyRead()
@@ -285,8 +285,8 @@ internal sealed interface FileFetchFrame {
 
     data class Data(
         val bytes: ByteArray,
-    ) : FileFetchFrame {
-        override val kind: FileFetchKind = FileFetchKind.DATA
+    ) : LargeFileFrame {
+        override val kind: LargeFileFrameKind = LargeFileFrameKind.DATA
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(1 + bytes.size)
@@ -316,7 +316,7 @@ internal sealed interface FileFetchFrame {
 
             fun decode(bytes: ByteArray): Data {
                 require(bytes.isNotEmpty()) { "Empty fetch frame" }
-                require(FileFetchKind.fromWireValue(bytes[0]) == FileFetchKind.DATA) {
+                require(LargeFileFrameKind.fromWireValue(bytes[0]) == LargeFileFrameKind.DATA) {
                     "Expected DATA frame kind"
                 }
                 return Data(bytes = bytes.copyOfRange(1, bytes.size))
@@ -325,15 +325,15 @@ internal sealed interface FileFetchFrame {
     }
 
     companion object {
-        fun decode(bytes: ByteArray): FileFetchFrame {
+        fun decode(bytes: ByteArray): LargeFileFrame {
             require(bytes.isNotEmpty()) { "Empty fetch frame" }
-            return when (FileFetchKind.fromWireValue(bytes[0])) {
-                FileFetchKind.FETCH -> Fetch.decode(bytes)
-                FileFetchKind.FETCH_OK -> FetchOk.decode(bytes)
-                FileFetchKind.FETCH_DECLINED -> FetchDeclined.decode(bytes)
-                FileFetchKind.PROGRESS -> Progress.decode(bytes)
-                FileFetchKind.ABORT -> Abort.decode(bytes)
-                FileFetchKind.DATA -> Data.decode(bytes)
+            return when (LargeFileFrameKind.fromWireValue(bytes[0])) {
+                LargeFileFrameKind.PULL -> Pull.decode(bytes)
+                LargeFileFrameKind.PULL_OK -> PullOk.decode(bytes)
+                LargeFileFrameKind.DECLINED -> Declined.decode(bytes)
+                LargeFileFrameKind.PROGRESS -> Progress.decode(bytes)
+                LargeFileFrameKind.ABORT -> Abort.decode(bytes)
+                LargeFileFrameKind.DATA -> Data.decode(bytes)
             }
         }
     }

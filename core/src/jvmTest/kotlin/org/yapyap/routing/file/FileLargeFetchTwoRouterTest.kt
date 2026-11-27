@@ -58,9 +58,9 @@ import org.yapyap.protection.envelope.SignedHopProtection
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
-import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.LargeFileFrame
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -84,8 +84,8 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.store.DefaultFileIncomingStore
+import org.yapyap.routing.store.DefaultFilePullAttemptStore
 import org.yapyap.routing.store.DefaultFileRelayStore
-import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.OutboxTag
@@ -273,7 +273,7 @@ class FileLargeFetchTwoRouterTest {
             fileTransferStore = DefaultFileTransferStore(db),
             fileIncomingStore = DefaultFileIncomingStore(db),
             fileRelayStore = DefaultFileRelayStore(db),
-            fileRequestAttemptStore = DefaultFileRequestAttemptStore(db),
+            filePullAttemptStore = DefaultFilePullAttemptStore(db),
         )
         val pipeline = FakePipeline()
         val coordinator = DefaultFileRequestCoordinator(
@@ -349,8 +349,8 @@ class FileLargeFetchTwoRouterTest {
         to: RecordingWebRtcTransport
     ) {
         for ((channel, payload) in from.sentFileFrames) {
-            val frame = FileFetchFrame.decode(payload)
-            if (frame is FileFetchFrame.Fetch) fetchFromOffsets += frame.fromOffset
+            val frame = LargeFileFrame.decode(payload)
+            if (frame is LargeFileFrame.Pull) fetchFromOffsets += frame.fromOffset
             val incoming = WebRtcFileFrame(FileChannelId(peer = fromDevice, label = channel.label), payload)
             while (!to.tryEmitFileFrame(incoming)) delay(2.milliseconds)
         }
@@ -400,7 +400,7 @@ class FileLargeFetchTwoRouterTest {
     private suspend fun buildMesh(
         bobAutoDownload: Long = 250L * 1024L * 1024L,
         routerConfig: RouterConfig = RouterConfig(
-            fileSessionOpenTimeout = 5.seconds,
+            largeFileSessionOpenTimeout = 5.seconds,
             retryLoopMaxIdlePoll = 1.seconds,
         ),
         simulateSession: Boolean = true,
@@ -713,7 +713,7 @@ class FileLargeFetchTwoRouterTest {
         // Default checkpoint (8 MiB) and window (32 MiB): bounded memory with production cadence.
         // Frames stay small so the 64 MB transfer fits the test budget. Router polling stays fast.
         val defaultMesh = buildMesh(
-            routerConfig = RouterConfig(fileSessionOpenTimeout = 5.seconds, retryLoopMaxIdlePoll = 1.seconds),
+            routerConfig = RouterConfig(largeFileSessionOpenTimeout = 5.seconds, retryLoopMaxIdlePoll = 1.seconds),
             fileConfig = OrchestratorConfig(),
         )
         try {

@@ -29,8 +29,8 @@ import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
@@ -695,13 +695,13 @@ class FileRequestCoordinatorTest {
         val files: FileCarrier get() = this
         override val fileEvents: Flow<FileEvent> = events
 
-        override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) {
+        override suspend fun startFilePull(fileId: FileId, firstAttemptAt: Instant) {
             startedFiles += fileId to firstAttemptAt
         }
 
-        override suspend fun abortFileFetch(
+        override suspend fun abortLargeFile(
             fileId: FileId,
-            reason: FileFetchAbortReason
+            reason: LargeFileAbortReason
         ) {
             abortedFiles += fileId
         }

@@ -20,7 +20,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.fetch.FileFetchService
+import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.PeerLinks
@@ -28,7 +28,7 @@ import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.FileLimits
-import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
+import org.yapyap.routing.router.InMemoryFilePullAttemptStore
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
@@ -55,7 +55,7 @@ import kotlin.uuid.Uuid
  * Routing side of file requests: one candidate at a time, ACK → WAITING, DECLINED moves on,
  * WAITING timeout moves on without declining, unknown outcomes are ignored.
  */
-class FileRequestProcessorTest {
+class FilePullProcessorTest {
 
     private val localDevice = PeerId("filereq-local-device")
     private val holderDevice = PeerId("filereq-holder-device")
@@ -76,9 +76,9 @@ class FileRequestProcessorTest {
         val ctx: RoutingContext,
         val outbox: TrackingPacketOutbox,
         val outboxProcessor: OutboxProcessor,
-        val attempts: InMemoryFileRequestAttemptStore,
+        val attempts: InMemoryFilePullAttemptStore,
         val events: MutableSharedFlow<FileEvent>,
-        val processor: FileRequestProcessor,
+        val processor: FilePullProcessor,
         val policy: FixedPeerPolicy,
         val gate: FakeFileSource,
     ) {
@@ -114,7 +114,7 @@ class FileRequestProcessorTest {
         config: RouterConfig,
         events: MutableSharedFlow<FileEvent>,
     ) =
-        FileFetchService(
+        LargeFileService(
             devices = ctx.devices,
             transport = ctx.webRtcTransport,
             plaintext = NoPlaintext,
@@ -171,13 +171,14 @@ class FileRequestProcessorTest {
             clock = clock,
             routerConfig = routerConfig,
         )
-        val attempts = InMemoryFileRequestAttemptStore()
+        val attempts = InMemoryFilePullAttemptStore()
         val gate = FakeFileSource(candidates = candidates)
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val policy = FixedPeerPolicy(nextDevice = devices.firstOrNull())
-        val processor = FileRequestProcessor(
+        val processor = FilePullProcessor(
             ctx = ctx,
-            attempts = attempts,
+            packets = FilePackets(ctx),
+            pullAttempts = attempts,
             requests = gate,
             outboxProcessor = outboxProcessor,
             peerPolicy = policy,

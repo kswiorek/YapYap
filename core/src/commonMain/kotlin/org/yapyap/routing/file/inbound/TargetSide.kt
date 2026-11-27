@@ -15,8 +15,9 @@ import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.FileRequestProcessor
-import org.yapyap.routing.file.fileControl
+import org.yapyap.routing.file.FilePackets
+import org.yapyap.routing.file.FilePullProcessor
+import org.yapyap.routing.file.IncomingHop
 import org.yapyap.routing.file.port.FileIngestPort
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
@@ -47,10 +48,11 @@ import kotlin.time.Instant
  */
 internal class TargetSide(
     private val ctx: RoutingContext,
+    private val packets: FilePackets,
     private val incoming: FileIncomingStore,
     private val ingest: FileIngestPort,
-    private val held: FileRequestSource,
-    private val requestLoop: FileRequestProcessor,
+    private val requests: FileRequestSource,
+    private val pullProcessor: FilePullProcessor,
     private val outbox: OutboxProcessor,
 ) : ChunkSink {
     suspend fun offer(env: BinaryEnvelope, header: FileHeader.Offer): InboundHandleResult {
@@ -89,7 +91,7 @@ internal class TargetSide(
                         env.expiresAt
                     )
                 )
-                requestLoop.onOfferReceived(manifest.fileId)
+                pullProcessor.onOfferReceived(manifest.fileId)
                 AppLog.info(
                     component = LogComponent.FILE,
                     event = LogEvent.FILE_OFFER_ACCEPTED,
@@ -97,7 +99,7 @@ internal class TargetSide(
                     fields = mapOf("transferId" to header.transferId, "fileId" to manifest.fileId),
                 )
                 // What we already hold lets the sender skip it at once.
-                val contiguous = held.heldCoverage(manifest.fileId)?.contiguousBytes ?: 0L
+                val contiguous = requests.heldCoverage(manifest.fileId)?.contiguousBytes ?: 0L
                 val index = shape.highestContiguousIndex(contiguous)
                 InboundHandleResult.Success(
                     if (index < 0) emptyList()
@@ -113,7 +115,7 @@ internal class TargetSide(
 
             // Held already: the hop ends at once (everything covered) and the origin learns it.
             FileOfferVerdict.AlreadyReady -> {
-                requestLoop.onOfferReceived(manifest.fileId)
+                pullProcessor.onOfferReceived(manifest.fileId)
                 InboundHandleResult.Success(
                     listOf(
                         reply(
@@ -259,11 +261,11 @@ internal class TargetSide(
     }
 
     private suspend fun reply(peer: PeerId, header: FileHeader, expiresAt: Instant) =
-        InboundSideEffect.EnqueueDirect(ctx.fileControl(peer, header, expiresAt))
+        InboundSideEffect.EnqueueDirect(packets.control(peer, header, expiresAt))
 
     private suspend fun send(peer: PeerId, header: FileHeader, expiresAt: Instant) {
         try {
-            outbox.enqueueAndWake(ctx.fileControl(peer, header, expiresAt), ctx.clock.now())
+            outbox.enqueueAndWake(packets.control(peer, header, expiresAt), ctx.clock.now())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

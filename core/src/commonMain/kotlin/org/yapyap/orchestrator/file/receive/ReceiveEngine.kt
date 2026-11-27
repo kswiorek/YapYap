@@ -604,7 +604,7 @@ internal class ReceiveEngine(
             if (bytes.isEmpty()) return@withFile FileAppendResult.Appended(row.contiguousBytes)
             val end = offset + bytes.size
             require(end <= total) { "fetch bytes [$offset, $end) exceed total $total" }
-            // The reservation at FETCH_OK counted this file; the disk can still fill from elsewhere.
+            // The reservation at PULL_OK counted this file; the disk can still fill from elsewhere.
             if (files.freeSpaceBytes(paths.incomingDir) < bytes.size) {
                 declineRow(row, now, out)
                 AppLog.info(

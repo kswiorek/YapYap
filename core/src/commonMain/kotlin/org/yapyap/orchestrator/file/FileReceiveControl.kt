@@ -31,7 +31,7 @@ internal interface FileReceiveControl {
 
     /**
      * The user accepted [fileId]: a terminal receive (DECLINED, FAILED, CANCELLED, EVICTED) is cleared so the
-     * next OFFER or FETCH_OK starts it afresh. False when the file is already READY.
+     * next OFFER or PULL_OK starts it afresh. False when the file is already READY.
      */
     suspend fun reopen(fileId: FileId): Boolean
 

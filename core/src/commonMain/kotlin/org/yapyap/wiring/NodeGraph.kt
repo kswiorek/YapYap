@@ -66,8 +66,8 @@ import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.DefaultDeviceRouteStore
 import org.yapyap.routing.store.DefaultFileIncomingStore
+import org.yapyap.routing.store.DefaultFilePullAttemptStore
 import org.yapyap.routing.store.DefaultFileRelayStore
-import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.DefaultPacketDeduplicator
@@ -133,7 +133,7 @@ internal class NodeGraph(
     private val fileTransferStore = DefaultFileTransferStore(database)
     private val fileIncomingStore = DefaultFileIncomingStore(database)
     private val fileRelayStore = DefaultFileRelayStore(database)
-    private val fileRequestAttemptStore = DefaultFileRequestAttemptStore(database)
+    private val filePullAttemptStore = DefaultFilePullAttemptStore(database)
     private val fileDescriptorStore = DefaultFileDescriptorStore(database)
     private val fileReceiveStore = DefaultFileReceiveStore(database)
     private val fileAccess = platform.fileAccess()
@@ -258,7 +258,7 @@ internal class NodeGraph(
         fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
         fileRelayStore = fileRelayStore,
-        fileRequestAttemptStore = fileRequestAttemptStore,
+        filePullAttemptStore = filePullAttemptStore,
     )
 
     // History, folds and sync

@@ -6,55 +6,9 @@ import org.yapyap.persistence.File_transfers_out
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.ContentId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.TransferShape
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
-
-/** One outgoing transfer's state. OFFERED and STREAMING are live; the rest are final. */
-internal enum class FileTransferStatus {
-    /** The OFFER is queued; nothing else goes until it is ACKed. */
-    OFFERED,
-
-    /** The OFFER was ACKed: chunks flow. */
-    STREAMING,
-
-    /** The peer holds every chunk of the transfer. */
-    DONE,
-
-    /** The peer refused the OFFER (a target: no space; a relay: no room). */
-    DECLINED,
-
-    /** Gone at the other end, or failed here; the outcome there is unknown. */
-    ENDED,
-
-    EXPIRED,
-    CANCELLED;
-
-    val isLive: Boolean get() = this == OFFERED || this == STREAMING
-}
-
-/**
- * One hop this device sends (docs/envelope-redesign.md §5.3): [shape]'s chunks of seal [sealId]
- * to [peer]. Ours have no [relayTransferId]; a relay forward names the inbound relay transfer it
- * forwards. [contiguousAcked] is the peer's coverage in this transfer's chunk indices.
- */
-internal data class OutgoingTransfer(
-    val transferId: TransferId,
-    val sealId: ContentId,
-    val relayTransferId: TransferId?,
-    val peer: PeerId,
-    val shape: TransferShape,
-    val nextChunkIndex: Int,
-    val contiguousAcked: Int,
-    val offerPacketId: Uuid?,
-    val status: FileTransferStatus,
-    val createdAt: Instant,
-    val expiresAt: Instant,
-) {
-    val isForward: Boolean get() = relayTransferId != null
-}
 
 /** Routing-owned `file_transfers_out` and `file_transfer_chunks`: written only by the transfer engine. */
 internal interface FileTransferStore {
