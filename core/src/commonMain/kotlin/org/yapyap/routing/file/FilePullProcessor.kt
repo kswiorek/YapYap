@@ -56,7 +56,7 @@ internal class FilePullProcessor(
         ctx = ctx,
         strategy = smallStrategy,
         peerPolicy = peerPolicy,
-        executor = AttemptExecutor.Outbox(outboxProcessor),
+        executor = AttemptExecutor.Outbox(outboxProcessor, smallStrategy),
         maxIdlePoll = maxIdlePoll,
         linkKeeper = linkKeeper,
     )

@@ -311,13 +311,17 @@ internal class DefaultRouter(
         // link/online inputs in its runIn.)
         outboxOutcomeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             outboxProcessor.outcomes.collect { outcome ->
-                runCatching { routeOutcome(outcome) }.onFailure { e ->
-                    if (e is CancellationException) throw e
+                try {
+                    routeOutcome(outcome)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     AppLog.error(
                         component = LogComponent.ROUTER,
                         event = LogEvent.OUTBOX_PROCESS_FAILED,
                         message = "Failed to route an outbox outcome",
-                        fields = mapOf("tag" to outcome.tag, "error" to e.toString()),
+                        throwable = e,
+                        fields = mapOf("tag" to outcome.tag),
                     )
                 }
             }
@@ -330,31 +334,37 @@ internal class DefaultRouter(
 
         torIncomingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             ctx.torTransport.incoming.collect { inbound ->
-                runCatching { inboundEnvelopeProcessor.handleTorInbound(inbound) }
-                    .onFailure { e ->
-                        if (e is CancellationException) throw e
-                        AppLog.error(
-                            component = LogComponent.ROUTER,
-                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
-                            message = "Failed to handle inbound Tor envelope",
-                            fields = mapOf("error" to e.toString()),
-                        )
-                    }
+                try {
+                    inboundEnvelopeProcessor.handleTorInbound(inbound)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // One bad envelope never stops the collector; a JVM Error is not caught here.
+                    AppLog.error(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                        message = "Failed to handle inbound Tor envelope",
+                        throwable = e,
+                    )
+                }
             }
         }
 
         webRtcIncomingEnvelopeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             ctx.webRtcTransport.incomingEnvelopes.collect { inbound ->
-                runCatching { inboundEnvelopeProcessor.handleWebRtcInbound(inbound) }
-                    .onFailure { e ->
-                        if (e is CancellationException) throw e
-                        AppLog.error(
-                            component = LogComponent.ROUTER,
-                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
-                            message = "Failed to handle inbound WebRTC envelope",
-                            fields = mapOf("error" to e.toString()),
-                        )
-                    }
+                try {
+                    inboundEnvelopeProcessor.handleWebRtcInbound(inbound)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // One bad envelope never stops the collector; a JVM Error is not caught here.
+                    AppLog.error(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                        message = "Failed to handle inbound WebRTC envelope",
+                        throwable = e,
+                    )
+                }
             }
         }
 

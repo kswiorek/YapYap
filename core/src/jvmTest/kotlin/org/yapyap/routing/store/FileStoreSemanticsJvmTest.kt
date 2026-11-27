@@ -366,4 +366,43 @@ class FileStoreSemanticsJvmTest {
         view.clearWaiting(syncId)
         assertNull(view.findDue(now, limit = 10).single().waiting)
     }
+
+    @Test
+    fun pullFindDue_severalDeclinedDevices_pagesByFileAndFoldsTheJoin() = runTest {
+        val store = DefaultFilePullAttemptStore(db())
+        val first = FileId("1".repeat(64))
+        val second = FileId("2".repeat(64))
+        val third = FileId("3".repeat(64))
+        store.start(first, FilePullClass.SMALL, now - 30.seconds)
+        store.start(second, FilePullClass.SMALL, now - 20.seconds)
+        store.start(third, FilePullClass.SMALL, now - 10.seconds)
+        store.addDeclined(first, device)
+        store.addDeclined(first, relay)
+
+        val due = store.findDue(now, limit = 2, FilePullClass.SMALL)
+
+        assertEquals(listOf(first, second), due.map { it.fileId }, "the limit counts files, not joined rows")
+        assertEquals(setOf(device, relay), due[0].declinedDevices)
+        assertEquals(emptySet(), due[1].declinedDevices)
+        assertEquals(setOf(device, relay), store.findById(first)?.declinedDevices)
+    }
+
+    @Test
+    fun syncFindDue_severalDeclinedDevices_pagesBySyncAndFoldsTheJoin() = runTest {
+        val store = DefaultSyncAttemptStore(db())
+        val first = Uuid.random()
+        val second = Uuid.random()
+        val third = Uuid.random()
+        store.start(first, now - 30.seconds)
+        store.start(second, now - 20.seconds)
+        store.start(third, now - 10.seconds)
+        store.addDeclined(first, device)
+        store.addDeclined(first, relay)
+
+        val due = store.findDue(now, limit = 2)
+
+        assertEquals(listOf(first, second), due.map { it.syncId }, "the limit counts syncs, not joined rows")
+        assertEquals(setOf(device, relay), due[0].declinedDevices)
+        assertEquals(emptySet(), due[1].declinedDevices)
+    }
 }

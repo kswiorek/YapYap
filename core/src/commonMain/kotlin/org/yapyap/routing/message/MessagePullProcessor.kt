@@ -12,6 +12,7 @@ import org.yapyap.routing.candidate.BuiltAttempt
 import org.yapyap.routing.candidate.CandidateAttemptStore
 import org.yapyap.routing.candidate.CandidateRequestCore
 import org.yapyap.routing.candidate.CandidateStrategy
+import org.yapyap.routing.candidate.OutboxAttemptStrategy
 import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.message.port.SyncPayloadProvider
@@ -52,11 +53,12 @@ internal class MessagePullProcessor(
     maxIdlePoll: StateFlow<Duration>,
     linkKeeper: LinkKeeper,
 ) {
+    private val strategy = MessagePullStrategy(ctx, attempts, syncs, envelopes, outboxProcessor)
     private val core = CandidateRequestCore(
         ctx = ctx,
-        strategy = MessagePullStrategy(ctx, attempts, syncs, envelopes, outboxProcessor),
+        strategy = strategy,
         peerPolicy = peerPolicy,
-        executor = AttemptExecutor.Outbox(outboxProcessor),
+        executor = AttemptExecutor.Outbox(outboxProcessor, strategy),
         maxIdlePoll = maxIdlePoll,
         linkKeeper = linkKeeper,
     )
@@ -86,7 +88,7 @@ private class MessagePullStrategy(
     private val syncs: SyncPayloadProvider,
     private val envelopes: OutboundMessenger,
     private val outboxProcessor: OutboxProcessor,
-) : CandidateStrategy<Uuid> {
+) : CandidateStrategy<Uuid>, OutboxAttemptStrategy<Uuid> {
     override val attempts: CandidateAttemptStore<Uuid> = store.candidateStore()
 
     override suspend fun candidateAccounts(id: Uuid): List<AccountId> = syncs.syncCandidates(id)
@@ -100,8 +102,6 @@ private class MessagePullStrategy(
         val envelope = envelopes.buildEnvelope(device, request, ctx.routerConfig.value.syncAttemptTimeout)
         return BuiltAttempt(envelope, OutboxTag(OutboxTag.Kind.SYNC, id))
     }
-
-    override suspend fun afterEnqueue(id: Uuid, built: BuiltAttempt) = Unit
 
     override suspend fun attemptState(id: Uuid): AttemptState =
         if (outboxProcessor.hasQueued(OutboxTag(OutboxTag.Kind.SYNC, id))) AttemptState.Pending else AttemptState.None

@@ -116,11 +116,6 @@ class CandidateCoreTest {
         override suspend fun candidateAccounts(id: Uuid): List<AccountId> = listOf(holder)
         override suspend fun idsWithCandidate(account: AccountId): List<Uuid> = emptyList()
         override suspend fun isWanted(id: Uuid): Boolean = id in wanted
-        override suspend fun buildAttempt(id: Uuid, device: PeerId, now: Instant): BuiltAttempt? = null
-        override suspend fun afterEnqueue(id: Uuid, built: BuiltAttempt) = Unit
-        override suspend fun attemptState(id: Uuid): AttemptState = AttemptState.None
-        override suspend fun resolveOutcome(outcome: org.yapyap.routing.router.OutboxOutcome): Uuid? = null
-        override suspend fun onSuccess(id: Uuid, device: PeerId): SuccessAction = SuccessAction.Done
     }
 
     private class FixedPeerPolicy(var nextDevice: PeerId? = null) : SyncPeerPolicy {

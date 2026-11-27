@@ -2,7 +2,6 @@ package org.yapyap.routing.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.yapyap.persistence.File_pull_attempts
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
@@ -86,22 +85,17 @@ internal class DefaultFilePullAttemptStore(
 
     override suspend fun findDue(now: Instant, limit: Int, pullClass: FilePullClass): List<FilePullAttempt> =
         withContext(dbDispatcher) {
-            queries.selectDueFilePullAttempts(now, pullClass.name, limit.toLong()).executeAsList().map { row ->
-                row.toAttempt(queries.selectDeclinedFilePullDevices(row.file_id).executeAsList().toSet())
-            }
+            queries.selectDueFilePullAttempts(now, pullClass.name, limit.toLong(), ::joinedRow).executeAsList()
+                .withDeclined()
         }
 
     override suspend fun findById(fileId: FileId): FilePullAttempt? = withContext(dbDispatcher) {
-        val row = queries.selectFilePullById(fileId).executeAsOneOrNull() ?: return@withContext null
-        row.toAttempt(queries.selectDeclinedFilePullDevices(fileId).executeAsList().toSet())
+        queries.selectFilePullById(fileId, ::joinedRow).executeAsList().withDeclined().singleOrNull()
     }
 
-    override suspend fun findByAttemptId(attemptId: Uuid): FilePullAttempt? =
-        withContext(dbDispatcher) {
-            queries.selectFilePullByAttemptId(attemptId).executeAsOneOrNull()?.let { row ->
-                row.toAttempt(queries.selectDeclinedFilePullDevices(row.file_id).executeAsList().toSet())
-            }
-        }
+    override suspend fun findByAttemptId(attemptId: Uuid): FilePullAttempt? = withContext(dbDispatcher) {
+        queries.selectFilePullByAttemptId(attemptId, ::joinedRow).executeAsList().withDeclined().singleOrNull()
+    }
 
     override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant) {
         withContext(dbDispatcher) { queries.recordFilePullAttempt(nextAttemptAt, fileId) }
@@ -149,17 +143,30 @@ internal class DefaultFilePullAttemptStore(
     override fun candidateStore(pullClass: FilePullClass): CandidateAttemptStore<FileId> =
         FilePullAttemptView(this, pullClass)
 
-    private fun File_pull_attempts.toAttempt(
-        declined: Set<PeerId>,
-    ): FilePullAttempt = FilePullAttempt(
-        fileId = file_id,
+    /** One result row of a parent-with-declined-devices join: the parent, and one declined device or null. */
+    private fun joinedRow(
+        fileId: FileId,
+        attempts: Long,
+        waitingDevice: PeerId?,
+        waitingUntil: Instant?,
+        attemptId: Uuid?,
+        pullClass: String,
+        declinedDevice: PeerId?,
+    ): Pair<FilePullAttempt, PeerId?> = FilePullAttempt(
+        fileId = fileId,
         attempts = attempts.toInt(),
-        declinedDevices = declined,
-        waitingDevice = waiting_device,
-        waitingUntil = waiting_until,
-        attemptId = request_attempt_id,
-        pullClass = FilePullClass.valueOf(pull_class),
-    )
+        declinedDevices = emptySet(),
+        waitingDevice = waitingDevice,
+        waitingUntil = waitingUntil,
+        attemptId = attemptId,
+        pullClass = FilePullClass.valueOf(pullClass),
+    ) to declinedDevice
+
+    /** Folds the join back into one attempt per file, in the query's order. */
+    private fun List<Pair<FilePullAttempt, PeerId?>>.withDeclined(): List<FilePullAttempt> =
+        groupBy { (attempt, _) -> attempt.fileId }.values.map { rows ->
+            rows.first().first.copy(declinedDevices = rows.mapNotNull { it.second }.toSet())
+        }
 }
 
 /**

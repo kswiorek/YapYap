@@ -29,8 +29,17 @@ DELETE FROM sync_attempts WHERE sync_id = ?;
 selectEarliestDueAt:
 SELECT MIN(next_attempt_at) FROM sync_attempts;
 
+-- Each due row joined with its declined devices (one result row per device, or one with a NULL
+-- device), in one statement; the page limit applies to the parent rows.
 selectDueSyncAttempts:
-SELECT * FROM sync_attempts WHERE next_attempt_at <= ? LIMIT ?;
+SELECT a.sync_id, a.attempts, d.device_id AS declined_device
+FROM (
+    SELECT * FROM sync_attempts WHERE next_attempt_at <= :now
+    ORDER BY next_attempt_at ASC
+    LIMIT :limit
+) AS a
+LEFT JOIN sync_declined_devices AS d ON d.sync_id = a.sync_id
+ORDER BY a.next_attempt_at ASC, a.sync_id;
 
 recordAttempt:
 UPDATE sync_attempts SET attempts = attempts + 1, next_attempt_at = ? WHERE sync_id = ?;

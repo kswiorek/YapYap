@@ -678,3 +678,11 @@ fixed in the same branch. Recorded here so the reasons are not lost:
 - **`fileRequestAttemptTimeout` → `filePullAttemptTimeout`.** §2.5.3 kept the old name as small-path REQUEST
   semantics, but the large path uses the same budget for its PULL answer and the holder's idle bound. The
   owner chose one shared value named for the pull umbrella over separate large-path fields.
+- **The candidate strategy is split by executor.** `CandidateStrategy` keeps what every asking loop plugs
+  in (its rows, candidates, `isWanted`, `onExhausted`); the outbox-only hooks (`buildAttempt`,
+  `afterEnqueue`, `attemptState`, `resolveOutcome`, `onSuccess`) moved to `OutboxAttemptStrategy`, which
+  `AttemptExecutor.Outbox` carries. The large strategy lost its five no-op overrides; the small and sync
+  strategies implement both.
+- **The pull and sync stores read a row with its declined devices in one statement** (a LEFT JOIN, the
+  page limit applied to parents in a subquery) instead of one query per row.
+- **`DefaultRouter`'s collectors catch `Exception`, not `Throwable`,** and log the stack trace.

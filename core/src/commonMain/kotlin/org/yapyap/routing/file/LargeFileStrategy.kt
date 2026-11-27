@@ -4,22 +4,17 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.candidate.AttemptState
-import org.yapyap.routing.candidate.BuiltAttempt
 import org.yapyap.routing.candidate.CallOutcome
 import org.yapyap.routing.candidate.CandidateAttemptStore
 import org.yapyap.routing.candidate.CandidateStrategy
-import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.SessionOutcome
-import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FilePullClass
-import kotlin.time.Instant
 
 /**
  * Large-file plug into the shared candidate core (design §9, §6.6): the same
@@ -46,16 +41,6 @@ internal class LargeFileStrategy(
         pullAttempts.idsOf(FilePullClass.LARGE).filter { id -> account in requests.requestCandidates(id) }
 
     override suspend fun isWanted(id: FileId): Boolean = requests.heldCoverage(id) != null
-
-    override suspend fun buildAttempt(id: FileId, device: PeerId, now: Instant): BuiltAttempt? = null
-
-    override suspend fun afterEnqueue(id: FileId, built: BuiltAttempt) = Unit
-
-    override suspend fun attemptState(id: FileId): AttemptState = AttemptState.None
-
-    override suspend fun resolveOutcome(outcome: OutboxOutcome): FileId? = null
-
-    override suspend fun onSuccess(id: FileId, device: PeerId): SuccessAction = SuccessAction.Done
 
     override suspend fun onExhausted(id: FileId): Boolean {
         attempts.drop(id)

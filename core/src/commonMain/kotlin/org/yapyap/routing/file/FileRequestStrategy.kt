@@ -9,6 +9,7 @@ import org.yapyap.routing.candidate.AttemptState
 import org.yapyap.routing.candidate.BuiltAttempt
 import org.yapyap.routing.candidate.CandidateAttemptStore
 import org.yapyap.routing.candidate.CandidateStrategy
+import org.yapyap.routing.candidate.OutboxAttemptStrategy
 import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
@@ -29,7 +30,7 @@ internal class FileRequestStrategy(
     private val requests: FileRequestSource,
     private val outbox: OutboxProcessor,
     private val events: MutableSharedFlow<FileEvent>,
-) : CandidateStrategy<FileId> {
+) : CandidateStrategy<FileId>, OutboxAttemptStrategy<FileId> {
     override val attempts: CandidateAttemptStore<FileId> = pullAttempts.candidateStore(FilePullClass.SMALL)
 
     override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)

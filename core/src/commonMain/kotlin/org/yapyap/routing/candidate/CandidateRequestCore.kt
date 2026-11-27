@@ -1,7 +1,19 @@
 package org.yapyap.routing.candidate
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
@@ -32,7 +44,7 @@ import kotlin.time.Instant
  *   device out for this id;
  * - expiry or any other NACK leaves the device askable but behind the other candidates;
  * either way the next candidate is asked at once if there is one. An ACK leaves the
- * backoff to schedule the next attempt, and hands off to [CandidateStrategy.onSuccess].
+ * backoff to schedule the next attempt, and hands off to [OutboxAttemptStrategy.onSuccess].
  */
 internal class CandidateRequestCore<K>(
     private val ctx: RoutingContext,
@@ -109,10 +121,10 @@ internal class CandidateRequestCore<K>(
 
     /** How one attempt's outbox entry ended (Outbox executor only; Call maps its own outcomes). */
     suspend fun onAttemptOutcome(outcome: OutboxOutcome) {
-        if (executor !is AttemptExecutor.Outbox<K>) return
-        val id = strategy.resolveOutcome(outcome) ?: return
+        val outboxStrategy = (executor as? AttemptExecutor.Outbox<K>)?.strategy ?: return
+        val id = outboxStrategy.resolveOutcome(outcome) ?: return
         when (outcome) {
-            is OutboxOutcome.Acked -> when (val action = strategy.onSuccess(id, outcome.target)) {
+            is OutboxOutcome.Acked -> when (val action = outboxStrategy.onSuccess(id, outcome.target)) {
                 is SuccessAction.Done -> forget(id)
                 is SuccessAction.AwaitUntil -> strategy.attempts.setWaiting(id, outcome.target, action.until)
             }
@@ -234,14 +246,11 @@ internal class CandidateRequestCore<K>(
             noteSilent(row.id, waiting.device)
         }
 
-        when (strategy.attemptState(row.id)) {
-            AttemptState.Pending -> {
-                // The last attempt is still queued (waiting for a link).
-                strategy.attempts.postpone(row.id, nextAttemptAt)
-                return
-            }
-
-            AttemptState.None -> Unit
+        val exec = executor
+        if (exec is AttemptExecutor.Outbox<K> && exec.strategy.attemptState(row.id) == AttemptState.Pending) {
+            // The last attempt is still queued (waiting for a link).
+            strategy.attempts.postpone(row.id, nextAttemptAt)
+            return
         }
 
         val candidateDevices = candidateDevices(strategy.candidateAccounts(row.id))
@@ -274,7 +283,7 @@ internal class CandidateRequestCore<K>(
             return
         }
 
-        when (val exec = executor) {
+        when (exec) {
             is AttemptExecutor.Outbox<K> -> runOutboxAttempt(row, nextDevice, now, nextAttemptAt, exec)
             is AttemptExecutor.Call<K> -> runCallAttempt(row, nextDevice, nextAttemptAt, exec, loopScope)
         }
@@ -288,7 +297,7 @@ internal class CandidateRequestCore<K>(
         exec: AttemptExecutor.Outbox<K>,
     ) {
         val built = try {
-            strategy.buildAttempt(row.id, nextDevice, now)
+            exec.strategy.buildAttempt(row.id, nextDevice, now)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -312,7 +321,7 @@ internal class CandidateRequestCore<K>(
                 nextRetryAt = now,
                 tag = built.tag,
             )
-            strategy.afterEnqueue(row.id, built)
+            exec.strategy.afterEnqueue(row.id, built)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

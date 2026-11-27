@@ -34,10 +34,19 @@ DELETE FROM file_pull_attempts WHERE file_id = ?;
 selectEarliestDueFilePullAt:
 SELECT MIN(next_attempt_at) FROM file_pull_attempts WHERE pull_class = ?;
 
+-- Each row comes back joined with its declined devices (one result row per device, or one with
+-- a NULL device): the parent and its children are read in one statement. The page limit applies
+-- to parents, so the due rows are chosen first and joined after.
 selectDueFilePullAttempts:
-SELECT * FROM file_pull_attempts WHERE next_attempt_at <= ? AND pull_class = ?
-ORDER BY next_attempt_at ASC
-LIMIT ?;
+SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_attempt_id, a.pull_class,
+    d.device_id AS declined_device
+FROM (
+    SELECT * FROM file_pull_attempts WHERE next_attempt_at <= :now AND pull_class = :pullClass
+    ORDER BY next_attempt_at ASC
+    LIMIT :limit
+) AS a
+LEFT JOIN file_pull_declined_devices AS d ON d.file_id = a.file_id
+ORDER BY a.next_attempt_at ASC, a.file_id;
 
 recordFilePullAttempt:
 UPDATE file_pull_attempts SET attempts = attempts + 1, next_attempt_at = ? WHERE file_id = ?;
@@ -51,10 +60,18 @@ UPDATE file_pull_attempts SET next_attempt_at = :now
 WHERE next_attempt_at > :now AND file_id IN :fileIds;
 
 selectFilePullById:
-SELECT * FROM file_pull_attempts WHERE file_id = ?;
+SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_attempt_id, a.pull_class,
+    d.device_id AS declined_device
+FROM file_pull_attempts AS a
+LEFT JOIN file_pull_declined_devices AS d ON d.file_id = a.file_id
+WHERE a.file_id = ?;
 
 selectFilePullByAttemptId:
-SELECT * FROM file_pull_attempts WHERE request_attempt_id = ?;
+SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_attempt_id, a.pull_class,
+    d.device_id AS declined_device
+FROM file_pull_attempts AS a
+LEFT JOIN file_pull_declined_devices AS d ON d.file_id = a.file_id
+WHERE a.request_attempt_id = ?;
 
 setFilePullWaiting:
 UPDATE file_pull_attempts

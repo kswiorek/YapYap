@@ -74,11 +74,14 @@ internal data class BuiltAttempt(
 
 /** How one attempt leaves: queued through the outbox, or run as a suspending call. */
 internal sealed interface AttemptExecutor<K> {
-    /** Queue [BuiltAttempt] through the outbox; the outcome comes back via onAttemptOutcome. */
-    class Outbox<K>(val outbox: OutboxProcessor) : AttemptExecutor<K>
+    /**
+     * Queue the attempt [strategy] builds through the outbox; the outcome comes back via
+     * onAttemptOutcome and is handed to [strategy].
+     */
+    class Outbox<K>(val outbox: OutboxProcessor, val strategy: OutboxAttemptStrategy<K>) : AttemptExecutor<K>
 
     /**
-     * Run the attempt as a call (a large fetch). At most [maxConcurrent] run at once (read live,
+     * Run the attempt as a call (a large-file pull). At most [maxConcurrent] run at once (read live,
      * so a settings change applies to the next call); the core records the attempt
      * (recordAttempt) before calling, so a crash mid-call never re-asks at once.
      */
@@ -99,11 +102,10 @@ internal sealed interface SuccessAction {
 }
 
 /**
- * What one asking loop plugs into the shared core: where its rows live, what to
- * ask for, and what an ACK means. The loop (due selection, link-filtered picking,
- * unanswered/declined bookkeeping, backoff) is shared; only the request bytes and
- * the success handoff differ (a sync ACK means "reply on the way", a file ACK means
- * "OFFER pending" — WAITING).
+ * What one asking loop plugs into the shared core, whatever its executor: where its rows live,
+ * who may hold an id, and when to stop. The loop (due selection, link-filtered picking,
+ * unanswered/declined bookkeeping, backoff) is shared; how an attempt leaves is the executor's
+ * — an [OutboxAttemptStrategy] for packets, a call for large-file pulls.
  */
 internal interface CandidateStrategy<K> {
     val attempts: CandidateAttemptStore<K>
@@ -118,13 +120,24 @@ internal interface CandidateStrategy<K> {
     suspend fun isWanted(id: K): Boolean
 
     /**
-     * The request to send [id] to [device] now, with the tag its outcome routes by.
-     * Only called for [AttemptExecutor.Outbox]; the Call executor runs its own function instead.
+     * Every known candidate refused (none merely unreachable): true drops [id] as
+     * terminal. Sync never terminates this way (durable chase); file requests go
+     * UNAVAILABLE.
      */
+    suspend fun onExhausted(id: K): Boolean = false
+}
+
+/**
+ * The outbox half of a loop whose attempts are packets ([AttemptExecutor.Outbox]): the request
+ * bytes, how a queued attempt is recognised, and what an ACK means (a sync ACK means "reply on
+ * the way", a file REQUEST ACK means "OFFER pending" — WAITING).
+ */
+internal interface OutboxAttemptStrategy<K> {
+    /** The request to send [id] to [device] now, with the tag its outcome routes by. */
     suspend fun buildAttempt(id: K, device: PeerId, now: Instant): BuiltAttempt?
 
     /** Bookkeeping after [built] left through the outbox (e.g. persisting a request ref). */
-    suspend fun afterEnqueue(id: K, built: BuiltAttempt)
+    suspend fun afterEnqueue(id: K, built: BuiltAttempt) = Unit
 
     /**
      * Whether the last attempt for [id] is still queued in the outbox. WAITING is not this
@@ -137,13 +150,6 @@ internal interface CandidateStrategy<K> {
 
     /** An ACK arrived from [device]: the handoff the plan's callback seam exists for. */
     suspend fun onSuccess(id: K, device: PeerId): SuccessAction
-
-    /**
-     * Every known candidate refused (none merely unreachable): true drops [id] as
-     * terminal. Sync never terminates this way (durable chase); file requests go
-     * UNAVAILABLE.
-     */
-    suspend fun onExhausted(id: K): Boolean = false
 }
 
 /** Where a candidate request's last attempt stands, as its strategy sees it. */

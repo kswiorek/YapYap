@@ -68,13 +68,15 @@ internal class DefaultSyncAttemptStore(
 
     override suspend fun findDue(now: Instant, limit: Int): List<SyncAttempt> =
         withContext(dbDispatcher) {
-            queries.selectDueSyncAttempts(now, limit.toLong()).executeAsList().map { row ->
-                SyncAttempt(
-                    syncId = row.sync_id,
-                    attempts = row.attempts.toInt(),
-                    declinedDevices = queries.selectDeclinedDevices(row.sync_id).executeAsList().toSet(),
-                )
-            }
+            // One statement: each due row joined with its declined devices, folded back per sync.
+            queries.selectDueSyncAttempts(now, limit.toLong()).executeAsList()
+                .groupBy { it.sync_id }.values.map { rows ->
+                    SyncAttempt(
+                        syncId = rows.first().sync_id,
+                        attempts = rows.first().attempts.toInt(),
+                        declinedDevices = rows.mapNotNull { it.declined_device }.toSet(),
+                    )
+                }
         }
 
     override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {

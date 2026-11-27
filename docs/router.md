@@ -41,8 +41,9 @@ routing/
   presence/               PresenceService, PingProvider, PeerAvailabilityRegistry
   link/                   PeerLinks, LinkKeeper
   policy/                 outbound/relay/sync policies
-  candidate/              shared candidate-asking loop: CandidateStrategy (vocabulary),
-                          CandidateRequestCore (engine)
+  candidate/              shared candidate-asking loop: CandidateStrategy (what every loop
+                          plugs in), OutboxAttemptStrategy (the packet half, carried by the
+                          outbox executor), CandidateRequestCore (engine)
   store/                  routing-owned stores, OutboxTag, PacketStoreMaintenance
   message/                MessageService (+ inbound face, pull processor, messenger, ports)
   bootstrap/              BootstrapService (+ sender, inbound handler)
