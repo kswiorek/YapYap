@@ -214,7 +214,7 @@ internal fun fileInboundHarness(
         events = events,
         linkKeeper = idleLinkKeeper(ctx, clock, routerConfig, webRtc = false),
         webRtcLinks = idleLinkKeeper(ctx, clock, routerConfig, webRtc = true),
-        fetchService = fetchService,
+        largeFiles = fetchService,
     )
     val target = TargetSide(ctx, packets, incomingStore, ports, ports, requestProcessor, outboxProcessor)
     val handler = FileInboundHandler(

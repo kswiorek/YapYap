@@ -325,25 +325,20 @@ internal class DefaultFileRequestCoordinator(
             if (control.markStalled(row.fileId, now)) {
                 // A large pull ends; for a small file there is no large fetch and this is a no-op.
                 fileCarrier.abortLargeFile(row.fileId, LargeFileAbortReason.STALLED)
-                // A fresh stall re-opens the request, even one that ran out of holders before.
+                // A fresh stall re-opens the request at once, even one that ran out of holders
+                // before. Later sweeps re-arm it like any pending row, so routing's backoff holds.
                 pending.upsertPending(row.fileId, now)
+                fileCarrier.startFilePull(row.fileId, immediate = true)
             }
-            // A STALLED file re-opens the pending request below.
             progressGuardLocked { lastProgress[row.fileId] = timeSource.markNow() }
         }
+        // Stalled by a block mismatch: nothing asked for it yet. A PENDING row is re-armed by the
+        // first loop; an UNAVAILABLE one (every holder declined) stays terminal until a new
+        // message or the user re-opens it.
         for (row in receives.active()) {
-            if (row.status != FileReceiveStatus.STALLED) continue
-            when (pending.find(row.fileId)?.status) {
-                PendingFileRequestStatus.PENDING -> fileCarrier.startFilePull(row.fileId, immediate = true)
-                // Stalled by a block mismatch: nothing asked for it yet.
-                null -> {
-                    pending.upsertPending(row.fileId, now)
-                    fileCarrier.startFilePull(row.fileId, immediate = true)
-                }
-                // Every holder declined: terminal until a new message or the user re-opens it,
-                // never re-armed by the sweep.
-                PendingFileRequestStatus.UNAVAILABLE -> Unit
-            }
+            if (row.status != FileReceiveStatus.STALLED || pending.find(row.fileId) != null) continue
+            pending.upsertPending(row.fileId, now)
+            fileCarrier.startFilePull(row.fileId, immediate = true)
         }
     }
 

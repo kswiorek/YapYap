@@ -19,10 +19,10 @@ import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.time.Clock
 
 /**
- * The large path's composition face (design §6.6): the [LargeFileMux], [LargeFileRequester],
- * [LargeFileHolder], [LargeFileAdmissionGate] and [LargeFileChannelIo] wired together. No
- * envelopes, keys or rows: all state lives in memory and dies with the channel. `FileService`
- * and the large strategy only see this class.
+ * The large path's composition face (design §6.6): the [LargeFileChannels] registry, the
+ * [LargeFileMux], [LargeFileRequester], [LargeFileHolder], [LargeFileAdmissionGate] and
+ * [LargeFileChannelIo] wired together. No envelopes, keys or rows: all state lives in memory and
+ * dies with the channel. `FileService` and the large strategy only see this class.
  */
 internal class LargeFileService(
     devices: DeviceDirectory,
@@ -36,35 +36,28 @@ internal class LargeFileService(
     clock: Clock = Clock.System,
 ) {
     private val io = LargeFileChannelIo(transport)
-    private val mux = LargeFileMux(transport)
-    private val requester = LargeFileRequester(transport, ingest, routerConfig, mux, io)
-    private val gate = LargeFileAdmissionGate(devices, requests, plaintext)
+    private val channels = LargeFileChannels()
+    private val requester = LargeFileRequester(transport, ingest, routerConfig, channels, io)
     private val holder = LargeFileHolder(
         transport = transport,
         plaintext = plaintext,
         events = events,
         routerConfig = routerConfig,
         fileLimits = fileLimits,
-        gate = gate,
-        mux = mux,
+        gate = LargeFileAdmissionGate(devices, requests, plaintext),
+        channels = channels,
         io = io,
         clock = clock,
     )
+    private val mux = LargeFileMux(transport, channels, requester, holder)
 
-    init {
-        mux.attach(holder)
-    }
+    /** Starts routing frames and channel events; serves run under [scope]. */
+    fun runIn(scope: CoroutineScope): Job = mux.runIn(scope)
 
-    fun runIn(scope: CoroutineScope): Job {
-        requester.start(scope)
-        holder.start(scope)
-        return mux.runIn(scope)
-    }
+    suspend fun activeCount(): Int = channels.count()
 
-    suspend fun activeCount(): Int = mux.count()
+    suspend fun pull(peer: PeerId, fileId: FileId, fromOffset: Long): LargeFileResult =
+        requester.pull(peer, fileId, fromOffset)
 
-    suspend fun fetch(peer: PeerId, fileId: FileId, fromOffset: Long): LargeFileResult =
-        requester.fetch(peer, fileId, fromOffset)
-
-    suspend fun abortFetch(fileId: FileId, reason: LargeFileAbortReason) = requester.abort(fileId, reason)
+    suspend fun abortPull(fileId: FileId, reason: LargeFileAbortReason) = requester.abort(fileId, reason)
 }

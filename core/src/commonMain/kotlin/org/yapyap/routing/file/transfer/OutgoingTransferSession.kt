@@ -2,11 +2,10 @@ package org.yapyap.routing.file.transfer
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import kotlinx.coroutines.selects.select
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileCancelReason
@@ -14,6 +13,7 @@ import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.FilePackets
 import org.yapyap.routing.file.TransferEvent
+import org.yapyap.routing.file.fileGuarded
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -23,8 +23,6 @@ import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RetryClass
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -34,25 +32,24 @@ import kotlin.uuid.Uuid
  * gone flag, and serialises every operation on that state through its mailbox. A slow plaintext
  * read or store write blocks only this transfer; the engine's mux stays free for everyone else.
  *
- * The engine owns the registry and recovery; this class only runs the transfer, ends it, and
- * reports [TransferEvent]s to its owner. Durable state stays the transfer rows plus the outbox.
+ * The engine owns the registry, recovery and the end-of-transfer rows; this class only runs the
+ * transfer and decides when and how it ends ([onEnded] hands the final row to the engine).
  */
 internal class OutgoingTransferSession(
     initial: OutgoingTransfer,
     private val source: ChunkSource,
-    private val queued: MutableSet<Int>,
-    private var lastProgressAt: Instant,
+    initialQueued: Set<Int>,
     private var offerSentAt: Instant?,
     private val ctx: RoutingContext,
     private val packets: FilePackets,
     private val transferStore: FileTransferStore,
     private val outbox: OutboxProcessor,
     private val outboxStore: PacketOutbox,
-    private val emitEvent: suspend (TransferEvent) -> Unit,
-    private val onEnded: suspend (TransferId) -> Unit,
+    private val onEvent: suspend (TransferEvent) -> Unit,
+    private val onEnded: suspend (OutgoingTransfer) -> Unit,
 ) {
     private sealed interface SessionMsg {
-        /** The loop's idle timeout: the periodic per-transfer tick. */
+        /** The periodic tick: delivered ahead of queued messages, so a busy mailbox never starves it. */
         data object Tick : SessionMsg
         data class Ack(val from: PeerId, val highestContiguousIndex: Int) : SessionMsg
         data class Cancelled(val from: PeerId, val reason: FileCancelReason) : SessionMsg
@@ -64,7 +61,10 @@ internal class OutgoingTransferSession(
     }
 
     private val mailbox = Channel<SessionMsg>(Channel.UNLIMITED)
+    private val ticks = Channel<SessionMsg.Tick>(Channel.CONFLATED)
+    private val queued = initialQueued.toMutableSet()
     private var transfer = initial
+    private var lastProgressAt: Instant = ctx.clock.now()
     private var ended = false
     private var started = false
     private var goneReported = false
@@ -74,14 +74,13 @@ internal class OutgoingTransferSession(
     val peer: PeerId = initial.peer
 
     /**
-     * Starts the loop as a child of [scope]. [initialTick] reproduces the engine's first pass at
-     * start: unlike a transfer started afterwards, a recovered (or pre-start) one is settled and
-     * checked at once.
+     * Starts the loop as a child of [scope]; the engine calls it under its registry lock. With
+     * [initialTick] a recovered transfer is settled and checked at once instead of a tick later.
      */
     fun launch(scope: CoroutineScope, initialTick: Boolean) {
         if (started) return
         started = true
-        scope.launch { run(initialTick) }
+        scope.launch { guarded("session") { run(initialTick) } }
     }
 
     /**
@@ -112,24 +111,26 @@ internal class OutgoingTransferSession(
         mailbox.trySend(SessionMsg.Cancel)
     }
 
-    private suspend fun run(initialTick: Boolean) {
+    private suspend fun run(initialTick: Boolean) = coroutineScope {
+        // A fixed cadence, independent of traffic: each tick is due one interval after the last.
+        val ticker = launch {
+            while (true) {
+                delay(ctx.routerConfig.value.fileSweepInterval / TICKS_PER_SWEEP)
+                ticks.trySend(SessionMsg.Tick)
+            }
+        }
         try {
             if (initialTick) guarded("recovery tick") { tick() }
             while (!ended) {
-                val message = withTimeoutOrNull(tickEvery()) { mailbox.receive() } ?: SessionMsg.Tick
+                // The tick clause comes first: select prefers it whenever both are ready.
+                val message = select<SessionMsg> {
+                    ticks.onReceive { it }
+                    mailbox.onReceive { it }
+                }
                 guarded("message") { onMessage(message) }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "File transfer session failed",
-                throwable = e,
-                fields = mapOf("transferId" to transfer.transferId),
-            )
         } finally {
+            ticker.cancel()
             mailbox.close()
             if (!ended) source.close()
         }
@@ -145,9 +146,6 @@ internal class OutgoingTransferSession(
             SessionMsg.Cancel -> cancelOwn()
         }
     }
-
-    /** The per-transfer tick: a third of the file sweep cadence. */
-    private fun tickEvery(): Duration = ctx.routerConfig.value.fileSweepInterval / 3
 
     /**
      * Expiry, a lost OFFER re-armed, a stalled window refilled, and the gone signals: before the
@@ -186,7 +184,7 @@ internal class OutgoingTransferSession(
             nextChunkIndex = maxOf(transfer.nextChunkIndex, covered + 1),
         )
         transferStore.setProgress(transfer.transferId, transfer.nextChunkIndex, transfer.contiguousAcked)
-        emitEvent(TransferEvent.Progress(transfer))
+        onEvent(TransferEvent.Progress(transfer))
         settle()
     }
 
@@ -296,42 +294,29 @@ internal class OutgoingTransferSession(
     private suspend fun reportGone() {
         if (goneReported) return
         goneReported = true
-        emitEvent(TransferEvent.Gone(transfer))
+        onEvent(TransferEvent.Gone(transfer))
     }
 
+    /** Ends the transfer once: the loop stops and the engine writes the final rows. */
     private suspend fun end(status: FileTransferStatus) {
         if (ended) return
-        transferStore.setStatus(transfer.transferId, status)
-        outboxStore.deleteByTag(tag())
-        transferStore.deleteChunks(transfer.transferId)
+        ended = true
         source.close()
         transfer = transfer.copy(status = status)
-        AppLog.info(
-            component = LogComponent.FILE,
-            event = LogEvent.FILE_TRANSFER_ENDED,
-            message = "File transfer ended",
-            fields = mapOf("transferId" to transfer.transferId, "peer" to transfer.peer, "status" to status),
-        )
-        ended = true
-        onEnded(transfer.transferId)
-        emitEvent(TransferEvent.Ended(transfer))
+        onEnded(transfer)
     }
 
-    private fun tag() = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value)
+    private fun tag() = transferTag(transfer.transferId)
 
-    private suspend fun guarded(what: String, block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "File transfer $what failed",
-                throwable = e,
-                fields = mapOf("transferId" to transfer.transferId),
-            )
-        }
+    private inline fun guarded(what: String, block: () -> Unit) {
+        fileGuarded("File transfer $what failed", mapOf("transferId" to transferId), block = block)
+    }
+
+    private companion object {
+        /** Session ticks per file sweep interval: expiry, gone checks and OFFER re-arms run this often. */
+        const val TICKS_PER_SWEEP = 3
     }
 }
+
+/** The outbox tag every OFFER and chunk of [transferId] carries. */
+internal fun transferTag(transferId: TransferId) = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferId.value)

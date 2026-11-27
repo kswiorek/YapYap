@@ -137,3 +137,94 @@ internal data class FileCoverage(
     val contiguousBytes: Long,
     val missingRanges: List<ByteRange>,
 )
+
+/** Verdict for an OFFER: accept, short-circuit (already held), refuse, or wait. */
+internal sealed interface FileOfferVerdict {
+    data object Accept : FileOfferVerdict
+
+    /**
+     * This device already holds the file: the OFFER is ACKed, gets no row, and is
+     * answered with COMPLETE — never DECLINED (a refusal would read as "won't serve").
+     */
+    data object AlreadyReady : FileOfferVerdict
+
+    data class Refuse(val reason: FileRefusalReason) : FileOfferVerdict
+
+    /** Prerequisites missing — silent (no ACK, no NACK, dedup cleared). */
+    data object Defer : FileOfferVerdict
+}
+
+internal enum class FileRefusalReason {
+    NO_SPACE,
+
+    /** The block list does not hash to the fileId (the sender's copy is treated as bad). */
+    INVALID_OFFER,
+
+    /** Terminal states (FAILED/DECLINED/CANCELLED/EVICTED) are never auto-resurrected. */
+    NOT_RETRYABLE,
+}
+
+/**
+ * Result of handing one large-file DATA frame's bytes to the receive engine (design §6.6, §8).
+ * DATA frames arrive in order and append at P without staging. A failed write or verify throws,
+ * leaving P where it was; `offset` other than the uncommitted end throws [IllegalArgumentException].
+ */
+internal sealed interface FileAppendResult {
+    /** P after this call (often unchanged: checkpoints move it by bytes and by time). */
+    data class Appended(val committedBytes: Long) : FileAppendResult
+
+    /** The file is complete: this append finished it (the engine reports READY on its own flow; the orchestrator then ends the incoming transfers), or it already was. */
+    data object Ready : FileAppendResult
+
+    /** A block failed its hash: truncated to its start; the requester ABORTs and re-asks. */
+    data class Mismatch(val blockIndex: Int) : FileAppendResult
+
+    /** The disk is full: the receive is DECLINED locally; the requester ABORTs and the request ends. */
+    data object NoSpace : FileAppendResult
+
+    /** The receive ended locally (declined, failed, forgotten): the requester stops, nothing to blame. */
+    data object Ended : FileAppendResult
+
+    /** Recovery is not done yet: retry the same bytes shortly. */
+    data object Defer : FileAppendResult
+}
+
+/** Result of handing one decrypted chunk to the receive engine (synchronous, design §8). */
+internal sealed interface FileIngestResult {
+    /** Decrypted and durably recorded: the chunk may now be ACKed. Carries the new P. */
+    data class Staged(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
+
+    /** The chunk completed the file: checkpointed at completion (READY is reported on the engine's own flow; the orchestrator then ends the incoming transfers). */
+    data class Ready(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
+
+    /** Fully-covered range (a duplicate across transfers/relays): ACK, nothing stored. */
+    data class Duplicate(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
+
+    /** Staging bound hit or a transient failure: silent (no ACK, no NACK, dedup cleared); the sender retries. */
+    data object Defer : FileIngestResult
+
+    /** No space or otherwise refused: answered DECLINED; the sender ends quietly. */
+    data object Refused : FileIngestResult
+}
+
+/** One bounded, verified read from a [PlaintextStream]. */
+internal sealed interface PlaintextRead {
+    /** Verified bytes (never empty; EOF is separate). */
+    data class Bytes(val bytes: ByteArray) : PlaintextRead {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+            other as Bytes
+            if (!bytes.contentEquals(other.bytes)) return false
+            return true
+        }
+
+        override fun hashCode(): Int = bytes.contentHashCode()
+    }
+
+    /** End of file: every byte was verified. */
+    data object Eof : PlaintextRead
+
+    /** The block at [blockIndex] failed verification: the serve ends here. */
+    data class SourceLost(val blockIndex: Int) : PlaintextRead
+}

@@ -1,45 +1,34 @@
 package org.yapyap.routing.file.large
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.LargeFileFrame
+import org.yapyap.routing.file.HolderSession
 import org.yapyap.routing.file.LargeFileAdmission
 import org.yapyap.routing.file.LargeFileServeClaim
+import org.yapyap.routing.file.fileGuarded
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.PlaintextRead
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.FileChannelId
-import kotlin.concurrent.Volatile
 import kotlin.time.Clock
-
-/**
- * One incoming PULL channel: serves the file holder side (design §6.6). Sends PULL_OK then DATA
- * from a [FilePlaintextSource] stream, staying within the credit window past the last PROGRESS and
- * the transport's buffered threshold. Ends on channel close or after an idle timeout.
- */
-internal class HolderSession(
-    val channel: FileChannelId,
-    @Volatile var lastProgress: Long,
-    @Volatile var lastProgressAt: Long,
-)
+import kotlin.time.Duration
 
 /**
  * The large path's holder (design §6.6): gate a PULL, answer PULL_OK or DECLINED, then stream the
- * file from the requester's offset. It owns only its serve loops; the channel maps and claims are
- * the mux's.
+ * file from the requester's offset within the credit window past its last PROGRESS and the
+ * transport's buffered threshold. Each serve runs on the coroutine the mux launched for its PULL
+ * and ends with its channel; the channel maps and claims are [LargeFileChannels]'.
  */
 internal class LargeFileHolder(
     private val transport: WebRtcTransport,
@@ -48,95 +37,31 @@ internal class LargeFileHolder(
     private val routerConfig: StateFlow<RouterConfig>,
     private val fileLimits: StateFlow<FileLimits>,
     private val gate: LargeFileAdmissionGate,
-    private val mux: LargeFileMux,
+    private val channels: LargeFileChannels,
     private val io: LargeFileChannelIo,
     private val clock: Clock = Clock.System,
 ) {
-    @Volatile
-    private var scope: CoroutineScope? = null
-
-    fun start(scope: CoroutineScope) {
-        this.scope = scope
-    }
-
     /**
-     * A PULL claims its channel before the gate runs: a repeated PULL on the same channel is
-     * ignored at once, and one peer holds at most [MAX_SERVES_PER_PEER] serves (each an open
-     * stream and channel); past that it is told to come back later, never declined.
+     * Serves one PULL for as long as its channel lives. The PULL claims its channel before the gate
+     * runs: a repeated PULL on the same channel is ignored at once, and one peer holds at most
+     * `maxLargeFileServesPerPeer` serves; past that it is told to come back later, never declined.
      */
     suspend fun handlePull(channel: FileChannelId, frame: LargeFileFrame.Pull) {
-        var claimed = false
-        try {
-            when (mux.claimServe(channel, MAX_SERVES_PER_PEER)) {
-                LargeFileServeClaim.ALREADY -> return
-                LargeFileServeClaim.BUSY -> {
-                    io.sendAbort(channel, LargeFileAbortReason.CANCELLED, "busy")
-                    io.closeQuietly(channel)
-                    return
-                }
-
-                LargeFileServeClaim.CLAIMED -> claimed = true
-            }
-            if (!startServe(channel, frame)) {
-                mux.releaseServe(channel)
-                claimed = false
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_FETCH_FAILED,
-                message = "Fetch serve request failed",
-                throwable = e,
-                fields = mapOf("fileId" to frame.fileId),
-            )
-            io.closeQuietly(channel)
-            if (claimed) mux.releaseServe(channel)
+        when (channels.claimServe(channel, routerConfig.value.maxLargeFileServesPerPeer)) {
+            LargeFileServeClaim.ALREADY -> return
+            LargeFileServeClaim.BUSY -> return abortAndClose(channel, LargeFileAbortReason.CANCELLED, "busy")
+            LargeFileServeClaim.CLAIMED -> Unit
         }
-    }
-
-    /** Runs the gate and starts the serve; false when no serve started. */
-    private suspend fun startServe(channel: FileChannelId, frame: LargeFileFrame.Pull): Boolean {
-        when (val admission = gate.admit(channel.peer, frame.fileId, frame.fromOffset)) {
-            is LargeFileAdmission.Declined -> {
-                io.sendDeclined(channel, admission.reason)
-                return false
-            }
-
-            is LargeFileAdmission.Abort -> {
-                io.sendAbort(channel, admission.reason, admission.text)
-                io.closeQuietly(channel)
-                return false
-            }
-
-            is LargeFileAdmission.Allowed -> {
-                if (!io.sendPullOk(channel, admission.manifest)) {
-                    io.closeQuietly(channel)
-                    return false
-                }
-                val session = HolderSession(
-                    channel = channel,
-                    lastProgress = frame.fromOffset,
-                    lastProgressAt = clock.now().toEpochMilliseconds(),
-                )
-                mux.registerHolder(session)
-                checkNotNull(scope) { "LargeFileHolder is not running" }
-                    .launch { serveLoop(session, admission.manifest, frame.fromOffset) }
-                try {
-                    events.emit(FileEvent.ServeStarted(frame.fileId, admission.account))
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    AppLog.error(
-                        component = LogComponent.FILE,
-                        event = LogEvent.FILE_TASK_FAILED,
-                        message = "Failed to emit fetch serve event",
-                        throwable = e,
-                    )
-                }
-                return true
-            }
+        try {
+            fileGuarded(
+                "Large file serve failed",
+                mapOf("fileId" to frame.fileId),
+                event = LogEvent.LARGE_FILE_FAILED
+            ) {
+                serve(channel, frame)
+            } ?: io.closeQuietly(channel)
+        } finally {
+            onChannelGone(channel)
         }
     }
 
@@ -148,7 +73,7 @@ internal class LargeFileHolder(
                 // our stream and channel forever.
                 if (payload.contiguousBytes > session.lastProgress) {
                     session.lastProgress = payload.contiguousBytes
-                    session.lastProgressAt = clock.now().toEpochMilliseconds()
+                    session.lastProgressAt = clock.now()
                 }
             }
 
@@ -159,143 +84,112 @@ internal class LargeFileHolder(
 
     /** The channel is gone or its serve ended: forget it, release the claim, close it once. */
     suspend fun onChannelGone(channel: FileChannelId) {
-        val existed = mux.forgetHolder(channel)
-        if (existed) io.closeQuietly(channel)
+        if (channels.forgetHolder(channel)) io.closeQuietly(channel)
     }
 
-    private suspend fun serveLoop(session: HolderSession, info: FileManifest, fromOffset: Long) {
-        val stream = try {
-            plaintext.open(info.fileId, fromOffset)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "Fetch serve open failed",
-                throwable = e,
-                fields = mapOf("fileId" to info.fileId),
-            )
-            io.sendAbort(session.channel, LargeFileAbortReason.SOURCE_ERROR, null)
-            onChannelGone(session.channel)
-            return
+    /** Runs the gate, answers it, and streams the file when allowed. */
+    private suspend fun serve(channel: FileChannelId, frame: LargeFileFrame.Pull) {
+        val allowed = when (val admission = gate.admit(channel.peer, frame.fileId, frame.fromOffset)) {
+            is LargeFileAdmission.Declined -> return io.sendDeclined(channel, admission.reason)
+            is LargeFileAdmission.Abort -> return abortAndClose(channel, admission.reason, admission.text)
+            is LargeFileAdmission.Allowed -> admission
         }
-        if (stream == null) {
-            io.sendAbort(session.channel, LargeFileAbortReason.SOURCE_ERROR, null)
-            onChannelGone(session.channel)
-            return
+        if (!io.sendPullOk(channel, allowed.manifest)) return io.closeQuietly(channel)
+        val session = HolderSession(channel, lastProgress = frame.fromOffset, lastProgressAt = clock.now())
+        channels.registerHolder(session)
+        fileGuarded("Failed to emit the large-file serve event") {
+            events.emit(FileEvent.ServeStarted(frame.fileId, allowed.account))
         }
-        try {
-            val window = routerConfig.value.largeFileStreamWindowBytes
+        stream(session, allowed.manifest, frame.fromOffset)
+    }
+
+    /**
+     * Streams [manifest]'s bytes from [fromOffset], then parks until the requester holds them all.
+     * Any early end (source lost, requester gone, a failed send) returns; [handlePull] closes.
+     */
+    private suspend fun stream(session: HolderSession, manifest: FileManifest, fromOffset: Long) {
+        val source = openSource(manifest.fileId, fromOffset)
+            ?: return io.sendAbort(session.channel, LargeFileAbortReason.SOURCE_ERROR, null)
+        source.use { stream ->
             var offset = fromOffset
-            while (offset < info.totalBytes) {
-                // Idle timeout with no PROGRESS: the requester is gone; end the serve so a
-                // parked holder never strands the requester (which is bounded by its channel).
-                // Uses the attempt scope (not the receiver gap trigger, which aborts the
-                // requester side): a legitimate long Defer keeps PROGRESS flowing via byte
-                // checkpoints, so only a dead requester trips this.
-                if (clock.now().toEpochMilliseconds() - session.lastProgressAt >
-                    routerConfig.value.fileRequestAttemptTimeout.inWholeMilliseconds
-                ) {
-                    break
-                }
-                if (offset > session.lastProgress + window) {
-                    delay(routerConfig.value.largeFilePacingDelay)
-                    continue
-                }
-                // Bounded like the idle check: a buffer that never drains is a requester that stopped
-                // reading, and the idle check above does not run while we wait here.
-                val drained = try {
-                    withTimeoutOrNull(routerConfig.value.fileRequestAttemptTimeout) {
-                        transport.awaitBufferedBelow(session.channel, routerConfig.value.largeFileBufferedResumeBytes)
-                    } != null
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    AppLog.error(
-                        component = LogComponent.FILE,
-                        event = LogEvent.FILE_TASK_FAILED,
-                        message = "Fetch backpressure wait failed; ending serve",
-                        throwable = e,
-                    )
-                    break
-                }
-                if (!drained) break
-                val maxBytes = minOf(fileLimits.value.largeFileFrameBytes.toLong(), info.totalBytes - offset).toInt()
-                    .coerceAtLeast(1)
-                val read = try {
-                    stream.read(maxBytes)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    AppLog.error(
-                        component = LogComponent.FILE,
-                        event = LogEvent.FILE_TASK_FAILED,
-                        message = "Fetch serve read failed",
-                        throwable = e,
-                        fields = mapOf("fileId" to info.fileId),
-                    )
-                    io.sendAbort(session.channel, LargeFileAbortReason.SOURCE_ERROR, null)
-                    onChannelGone(session.channel)
-                    return
-                }
-                when (read) {
+            while (offset < manifest.totalBytes) {
+                if (!awaitCredit(session, offset)) return
+                val maxBytes =
+                    minOf(fileLimits.value.largeFileFrameBytes.toLong(), manifest.totalBytes - offset).toInt()
+                when (val read = read(stream, maxBytes, manifest.fileId)) {
                     is PlaintextRead.Bytes -> {
                         if (read.bytes.isEmpty()) {
                             delay(routerConfig.value.largeFilePacingDelay)
-                            continue
+                        } else {
+                            if (!sendData(session, read.bytes, manifest.fileId)) return
+                            offset += read.bytes.size
                         }
-                        val sent = try {
-                            transport.sendFileFrame(session.channel, LargeFileFrame.Data(read.bytes).encode())
-                            true
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            AppLog.error(
-                                component = LogComponent.FILE,
-                                event = LogEvent.FILE_FETCH_FAILED,
-                                message = "Failed to send fetch DATA frame; ending serve",
-                                throwable = e,
-                                fields = mapOf("fileId" to info.fileId),
-                            )
-                            false
-                        }
-                        if (!sent) {
-                            onChannelGone(session.channel)
-                            return
-                        }
-                        offset += read.bytes.size
                     }
 
-                    // The source ended short of totalBytes: the serve ends (cleaned up below).
-                    is PlaintextRead.Eof -> break
-                    is PlaintextRead.SourceLost -> {
-                        io.sendAbort(session.channel, LargeFileAbortReason.SOURCE_ERROR, null)
-                        onChannelGone(session.channel)
-                        return
-                    }
+                    // The source ended short of totalBytes: the serve ends.
+                    PlaintextRead.Eof -> return
+                    is PlaintextRead.SourceLost, null ->
+                        return io.sendAbort(session.channel, LargeFileAbortReason.SOURCE_ERROR, null)
                 }
             }
-            // All bytes sent: the requester closes on READY, and the holder parks until then. A
-            // requester that stops making progress (or never closes) is reaped by the same idle
-            // timeout, so a parked holder never keeps its stream and channel forever. An early
-            // break (idle timeout, backpressure failure) ends the serve at once.
-            if (offset >= info.totalBytes) {
-                while (mux.holderFor(session.channel) != null && session.lastProgress < info.totalBytes &&
-                    clock.now().toEpochMilliseconds() - session.lastProgressAt <=
-                    routerConfig.value.fileRequestAttemptTimeout.inWholeMilliseconds
-                ) {
-                    delay(routerConfig.value.largeFileParkedPoll)
-                }
-            }
-            onChannelGone(session.channel)
-        } finally {
-            stream.close()
+            parkUntilHeld(session, manifest.totalBytes)
         }
     }
 
-    private companion object {
-        /** Serves one peer may hold open at once (each holds a plaintext stream and a channel). */
-        const val MAX_SERVES_PER_PEER = 4
+    private suspend fun openSource(fileId: FileId, fromOffset: Long): PlaintextStream? =
+        fileGuarded("Large file serve open failed", mapOf("fileId" to fileId)) { plaintext.open(fileId, fromOffset) }
+
+    private suspend fun read(stream: PlaintextStream, maxBytes: Int, fileId: FileId): PlaintextRead? =
+        fileGuarded("Large file serve read failed", mapOf("fileId" to fileId)) { stream.read(maxBytes) }
+
+    /**
+     * Waits until the next frame fits: within the window past the last PROGRESS, and below the
+     * transport's buffered threshold. False when the requester is gone: no real PROGRESS for the
+     * idle timeout, or a buffer that never drains (a requester that stopped reading).
+     */
+    private suspend fun awaitCredit(session: HolderSession, offset: Long): Boolean {
+        val config = routerConfig.value
+        while (offset > session.lastProgress + config.largeFileStreamWindowBytes) {
+            if (idle(session)) return false
+            delay(config.largeFilePacingDelay)
+        }
+        if (idle(session)) return false
+        return fileGuarded("Large file backpressure wait failed; ending the serve") {
+            withTimeoutOrNull(idleTimeout()) {
+                transport.awaitBufferedBelow(session.channel, config.largeFileBufferedResumeBytes)
+            } != null
+        } == true
+    }
+
+    private suspend fun sendData(session: HolderSession, bytes: ByteArray, fileId: FileId): Boolean =
+        fileGuarded(
+            "Failed to send a large-file DATA frame; ending the serve",
+            mapOf("fileId" to fileId),
+            event = LogEvent.LARGE_FILE_FAILED,
+        ) { transport.sendFileFrame(session.channel, LargeFileFrame.Data(bytes).encode()) } != null
+
+    /**
+     * Every byte is sent: the requester closes on READY, and the holder parks until then. A
+     * requester that stops making progress (or never closes) is reaped by the idle timeout, so a
+     * parked holder never keeps its stream and channel forever.
+     */
+    private suspend fun parkUntilHeld(session: HolderSession, totalBytes: Long) {
+        while (channels.holderFor(session.channel) != null && session.lastProgress < totalBytes && !idle(session)) {
+            delay(routerConfig.value.largeFileParkedPoll)
+        }
+    }
+
+    /**
+     * No real PROGRESS for the idle timeout: the requester is gone. A legitimate long Defer on its
+     * side keeps PROGRESS flowing through byte checkpoints, so only a dead requester trips this.
+     */
+    private fun idle(session: HolderSession): Boolean = clock.now() - session.lastProgressAt > idleTimeout()
+
+    /** The holder's idle bound: one pull attempt's budget, as long as the requester waits for PULL_OK. */
+    private fun idleTimeout(): Duration = routerConfig.value.filePullAttemptTimeout
+
+    private suspend fun abortAndClose(channel: FileChannelId, reason: LargeFileAbortReason, text: String?) {
+        io.sendAbort(channel, reason, text)
+        io.closeQuietly(channel)
     }
 }

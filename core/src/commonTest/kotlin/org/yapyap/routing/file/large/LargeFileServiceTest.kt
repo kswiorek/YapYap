@@ -242,7 +242,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             val outcome = withTimeout(10.seconds) {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             assertEquals(LargeFileResult.DECLINED, outcome, "unknown account must decline")
             assertEquals(0, requesterGate.appendCalls, "nothing written on decline")
@@ -283,7 +283,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             val outcome = withTimeout(10.seconds) {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             assertEquals(LargeFileResult.DECLINED, outcome, "bad block list must decline, got $outcome")
             assertEquals(0, requesterGate.appendCalls, "no bytes accepted before the list check")
@@ -328,7 +328,7 @@ class LargeFileServiceTest {
             requester.runIn(scope)
             val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
             try {
-                val outcome = withTimeout(10.seconds) { requester.fetch(aliceDevice, fileId, 0L) }
+                val outcome = withTimeout(10.seconds) { requester.pull(aliceDevice, fileId, 0L) }
                 assertEquals(expected, outcome, "verdict $verdict")
                 assertEquals(0, requesterGate.appendCalls, "verdict $verdict: no bytes accepted")
             } finally {
@@ -376,7 +376,7 @@ class LargeFileServiceTest {
         try {
             var result: LargeFileResult? = null
             val fetchJob = launch {
-                result = requester.fetch(aliceDevice, fileId, 0L)
+                result = requester.pull(aliceDevice, fileId, 0L)
             }
             withTimeout(10.seconds) {
                 while (holder.activeCount() == 0 && requester.activeCount() == 0) delay(10.milliseconds)
@@ -450,7 +450,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             val fetchJob = launch {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             fun sentBytes() = aliceTransport.sendFileFrameCalls.toList().sumOf { (_, payload) ->
                 val frame = try {
@@ -502,7 +502,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             withTimeout(10.seconds) {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             val allPayloads = aliceTransport.sendFileFrameCalls.map { it.second } +
                     bobTransport.sendFileFrameCalls.map { it.second }
@@ -548,7 +548,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             val result = withTimeout(10.seconds) {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             assertEquals(LargeFileResult.NO_SPACE, result)
             // Local refusal never counts against the holder: no declined outcome, just an ABORT.
@@ -596,7 +596,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             val result = withTimeout(10.seconds) {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             assertEquals(LargeFileResult.MISMATCH, result)
         } finally {
@@ -642,7 +642,7 @@ class LargeFileServiceTest {
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
         try {
             val result = withTimeout(10.seconds) {
-                requester.fetch(aliceDevice, fileId, 0L)
+                requester.pull(aliceDevice, fileId, 0L)
             }
             assertEquals(LargeFileResult.SATISFIED, result)
             assertTrue(defers >= 3, "deferred frames retried, none dropped")
@@ -687,7 +687,7 @@ class LargeFileServiceTest {
     fun appendAfterTheReceiveEnded_endsWithoutBlame() = runBlocking {
         val gate = TestGate(totalBytes = 64 * 1024L, appendImpl = { _, _ -> FileAppendResult.Ended })
         fetchWith(gate) { requester ->
-            assertEquals(LargeFileResult.ENDED, withTimeout(10.seconds) { requester.fetch(aliceDevice, fileId, 0L) })
+            assertEquals(LargeFileResult.ENDED, withTimeout(10.seconds) { requester.pull(aliceDevice, fileId, 0L) })
         }
     }
 
@@ -696,9 +696,9 @@ class LargeFileServiceTest {
         val gate = TestGate(totalBytes = 64 * 1024L, appendImpl = { _, _ -> FileAppendResult.Defer })
         fetchWith(gate) { requester ->
             coroutineScope {
-                val result = async { requester.fetch(aliceDevice, fileId, 0L) }
+                val result = async { requester.pull(aliceDevice, fileId, 0L) }
                 withTimeout(10.seconds) { while (gate.appendCalls == 0) delay(10.milliseconds) }
-                requester.abortFetch(fileId, LargeFileAbortReason.CANCELLED)
+                requester.abortPull(fileId, LargeFileAbortReason.CANCELLED)
                 // The retry loop sees the abort; the fetch is bounded even while the engine defers.
                 assertEquals(LargeFileResult.UNANSWERED, withTimeout(10.seconds) { result.await() })
             }
@@ -720,7 +720,7 @@ class LargeFileServiceTest {
         requester.runIn(scope)
         try {
             coroutineScope {
-                val result = async { requester.fetch(aliceDevice, fileId, 0L) }
+                val result = async { requester.pull(aliceDevice, fileId, 0L) }
                 val channel = withTimeout(10.seconds) {
                     while (bobTransport.sendFileFrameCalls.isEmpty()) delay(10.milliseconds)
                     bobTransport.sendFileFrameCalls.first().first

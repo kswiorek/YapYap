@@ -15,6 +15,11 @@ import kotlin.coroutines.cancellation.CancellationException
  * REQUEST handler (design §9): the serve gate decides, then the seal registry serves with a fresh
  * seal from the requester's held coverage. Refusals are DECLINED so the requester moves to its
  * next candidate at once; the ACK means "serving", and the serve's OFFER follows.
+ *
+ * The serve's seal is made inline, on the inbound path: the ACK must mean the seal exists and its
+ * transfer is queued (ACK means processed), and a seal that can't be made must answer DECLINED
+ * now rather than leave the requester waiting out `fileRequestWaitTimeout`. The work is local
+ * crypto and two inserts — the same order as opening any inbound message — never a network wait.
  */
 internal class FileServeHandler(
     private val ctx: RoutingContext,

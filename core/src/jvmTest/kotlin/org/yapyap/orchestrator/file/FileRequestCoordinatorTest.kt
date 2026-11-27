@@ -438,6 +438,32 @@ class FileRequestCoordinatorTest {
     }
 
     @Test
+    fun stalledPendingReceive_laterSweeps_reArmWithoutResettingTheSchedule() = runTest {
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.STALLED, totalBytes = 1_000L,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 1,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        h.pending.upsertPending(fileId, now)
+        h.coordinator.start(this)
+        repeat(3) {
+            advanceTimeBy(61.seconds)
+            runCurrent()
+        }
+        assertTrue(h.router.startedFiles.isNotEmpty())
+        assertTrue(
+            h.router.startedFiles.none { (_, immediate) -> immediate },
+            "an already-pending stalled file never moves routing's schedule to now",
+        )
+        h.coordinator.stop()
+    }
+
+    @Test
     fun stalledReceive_whoseRequestRanOutOfHolders_isNotReArmedBySweeps() = runTest {
         val h = harness()
         h.receives.upsert(

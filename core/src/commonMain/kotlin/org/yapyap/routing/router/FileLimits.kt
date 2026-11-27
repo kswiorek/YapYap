@@ -2,7 +2,7 @@ package org.yapyap.routing.router
 
 /**
  * File-transfer sizes handed to the router by the composition root: plaintext bytes per
- * small-path chunk and file bytes per large-path DATA frame. Chained from the transport limits
+ * small-path chunk, file bytes per large-path DATA frame, and the largest seal an OFFER carries. Chained from the transport limits
  * (`wiring/FileLimits`, the size-limits rule of guide §2): each layer states only its own framing
  * overhead, the composition root subtracts them, and this is the router's piece.
  */

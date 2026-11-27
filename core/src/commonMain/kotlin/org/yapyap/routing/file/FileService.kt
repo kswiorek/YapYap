@@ -100,7 +100,7 @@ internal class FileService(
 
     // Large-file pull (design §6.6): the pull protocol on dedicated file channels; no
     // envelopes, no outbox. One session per channel on each end; state dies with the channel.
-    private val fetchService = LargeFileService(
+    private val largeFiles = LargeFileService(
         devices = ctx.devices,
         transport = ctx.webRtcTransport,
         plaintext = plaintext,
@@ -123,7 +123,7 @@ internal class FileService(
         events = events,
         linkKeeper = torLinkKeeper,
         webRtcLinks = webRtcLinkKeeper,
-        fetchService = fetchService,
+        largeFiles = largeFiles,
     )
 
     private val target = TargetSide(ctx, packets, incomingStore, ingest, requests, pullProcessor, outboxProcessor)
@@ -158,7 +158,7 @@ internal class FileService(
     }
 
     override suspend fun abortLargeFile(fileId: FileId, reason: LargeFileAbortReason) {
-        fetchService.abortFetch(fileId, reason)
+        largeFiles.abortPull(fileId, reason)
     }
 
     override suspend fun endIncoming(fileId: FileId, end: FileReceiveEnd) {
@@ -177,7 +177,7 @@ internal class FileService(
         engine.runIn(scope),
         target.runIn(scope),
         pullProcessor.runIn(scope),
-        fetchService.runIn(scope),
+        largeFiles.runIn(scope),
         outcomes.runIn(scope, LogComponent.FILE) { outcome ->
             when (outcome.tag.kind) {
                 OutboxTag.Kind.FILE_TRANSFER -> engine.onOutcome(outcome)

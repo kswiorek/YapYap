@@ -251,6 +251,7 @@ internal class DefaultRouter(
 
     private val outcomeServices: Map<OutboxTag.Kind, RouterService> =
         services.flatMap { service -> service.outcomeTags.map { it to service } }.toMap()
+            .also { require(it.size == services.sumOf { service -> service.outcomeTags.size }) { "Two services claim one outcome tag" } }
 
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = ctx,

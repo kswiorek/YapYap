@@ -379,6 +379,25 @@ class TransferEngineTest {
     }
 
     @Test
+    fun busyMailbox_stillTicks_soExpiryEndsTheTransfer() = runTest {
+        val h = sealTransferHarness()
+        h.engine.runIn(backgroundScope)
+        h.seals.push(fixtureFileId, fixtureAccount)
+        val transfer = h.transfersFor(peerA).single()
+        h.offerPacketOf(transfer.transferId)
+        h.clock.advanceTo(epochSeconds(10_000L) + 3.days)
+
+        // A receiver stuck on its prefix repeats the same coverage far faster than the tick
+        // cadence; only the periodic tick checks expiry.
+        repeat(120) {
+            h.engine.onAck(transfer.transferId, peerA, highestContiguousIndex = -1)
+            delay(500.milliseconds)
+        }
+
+        assertEquals(FileTransferStatus.EXPIRED, h.transferStore.find(transfer.transferId)?.status)
+    }
+
+    @Test
     fun complete_fromWrongSource_isIgnored() = runTest {
         val h = sealTransferHarness()
         h.seals.push(fixtureFileId, fixtureAccount)

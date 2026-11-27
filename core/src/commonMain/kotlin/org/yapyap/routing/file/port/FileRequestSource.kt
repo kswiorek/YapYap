@@ -25,7 +25,7 @@ internal interface FileRequestSource {
 
     /**
      * Total bytes of [fileId] as known from its message attachment or receive row, or null when
-     * unknown. Picks the small (outbox REQUEST) or large (session and fetch) path; the boundary is
+     * unknown. Picks the small (outbox REQUEST) or large (WebRTC session and pull) path; the boundary is
      * the network's small-file limit (`RouterConfig.smallFileMaxBytes`, design §1).
      */
     suspend fun requestTotalBytes(fileId: FileId): Long?

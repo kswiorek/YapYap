@@ -1,9 +1,6 @@
 package org.yapyap.routing.file
 
 import kotlinx.coroutines.flow.MutableSharedFlow
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -22,13 +19,12 @@ import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FilePullClass
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 
 /**
  * Large-file plug into the shared candidate core (design §9, §6.6): the same
  * one-candidate-at-a-time loop as small REQUESTs, but each attempt opens a WebRTC
- * session and runs a fetch instead of enqueueing a packet. PULL_OK plays the ACK
+ * session and pulls the bytes instead of enqueueing a packet. PULL_OK plays the ACK
  * and DECLINED the DECLINED, with no WAITING state — the answer and the bytes
  * come on the same channel. An unreachable candidate is not a decline: the request
  * stays PENDING until a candidate comes online. Online-but-unconnectable is reported
@@ -39,7 +35,7 @@ internal class LargeFileStrategy(
     private val pullAttempts: FilePullAttemptStore,
     private val requests: FileRequestSource,
     private val webRtcLinks: LinkKeeper,
-    private val fetchService: LargeFileService,
+    private val largeFiles: LargeFileService,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
     override val attempts: CandidateAttemptStore<FileId> = pullAttempts.candidateStore(FilePullClass.LARGE)
@@ -68,9 +64,9 @@ internal class LargeFileStrategy(
     }
 
     /**
-     * One fetch attempt against [device]: open the session, then stream from the
+     * One pull attempt against [device]: open the session, then stream from the
      * checkpointed offset. The core records the attempt before calling, so a crash
-     * mid-fetch never re-asks at once; every outcome below only steers the next pass.
+     * mid-pull never re-asks at once; every outcome below only steers the next pass.
      * Unexpected failures propagate: the core logs them and counts the attempt unanswered.
      */
     suspend fun runPull(id: FileId, device: PeerId): CallOutcome {
@@ -85,7 +81,7 @@ internal class LargeFileStrategy(
             }
             return CallOutcome.NoDirectConnection
         }
-        return when (fetchService.fetch(device, id, coverage.contiguousBytes)) {
+        return when (largeFiles.pull(device, id, coverage.contiguousBytes)) {
             LargeFileResult.SATISFIED -> {
                 emitBestEffort(FileEvent.RequestSatisfied(id))
                 CallOutcome.Satisfied
@@ -102,22 +98,8 @@ internal class LargeFileStrategy(
         }
     }
 
-    /**
-     * Best-effort event emission: a cancelled collector must tear the fetch down (rethrow),
-     * while any other emission failure is logged and ignored (the attempt is already recorded).
-     */
+    /** Best-effort event emission: a failure is logged and ignored (the attempt is already recorded). */
     private suspend fun emitBestEffort(event: FileEvent) {
-        try {
-            events.emit(event)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "Failed to emit fetch event; the attempt is already recorded",
-                throwable = e,
-            )
-        }
+        fileGuarded("Failed to emit a large-file pull event; the attempt is already recorded") { events.emit(event) }
     }
 }

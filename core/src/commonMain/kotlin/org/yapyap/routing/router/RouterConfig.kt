@@ -153,7 +153,7 @@ internal data class RouterConfig(
     val filePullDelay: Duration = 60.seconds,
     /**
      * Cadence of the routing file sweeps (the seal registry's, the relay forwards' and the target
-     * side's); the transfer session tick runs at a third of it. Distinct from the orchestrator's
+     * side's); each transfer session ticks three times per interval. Distinct from the orchestrator's
      * `fileSweepInterval`, which paces the request-trigger sweep.
      */
     val fileSweepInterval: Duration = 45.seconds,
@@ -171,10 +171,12 @@ internal data class RouterConfig(
      */
     val fileChunkRetryDelay: Duration = 10.seconds,
     /**
-     * One file REQUEST's lifetime: unanswered (no ACK or NACK) by then, the next candidate
-     * is asked. Over an open link a request is answered within seconds.
+     * One file pull attempt's answer budget, both classes: a small REQUEST unanswered (no ACK or
+     * NACK) by then, or a large PULL with no PULL_OK/DECLINED, moves to the next candidate. It also
+     * bounds a large-file holder's wait for a requester that stopped making progress. Over an open
+     * link an attempt is answered within seconds.
      */
-    val fileRequestAttemptTimeout: Duration = 90.seconds,
+    val filePullAttemptTimeout: Duration = 90.seconds,
     /**
      * How long a REQUEST waits for the serve's OFFER after the ACK ("I hold it, serving") before
      * the next candidate is asked.
@@ -204,6 +206,8 @@ internal data class RouterConfig(
     val largeFileStreamWindowBytes: Long = 32L * 1024L * 1024L,
     /** Large-file pulls running at once per node (design §9, one candidate at a time per file). */
     val maxConcurrentLargeFiles: Int = 2,
+    /** Large-file serves one peer may hold open at once (each holds a plaintext stream and a channel). */
+    val maxLargeFileServesPerPeer: Int = 4,
     /**
      * The close-race grace before a requester treats a channel close as the outcome: a real
      * DECLINED/PULL_OK arriving just after the close still wins (design §6.6).
@@ -275,12 +279,13 @@ internal data class RouterConfig(
         require(fileTransferTtl > Duration.ZERO) { "fileTransferTtl must be > 0" }
         require(maxInFlightChunks > 0) { "maxInFlightChunks must be > 0" }
         require(fileChunkRetryDelay > Duration.ZERO) { "fileChunkRetryDelay must be > 0" }
-        require(fileRequestAttemptTimeout > Duration.ZERO) { "fileRequestAttemptTimeout must be > 0" }
+        require(filePullAttemptTimeout > Duration.ZERO) { "filePullAttemptTimeout must be > 0" }
         require(fileRequestWaitTimeout > Duration.ZERO) { "fileRequestWaitTimeout must be > 0" }
         require(chunkAckTimeout > Duration.ZERO) { "chunkAckTimeout must be > 0" }
         require(largeFileSessionOpenTimeout > Duration.ZERO) { "largeFileSessionOpenTimeout must be > 0" }
         require(largeFileStreamWindowBytes > 0) { "largeFileStreamWindowBytes must be > 0" }
         require(maxConcurrentLargeFiles > 0) { "maxConcurrentLargeFiles must be > 0" }
+        require(maxLargeFileServesPerPeer > 0) { "maxLargeFileServesPerPeer must be > 0" }
         require(largeFileAnswerGrace > Duration.ZERO) { "largeFileAnswerGrace must be > 0" }
         require(largeFilePacingDelay > Duration.ZERO) { "largeFilePacingDelay must be > 0" }
         require(largeFileDeferRetry > Duration.ZERO) { "largeFileDeferRetry must be > 0" }

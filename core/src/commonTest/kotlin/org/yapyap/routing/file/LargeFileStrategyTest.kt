@@ -186,7 +186,7 @@ class LargeFileStrategyTest {
         advanceClock: Boolean = false,
         routerConfig: RouterConfig = RouterConfig(
             largeFileSessionOpenTimeout = 300.milliseconds,
-            fileRequestAttemptTimeout = 2.seconds,
+            filePullAttemptTimeout = 2.seconds,
         ),
         dataBytes: ByteArray = ByteArray(largeTotal.toInt()) { (it * 7).toByte() },
     ): Fixture {
@@ -273,7 +273,7 @@ class LargeFileStrategyTest {
             events = events,
             linkKeeper = torLinkKeeper,
             webRtcLinks = webRtcLinkKeeper,
-            fetchService = requesterManager,
+            largeFiles = requesterManager,
         )
         val holderTransports = holderDevices.associateWith { RecordingWebRtcTransport() }
         val holderManagers = holderDevices.associateWith { device ->

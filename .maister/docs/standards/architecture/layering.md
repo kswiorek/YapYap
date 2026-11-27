@@ -80,7 +80,7 @@ Evidence:
 - router.md service table: `messages` (`MessageCarrier`: sendMessage, incomingMessages, deliveries, sendTypingIndicator,
   typingIndicators, frontiers, startSync, reopenSync), `bootstrap` (`BootstrapCarrier`: sendBootstrap, bootstrapPackets,
   deliveries), `presence` (`Presence`: onlineAccounts, accountReach, localLinkStatus, localTorEndpoint, announceOnline),
-  `files` (`FileCarrier`: pushFile, cancelFile, sendState, startFileRequest, abortFileFetch, endIncoming, fileEvents).
+  `files` (`FileCarrier`: pushFile, cancelFile, sendState, startFilePull, abortLargeFile, endIncoming, fileEvents).
 
 ### Fan-out split: orchestrator per room, router per account
 

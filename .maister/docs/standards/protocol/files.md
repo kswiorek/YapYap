@@ -142,12 +142,12 @@ Evidence:
 
 ### fileId stays off the wire
 
-`fileId` stays off the wire everywhere except inside sealed content (the seal, REQUEST) and the large path's FETCH
+`fileId` stays off the wire everywhere except inside sealed content (the seal, REQUEST) and the large path's PULL
 frame. File facts only inside the seal: no chunk size, no transfer data.
 
 Sources: docs (envelope-redesign.md §4, §5.2) · confidence 88.
 Evidence:
 
 - envelope-redesign.md §4: "`fileId` stays off the wire everywhere except inside sealed content (the seal, REQUEST) and
-  the large path's `FETCH` frame."
+  the large path's `PULL` frame."
 - envelope-redesign.md §5.2: "File facts only: no chunk size, no transfer data."

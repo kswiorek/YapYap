@@ -34,9 +34,9 @@ internal fun fileLimitsFor(transport: TransportLimits): FileLimits {
     require(largeFileFrame > 0) {
         "WebRTC frames (${transport.webRtcMaxPayloadBytes} bytes) leave no room for a large-file frame"
     }
-    // The chunk floor is stricter than the seal budget (the OFFER header is larger than a CHUNK's),
-    // so a frame that leaves room for a chunk always leaves room for a seal: the derivation above is
-    // the bound, and ConfigInvariants surfaces this check's failure through fileLimitsFor.
+    require(maxSealBytes > 0) {
+        "Transport frames (${transport.maxRoutableBytes} bytes) leave no room for a file seal"
+    }
     return FileLimits(
         chunkSizeBytes = chunkSize,
         largeFileFrameBytes = largeFileFrame,

@@ -178,7 +178,7 @@ class FileRelayTest {
             ctx = ctx, packets = packets, pullAttempts = attempts, requests = ports, outboxProcessor = processor,
             peerPolicy = org.yapyap.routing.policy.DefaultSyncPeerPolicy(ctx),
             maxIdlePoll = MutableStateFlow(1.seconds), events = events,
-            linkKeeper = idleKeeper, webRtcLinks = idleKeeper, fetchService = fetchService,
+            linkKeeper = idleKeeper, webRtcLinks = idleKeeper, largeFiles = fetchService,
         )
         val target = TargetSide(ctx, packets, incoming, ports, ports, requestProcessor, processor)
         val sealRegistry = SealRegistry(ctx, seals, transfers, engine, plaintext, NoRelaySelection, events)

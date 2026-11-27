@@ -3,11 +3,15 @@ package org.yapyap.routing.file
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.LargeFileDeclineReason
+import org.yapyap.protocol.LargeFileFrame
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.TransferShape
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.store.OutgoingTransfer
+import org.yapyap.transport.webrtc.types.FileChannelId
+import kotlin.concurrent.Volatile
+import kotlin.time.Instant
 
 /** What happened to an outgoing transfer; its owner (the seal registry or the relay forwards) reacts. */
 internal sealed interface TransferEvent {
@@ -78,4 +82,38 @@ internal sealed interface LargeFileAdmission {
 
     /** The request is structurally unusable (a bad offset): ABORT and close. */
     data class Abort(val reason: LargeFileAbortReason, val text: String?) : LargeFileAdmission
+}
+
+/**
+ * One large-file serve's live state (design §6.6): the last PROGRESS the requester reported and
+ * when it last moved. The holder streams within the window past [lastProgress]; the mux updates
+ * both from the requester's frames.
+ */
+internal class HolderSession(
+    val channel: FileChannelId,
+    @Volatile var lastProgress: Long,
+    @Volatile var lastProgressAt: Instant,
+)
+
+/** What the mux hands one requester session. */
+internal sealed interface RequesterInput {
+    data class Frame(val frame: LargeFileFrame) : RequesterInput
+    data object ChannelClosed : RequesterInput
+}
+
+/** The holder's answer to our PULL. */
+internal sealed interface RequesterAnswer {
+    data class Ok(val ok: LargeFileFrame.PullOk) : RequesterAnswer
+
+    /** The holder's own DECLINED: the only answer that counts as a decline. */
+    data class Declined(val reason: LargeFileDeclineReason) : RequesterAnswer
+
+    /**
+     * Settled on our side or by the holder giving up, never a decline by the holder: our own
+     * refusal or Defer at PULL_OK, a holder ABORT. The pull returns [result] as it is.
+     */
+    data class Settled(val result: LargeFileResult) : RequesterAnswer
+
+    /** The channel closed before any answer: backoff, never a decline. */
+    data object Closed : RequesterAnswer
 }

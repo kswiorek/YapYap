@@ -121,7 +121,7 @@ import kotlin.uuid.Uuid
  * mesh only carries signaling-sized traffic; no FILE packet and no FILE outbox
  * row is ever produced on either side.
  */
-class FileLargeFetchTwoRouterTest {
+class FileLargePullTwoRouterTest {
 
     private val aliceAccount = AccountId("file-large-alice-account")
     private val bobAccount = AccountId("file-large-bob-account")

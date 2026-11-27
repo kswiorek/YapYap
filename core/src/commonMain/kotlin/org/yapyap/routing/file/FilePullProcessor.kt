@@ -31,7 +31,7 @@ import kotlin.time.Duration
  * core with an outbox executor.
  *
  * Large files: the same one-candidate-at-a-time loop on the shared core, but the
- * attempt opens a WebRTC session and runs a fetch (no WAITING state, no outbox).
+ * attempt opens a WebRTC session and pulls the bytes over it (no WAITING state, no outbox).
  * PULL_OK and DECLINED are the attempt's outcomes. An unreachable candidate
  * is not a decline — the request stays PENDING until a candidate comes online.
  * Online-but-unconnectable is "no direct connection" (never over Tor).
@@ -49,7 +49,7 @@ internal class FilePullProcessor(
     linkKeeper: LinkKeeper,
     /** The WebRTC keeper: a large file needs that link, so its core nudges it and awaits it. */
     webRtcLinks: LinkKeeper,
-    fetchService: LargeFileService,
+    largeFiles: LargeFileService,
 ) {
     private val smallStrategy = FileRequestStrategy(ctx, packets, pullAttempts, requests, outboxProcessor, events)
     private val smallCore = CandidateRequestCore(
@@ -60,7 +60,7 @@ internal class FilePullProcessor(
         maxIdlePoll = maxIdlePoll,
         linkKeeper = linkKeeper,
     )
-    private val largeStrategy = LargeFileStrategy(ctx, pullAttempts, requests, webRtcLinks, fetchService, events)
+    private val largeStrategy = LargeFileStrategy(ctx, pullAttempts, requests, webRtcLinks, largeFiles, events)
     private val largeCore = CandidateRequestCore(
         ctx = ctx,
         strategy = largeStrategy,

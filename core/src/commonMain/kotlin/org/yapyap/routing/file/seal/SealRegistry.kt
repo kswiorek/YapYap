@@ -25,6 +25,7 @@ import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileSeal
 import org.yapyap.protocol.envelopes.TransferShape
 import org.yapyap.routing.file.TransferEvent
+import org.yapyap.routing.file.fileGuarded
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileFailureReason
 import org.yapyap.routing.file.port.FileManifest
@@ -61,9 +62,10 @@ import kotlin.uuid.Uuid
  *
  * The mutex only plans: it decides what needs a seal (and reserves it in [inFlight]), which
  * transfers to cancel, or which relays a deposit goes to. The expensive part — crypto, store
- * inserts, `TransferEngine.start` and `TransferEngine.cancel` — runs outside it in guarded launches
- * (one per device, relay or transfer, joined before the entry point returns), so a multi-device
- * push never blocks every serve, COMPLETE and settle behind it.
+ * inserts and `TransferEngine.start` — runs outside it in guarded launches (one per device or
+ * relay, joined before the entry point returns), so a multi-device push never blocks every serve,
+ * COMPLETE and settle behind it. Cancels are posted to the transfers' sessions, also outside the
+ * lock; each ends shortly after and comes back as an Ended event.
  */
 internal class SealRegistry(
     private val ctx: RoutingContext,
@@ -103,6 +105,9 @@ internal class SealRegistry(
         /** A serve of the same file to the device is already under way: answer success. */
         data object AlreadyServing : ServePlan
 
+        /** A seal for the same pair (push or serve) is being made right now: decline. */
+        data object InFlight : ServePlan
+
         /** Make the seal; these transfers are superseded and end first. */
         data class Make(val plan: SealPlan, val cancel: List<TransferId>) : ServePlan
     }
@@ -118,7 +123,7 @@ internal class SealRegistry(
     /**
      * Seals [fileId] for every device of [target] that has no live seal of it and pushes it.
      * A held file above the network's small-file limit is a silent no-op (large files are
-     * pull-only); a file this device does not hold still reports Failed as before.
+     * pull-only); a file this device does not hold reports Failed.
      */
     suspend fun push(fileId: FileId, target: AccountId) {
         val manifest = plaintext.describe(fileId) ?: run {
@@ -163,45 +168,44 @@ internal class SealRegistry(
         if (manifest.totalBytes > ctx.routerConfig.value.smallFileMaxBytes) return false
         val chunkSize = ctx.fileLimits.value.chunkSizeBytes
         val byteFrom = (fromOffset.coerceIn(0, manifest.totalBytes) / chunkSize) * chunkSize
-        val key = fileId to device
-        val started = when (
-            val decision = mutex.withLock {
-                if (key in inFlight) return@withLock null
-                val now = ctx.clock.now()
-                val direct = sealStore.byFileAndTarget(fileId, device).filter { it.status.isLive }
-                    .flatMap { seal ->
-                        transferStore.bySeal(seal.sealId).filter { it.peer == device && it.status.isLive }
-                            .map { seal to it }
-                    }
-                val underWay = direct.any { (seal, transfer) ->
-                    seal.kind == FileSealKind.SERVE && transfer.shape.byteFrom <= byteFrom &&
-                            now - transfer.createdAt < ctx.routerConfig.value.fileRequestAttemptTimeout
-                }
-                if (underWay) return@withLock ServePlan.AlreadyServing
-                val lease = Lease()
-                inFlight[key] = lease
-                ServePlan.Make(
-                    plan = SealPlan(manifest, device, FileSealKind.SERVE, byteFrom, lease),
-                    cancel = direct.map { it.second.transferId },
-                )
-            }
-        ) {
-            null -> return false
+        val plan = when (val decision = planServe(manifest, device, byteFrom)) {
+            ServePlan.InFlight -> return false
             ServePlan.AlreadyServing -> return true
-            is ServePlan.Make -> {
-                val plan = decision.plan
-                try {
-                    cancelTransfers(decision.cancel)
-                    makeSeal(plan)
-                } finally {
-                    release(plan)
-                }
-            }
+            is ServePlan.Make -> decision
+        }
+        val started = try {
+            cancelTransfers(plan.cancel)
+            makeSeal(plan.plan)
+        } finally {
+            release(plan.plan)
         }
         if (!started) return false
         ctx.devices.getAccountIdForDevice(device)?.let { events.emit(FileEvent.ServeStarted(fileId, it)) }
         return true
     }
+
+    private suspend fun planServe(manifest: FileManifest, device: PeerId, byteFrom: Long): ServePlan =
+        mutex.withLock {
+            val key = manifest.fileId to device
+            if (key in inFlight) return@withLock ServePlan.InFlight
+            val now = ctx.clock.now()
+            val direct = sealStore.byFileAndTarget(manifest.fileId, device).filter { it.status.isLive }
+                .flatMap { seal ->
+                    transferStore.bySeal(seal.sealId).filter { it.peer == device && it.status.isLive }
+                        .map { seal to it }
+                }
+            val underWay = direct.any { (seal, transfer) ->
+                seal.kind == FileSealKind.SERVE && transfer.shape.byteFrom <= byteFrom &&
+                        now - transfer.createdAt < ctx.routerConfig.value.filePullAttemptTimeout
+            }
+            if (underWay) return@withLock ServePlan.AlreadyServing
+            val lease = Lease()
+            inFlight[key] = lease
+            ServePlan.Make(
+                plan = SealPlan(manifest, device, FileSealKind.SERVE, byteFrom, lease),
+                cancel = direct.map { it.second.transferId },
+            )
+        }
 
     /** User cancel: every live push seal of [fileId] to [target]'s devices ends with its transfers. */
     suspend fun cancel(fileId: FileId, target: AccountId) {
@@ -341,23 +345,30 @@ internal class SealRegistry(
         }
     }
 
-    /** Expired seals go, with their transfers; a seal still sending reports EXPIRED first. */
+    /**
+     * Expired seals go, with their transfers. A seal still sending reports EXPIRED first; its live
+     * transfers are cancelled, and the seal and its rows are deleted on the first sweep that finds
+     * every transfer ended, so no row is removed under a running session.
+     */
     private suspend fun sweep() {
         val now = ctx.clock.now()
         for (seal in sealStore.live()) cancelTransfers(settle(seal.sealId))
-        for (seal in sealStore.expiredAt(now)) {
-            val toCancel = mutex.withLock {
+        for (expired in sealStore.expiredAt(now)) {
+            val live = mutex.withLock {
+                val seal = sealStore.find(expired.sealId) ?: return@withLock emptyList()
                 if (seal.status == FileSealStatus.SENDING) sealStore.setStatus(seal.sealId, FileSealStatus.EXPIRED)
                 liveTransferIds(seal.sealId)
             }
-            cancelTransfers(toCancel)
-            report(seal)
-            mutex.withLock {
-                transferStore.bySeal(seal.sealId).forEach { transferStore.delete(it.transferId) }
-                sealStore.delete(seal.sealId)
-                if (sealStore.byFile(seal.fileId).isEmpty()) reported.keys.removeAll { it.first == seal.fileId }
-            }
+            cancelTransfers(live)
+            report(expired)
+            if (live.isEmpty()) forget(expired)
         }
+    }
+
+    private suspend fun forget(seal: OutgoingSeal) = mutex.withLock {
+        transferStore.bySeal(seal.sealId).forEach { transferStore.delete(it.transferId) }
+        sealStore.delete(seal.sealId)
+        if (sealStore.byFile(seal.fileId).isEmpty()) reported.keys.removeAll { it.first == seal.fileId }
     }
 
     /**
@@ -394,7 +405,7 @@ internal class SealRegistry(
 
     /** Makes one seal (crypto, store insert, first transfer); false when it can't be made now. */
     private suspend fun makeSeal(plan: SealPlan): Boolean =
-        guarded("seal ${plan.device}") {
+        guarded("seal", mapOf("fileId" to plan.manifest.fileId, "device" to plan.device)) {
             createSeal(plan.manifest, plan.device, plan.kind, plan.byteFrom)
         } ?: false
 
@@ -481,17 +492,10 @@ internal class SealRegistry(
         expiresAt = seal.expiresAt,
     )
 
-    /** Ends the given transfers outside the lock, one guarded launch each. */
+    /** Posts a cancel to each transfer, outside the lock (see [TransferEngine.cancel]). */
     private suspend fun cancelTransfers(transferIds: List<TransferId>) {
-        if (transferIds.isEmpty()) return
-        coroutineScope {
-            for (transferId in transferIds) {
-                launch {
-                    guarded("cancel", fields = mapOf("transferId" to transferId)) {
-                        engine.cancel(transferId)
-                    }
-                }
-            }
+        for (transferId in transferIds) {
+            guarded("cancel", mapOf("transferId" to transferId)) { engine.cancel(transferId) }
         }
     }
 
@@ -573,24 +577,6 @@ internal class SealRegistry(
     private suspend fun peerDevices(target: AccountId): List<PeerId> =
         ctx.devices.getAllPeerDevicesForAccount(target).filter { it != ctx.localDeviceId }
 
-    private suspend fun <T> guarded(
-        what: String,
-        fields: Map<String, Any?> = emptyMap(),
-        block: suspend () -> T,
-    ): T? {
-        return try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "Seal registry $what failed",
-                throwable = e,
-                fields = fields,
-            )
-            null
-        }
-    }
+    private inline fun <T> guarded(what: String, fields: Map<String, Any?> = emptyMap(), block: () -> T): T? =
+        fileGuarded("Seal registry $what failed", fields, block = block)
 }

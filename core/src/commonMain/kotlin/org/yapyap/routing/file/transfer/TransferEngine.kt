@@ -18,6 +18,7 @@ import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.routing.file.FilePackets
 import org.yapyap.routing.file.TransferEvent
+import org.yapyap.routing.file.fileGuarded
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
@@ -26,11 +27,9 @@ import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStatus
 import org.yapyap.routing.store.FileTransferStore
-import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.routing.store.PacketOutbox
 import kotlin.concurrent.Volatile
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 
 /**
@@ -66,27 +65,39 @@ internal class TransferEngine(
     /** Completes when the start-time recovery has rebuilt every live session. */
     private val recovered = CompletableDeferred<Unit>()
 
-    /** Inserts [transfer] and sends its OFFER (a re-arm is the session tick's job). */
+    /**
+     * Inserts [transfer] and sends its OFFER (a re-arm is the session tick's job). The row and its
+     * session appear together under the registry lock, so a [cancel] never sees one without the
+     * other.
+     */
     suspend fun start(transfer: OutgoingTransfer) {
         awaitRecovery()
-        transferStore.insert(transfer)
-        guarded("offer") {
-            val source = sourceFor(transfer) ?: return@guarded endWithoutSession(transfer, FileTransferStatus.ENDED)
+        val session = registryLock.withLock {
+            transferStore.insert(transfer)
             // The row was just inserted: its running state is fresh, no re-read or recovery needed.
-            val session = newSession(transfer, source, mutableSetOf(), offerSentAt = null)
-            if (!register(session)) return@guarded
-            session.begin()
-            sessionScope?.let { session.launch(it, initialTick = false) }
-        }
+            val source = sourceFor(transfer) ?: return@withLock null
+            newSession(transfer, source, emptySet(), offerSentAt = null).also { sessions[it.transferId] = it }
+        } ?: return finish(transfer.copy(status = FileTransferStatus.ENDED))
+        session.begin()
+        sessionScope?.let { scope -> registryLock.withLock { session.launch(scope, initialTick = false) } }
     }
 
     /**
-     * Posts a cancel to the transfer's session: the session sends the CANCEL and ends itself.
-     * Row cleanup happens in the session's coroutine, not here.
+     * Cancels [transferId] if it is still live. A running session is posted the cancel — it sends
+     * the CANCEL and ends itself shortly, reported as [TransferEvent.Ended] like any other end; a
+     * live row with no session (its recovery failed) is ended here at once. Never waits for the
+     * session, so a hung transfer cannot stall its canceller.
      */
     suspend fun cancel(transferId: TransferId) {
         awaitRecovery()
-        session(transferId)?.cancel()
+        val orphan = registryLock.withLock {
+            sessions[transferId]?.let { session ->
+                session.cancel()
+                return@withLock null
+            }
+            transferStore.find(transferId)?.takeIf { it.status.isLive }
+        } ?: return
+        finish(orphan.copy(status = FileTransferStatus.CANCELLED))
     }
 
     /** True when [transferId] is a transfer we send (live or ended), so inbound control for it is ours. */
@@ -116,7 +127,7 @@ internal class TransferEngine(
     /**
      * Starts the engine: rebuilds a session per live transfer from its rows plus the outbox,
      * launches every session, and re-routes link-downs. Recovery ends a transfer whose source is
-     * gone; a recovered session takes one immediate tick, as the old shared tick did.
+     * gone; a recovered session is settled and checked at once.
      *
      * The mux waits on [recovered] before touching the registry, so a control packet or outbox
      * outcome that arrives while rows are being rebuilt is applied after recovery instead of
@@ -140,40 +151,40 @@ internal class TransferEngine(
             if (transfer.transferId in known) continue
             guarded("recover ${transfer.transferId}") { recoverOne(transfer) }
         }
-        for (active in sessionsSnapshot()) active.launch(scope, initialTick = true)
+        registryLock.withLock { sessions.values.forEach { it.launch(scope, initialTick = true) } }
     }
 
     /** Rebuilds one session's window from its chunk rows still queued in the outbox. */
     private suspend fun recoverOne(transfer: OutgoingTransfer) {
-        val source = sourceFor(transfer) ?: return endWithoutSession(transfer, FileTransferStatus.ENDED)
-        val stillQueued = outboxStore.packetIdsByTag(tag(transfer)).toSet()
+        val source = sourceFor(transfer) ?: return finish(transfer.copy(status = FileTransferStatus.ENDED))
+        val stillQueued = outboxStore.packetIdsByTag(transferTag(transfer.transferId)).toSet()
         val queued = mutableSetOf<Int>()
         for ((index, packetId) in transferStore.chunks(transfer.transferId)) {
             if (packetId in stillQueued) queued += index else transferStore.deleteChunk(packetId)
         }
         val now = ctx.clock.now()
         // A fresh start (also after a restart) is not evidence the peer is gone: clocks start now.
-        register(newSession(transfer, source, queued, offerSentAt = transfer.offerPacketId?.let { now }))
+        val session = newSession(transfer, source, queued, offerSentAt = transfer.offerPacketId?.let { now })
+        registryLock.withLock { sessions.getOrPut(transfer.transferId) { session } }
     }
 
     private fun newSession(
         transfer: OutgoingTransfer,
         source: ChunkSource,
-        queued: MutableSet<Int>,
+        queued: Set<Int>,
         offerSentAt: Instant?,
     ) = OutgoingTransferSession(
         initial = transfer,
         source = source,
-        queued = queued,
-        lastProgressAt = ctx.clock.now(),
+        initialQueued = queued,
         offerSentAt = offerSentAt,
         ctx = ctx,
         packets = packets,
         transferStore = transferStore,
         outbox = outbox,
         outboxStore = outboxStore,
-        emitEvent = eventFlow::emit,
-        onEnded = { transferId -> deregister(transferId) },
+        onEvent = eventFlow::emit,
+        onEnded = ::finish,
     )
 
     private suspend fun onLinkDown(peer: PeerId) {
@@ -184,23 +195,6 @@ internal class TransferEngine(
 
     private suspend fun session(transferId: TransferId): OutgoingTransferSession? =
         registryLock.withLock { sessions[transferId] }
-
-    /** Registers [session] unless one already exists for its id; false in that case. */
-    private suspend fun register(session: OutgoingTransferSession): Boolean = registryLock.withLock {
-        if (sessions.containsKey(session.transferId)) {
-            false
-        } else {
-            sessions[session.transferId] = session
-            true
-        }
-    }
-
-    private suspend fun deregister(transferId: TransferId) {
-        registryLock.withLock { sessions.remove(transferId) }
-    }
-
-    private suspend fun sessionsSnapshot(): List<OutgoingTransferSession> =
-        registryLock.withLock { sessions.values.toList() }
 
     /**
      * The startup barrier: before the recovery completes, a mux call waits instead of looking at a
@@ -222,34 +216,26 @@ internal class TransferEngine(
         }
     }
 
-    /** Ends a row with no live source (its seal or relay copy is gone): nothing left to send. */
-    private suspend fun endWithoutSession(transfer: OutgoingTransfer, status: FileTransferStatus) {
-        transferStore.setStatus(transfer.transferId, status)
-        outboxStore.deleteByTag(tag(transfer))
-        transferStore.deleteChunks(transfer.transferId)
+    /**
+     * Writes a transfer's end — [ended] carries its final status — and reports it: the session is
+     * forgotten, the row takes the status, its queued packets and chunk rows go. Every end passes
+     * here, from a session or for a row that never got one.
+     */
+    private suspend fun finish(ended: OutgoingTransfer) {
+        registryLock.withLock { sessions.remove(ended.transferId) }
+        transferStore.setStatus(ended.transferId, ended.status)
+        outboxStore.deleteByTag(transferTag(ended.transferId))
+        transferStore.deleteChunks(ended.transferId)
         AppLog.info(
             component = LogComponent.FILE,
             event = LogEvent.FILE_TRANSFER_ENDED,
             message = "File transfer ended",
-            fields = mapOf("transferId" to transfer.transferId, "peer" to transfer.peer, "status" to status),
+            fields = mapOf("transferId" to ended.transferId, "peer" to ended.peer, "status" to ended.status),
         )
-        eventFlow.emit(TransferEvent.Ended(transfer.copy(status = status)))
+        eventFlow.emit(TransferEvent.Ended(ended))
     }
 
-    private fun tag(transfer: OutgoingTransfer) = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value)
-
-    private suspend fun guarded(what: String, block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "File transfer engine $what failed",
-                throwable = e,
-            )
-        }
+    private inline fun guarded(what: String, block: () -> Unit) {
+        fileGuarded("File transfer engine $what failed", block = block)
     }
 }

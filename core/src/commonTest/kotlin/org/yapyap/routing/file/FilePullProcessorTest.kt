@@ -109,7 +109,7 @@ class FilePullProcessorTest {
         clock = clock,
     )
 
-    private fun idleFetchManager(
+    private fun idleLargeFiles(
         ctx: RoutingContext,
         clock: FakeClock,
         config: RouterConfig,
@@ -187,7 +187,7 @@ class FilePullProcessorTest {
             events = events,
             linkKeeper = idleLinkKeeper(ctx, clock, routerConfig),
             webRtcLinks = idleLinkKeeper(ctx, clock, routerConfig, webRtc = true),
-            fetchService = idleFetchManager(ctx, clock, routerConfig, events),
+            largeFiles = idleLargeFiles(ctx, clock, routerConfig, events),
         )
         return Harness(ctx, outbox, outboxProcessor, attempts, events, processor, policy, gate)
     }

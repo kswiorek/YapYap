@@ -1,9 +1,6 @@
 package org.yapyap.routing.file
 
 import kotlinx.coroutines.flow.MutableSharedFlow
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -21,7 +18,6 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FilePullClass
 import org.yapyap.routing.store.OutboxTag
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -56,7 +52,7 @@ internal class FileRequestStrategy(
         val envelope = packets.request(
             device = device,
             sealedContent = ctx.envelopeProtections.file.sealRequest(request, device),
-            expiresAt = now + ctx.routerConfig.value.fileRequestAttemptTimeout,
+            expiresAt = now + ctx.routerConfig.value.filePullAttemptTimeout,
         )
         // The attempt's id correlates its outbox outcome back to the file.
         return BuiltAttempt(envelope, OutboxTag(OutboxTag.Kind.FILE_REQUEST, Uuid.random()))
@@ -85,17 +81,8 @@ internal class FileRequestStrategy(
 
     override suspend fun onExhausted(id: FileId): Boolean {
         attempts.drop(id)
-        try {
+        fileGuarded("Failed to emit request-unavailable event; the request is already dropped") {
             events.emit(FileEvent.RequestUnavailable(id))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "Failed to emit request-unavailable event; the request is already dropped",
-                throwable = e,
-            )
         }
         return true
     }

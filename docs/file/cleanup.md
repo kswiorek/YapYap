@@ -6,9 +6,9 @@ plan: [`design.md`](design.md) describes the steady state this cleanup produces,
 code gets there. [`../envelope-redesign.md`](../envelope-redesign.md) remains the design of record for the
 small path, and nothing here moves a mechanism: every wire value, every seal, hop and delivery rule stands.
 
-The docs describe how we want the code to be, not necessarily how it is today: until the steps below land,
-the code and these docs disagree — that is the intended state of a reviewed branch. The disagreement is a
-known bug, and this document is its fix.
+**Status: landed** (commits "cleanup 1-3" to "cleanup 7" on the `files` branch, followed by a review pass on
+27 November 2026 that fixed what those steps left — see §7). The code and the steady-state docs now agree;
+where they don't, that is a bug in one of them, as everywhere else.
 
 Review scope: `routing/file` (`FileService` and its tree — seals, transfers, relay, inbound, the request
 loop, the large path), the routing file stores, the candidate core's file plugs, the file config, and the
@@ -583,7 +583,7 @@ Gate: `FileStoreSemanticsJvmTest`; all file suites.
 ### Step 7 — The large path split (§2.11.2)
 
 The five classes per §2.11.2; pacing → config; frame floor dropped.
-Gate: `FileLargeFetchTwoRouterTest` (opt-in natives as usual); the fetch unit tests renamed with the
+Gate: `FileLargePullTwoRouterTest` (opt-in natives as usual); the fetch unit tests renamed with the
 package.
 
 ## 4. The rename table
@@ -610,7 +610,8 @@ package.
 | `TargetSide.held` (the `FileRequestSource` port)           | `requests`                                          |
 
 Unchanged on purpose: `FileHeader.Request`, `FileRequestStrategy`, `OutboxTag.Kind.FILE_REQUEST`,
-`fileRequestAttemptTimeout`/`fileRequestWaitTimeout`, `FileRequestSource` (see §2.5.3 for each reason).
+`fileRequestWaitTimeout`, `FileRequestSource` (see §2.5.3 for each reason); `fileRequestAttemptTimeout` was
+later renamed `filePullAttemptTimeout` (§7).
 
 ## 5. Governance and docs touched in this change
 
@@ -635,3 +636,45 @@ Unchanged on purpose: `FileHeader.Request`, `FileRequestStrategy`, `OutboxTag.Ki
   vocabulary drift on the other side of the seam; a follow-up outside this routing-focused pass.
 - The GUI file surface (guide §8's not-done list) — untouched by this cleanup.
 - A relay-server fallback for no-direct-connection pairs (design.md §18).
+
+## 7. Post-landing review (27 November 2026)
+
+A review of the landed steps found two regressions, two loose ends and some unfinished §2 items; they are
+fixed in the same branch. Recorded here so the reasons are not lost:
+
+- **The transfer session's tick is a fixed cadence.** It was an idle timeout on the mailbox, so a steady
+  stream of messages (repeated same-coverage ACKs, chunk outcomes) starved expiry, the lost-OFFER re-arm and
+  the gone checks. A ticker now feeds a conflated tick channel that the loop selects ahead of the mailbox,
+  three ticks per `fileSweepInterval`.
+- **A stalled file re-asks once, not every sweep.** The orchestrator passed `immediate = true` for every
+  stalled pending file on every sweep, which moved routing's schedule to now each time and defeated the
+  backoff. Only a fresh stall (or a stall with no pending row) is immediate now.
+- **The receiver's small-file limit is checked before the seal opens** (`TargetSide.offer`, from
+  `shape.byteTo`, as `RelayDoor` already did), so a refused OFFER never spends its ratchet message and a
+  resend is the same DECLINED.
+- **Cancelling a transfer is a post, and rows are deleted only after their session ends.**
+  `TransferEngine.cancel` posts to the session (or ends a live row that has no session); the seal sweep
+  and the relay's drop delete transfer rows, seals and relay ciphertext only once no transfer of them is
+  live, and the transfer's Ended event (or the next sweep) finishes the job. The row and its session are
+  created together under the engine's registry lock, and every end — from a session or for a session-less
+  row — writes its rows in one place (`TransferEngine.finish`).
+- **The serve stays on the inbound path, on purpose.** The ACK of a REQUEST must mean the seal exists and its
+  transfer is queued, and a seal that can't be made must answer DECLINED at once; the work is local crypto
+  and two inserts (`FileServeHandler`'s KDoc).
+- **The large path has no late-init.** The mux and the holder referenced each other, and three classes read a
+  scope set after construction. The channel maps and serve claims moved to a `LargeFileChannels` registry
+  that the requester, holder and mux share (requester and holder state still never mix); a pull runs its
+  session loop as a child of the pull call, a serve runs on the coroutine the mux launched for its PULL, so
+  nothing needs a stored scope. This flexes §2.11.2's starting shape, as that section allows.
+- **One catch-and-log shape** (`routing/file/FileGuard.kt`, `fileGuarded`) replaces the hand-rolled
+  try/catch copies across the tree; long functions were split (`LargeFileHolder`'s serve,
+  `LargeFileRequester`'s close-grace branch, `TargetSide.offer`).
+- **Unfinished §2 items done:** `TargetSide.incomingStore`; the port's result types and `PlaintextRead` in
+  `FilePortTypes.kt`, `PlaintextStream` in its own file, the large path's data types in `FileTypes.kt`; no
+  "fetch" left in routing identifiers (`LargeFileService.pull`/`abortPull`, `largeFiles` fields,
+  `LogEvent.LARGE_FILE_FAILED`, `FileLargePullTwoRouterTest`); the holder's per-peer serve cap is
+  `RouterConfig.maxLargeFileServesPerPeer`; `fileLimitsFor` requires a positive `maxSealBytes`;
+  `DefaultRouter` requires the services' outcome tags to be disjoint.
+- **`fileRequestAttemptTimeout` → `filePullAttemptTimeout`.** §2.5.3 kept the old name as small-path REQUEST
+  semantics, but the large path uses the same budget for its PULL answer and the holder's idle bound. The
+  owner chose one shared value named for the pull umbrella over separate large-path fields.

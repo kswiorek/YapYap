@@ -403,6 +403,20 @@ class FileInboundHandlerTest {
     }
 
     @Test
+    fun offer_aboveReceiverSmallFileLimit_resent_isStillDeclined() = runTest {
+        val h = harness()
+        val aboveLimit = h.ctx.routerConfig.value.smallFileMaxBytes + 1
+        val env = offerEnvelope(h, shape = TransferShape(chunkSize, 0, aboveLimit), totalBytes = aboveLimit)
+
+        h.handler.handle(env)
+        val again = assertIs<InboundHandleResult.Rejected>(h.handler.handle(env))
+
+        // Refused before the seal is opened: a resend is the same DECLINED, never an
+        // already-opened protection failure.
+        assertEquals(PacketNackReason.DECLINED, again.reason)
+    }
+
+    @Test
     fun offer_zeroChunkSize_isRejectedAsDecodeFailed() = runTest {
         val h = harness()
         // A zero chunk size cannot be constructed as a TransferShape, so it is encoded by hand:

@@ -12,6 +12,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.TransferId
 import org.yapyap.routing.file.TransferEvent
+import org.yapyap.routing.file.fileGuarded
 import org.yapyap.routing.file.transfer.TransferEngine
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRelayStatus
@@ -19,7 +20,6 @@ import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileTransferStatus
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutgoingTransfer
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
 /**
@@ -64,12 +64,19 @@ internal class RelayForwards(
         )
     }
 
-    /** Forgets a deposit: its forward stops and its stored ciphertext goes. */
+    /**
+     * Forgets a deposit: a live forward is cancelled first, and its end calls this again; once no
+     * forward runs, the forward rows and the stored ciphertext go. The ciphertext is never deleted
+     * under a running forward, which reads its chunks from it.
+     */
     suspend fun drop(relayTransferId: TransferId) = mutex.withLock {
-        for (forward in transferStore.byRelayTransfer(relayTransferId)) {
-            if (forward.status.isLive) engine.cancel(forward.transferId)
-            transferStore.delete(forward.transferId)
+        val forwards = transferStore.byRelayTransfer(relayTransferId)
+        val live = forwards.filter { it.status.isLive }
+        if (live.isNotEmpty()) {
+            live.forEach { engine.cancel(it.transferId) }
+            return@withLock
         }
+        forwards.forEach { transferStore.delete(it.transferId) }
         relayStore.delete(relayTransferId)
     }
 
@@ -108,18 +115,7 @@ internal class RelayForwards(
         }
     }
 
-    private suspend fun guarded(what: String, block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.FILE,
-                event = LogEvent.FILE_TASK_FAILED,
-                message = "Relay forwards $what failed",
-                throwable = e,
-            )
-        }
+    private inline fun guarded(what: String, block: () -> Unit) {
+        fileGuarded("Relay forwards $what failed", block = block)
     }
 }
