@@ -1,73 +1,70 @@
 stateDiagram-v2
-    state "Sender transfer — per device (routing · file_pushes + outbox rows)" as send {
-        [*] --> CREATED
-        CREATED --> IN_FLIGHT: OFFER accepted (direct or deposit)
-        IN_FLIGHT --> COMPLETED: COMPLETE from the target → resolve + cancel deposits
-        IN_FLIGHT --> EXPIRED: fileTransferTtl
-        IN_FLIGHT --> DECLINED: target DECLINED the OFFER — terminal for this device
-IN_FLIGHT --> ENDED: target DECLINED a chunk — transfer gone there, outcome unknown
-CREATED --> ENDED: other terminal NACK on the OFFER — not a refusal
-IN_FLIGHT --> CANCELLED: user cancel, or superseded by a serve to the same device
-        CREATED --> CANCELLED: user cancel before the offer
+    state "Seal — per (file, target device) at its origin (routing · file_seals)" as seal {
+[*] --> SENDING: push or serve · seal made · direct transfer opened
+SENDING --> DELIVERED: direct transfer DONE, or COMPLETE from the target · live deposits cancelled
+SENDING --> HANDED_OFF: one deposit DONE at its relay · direct push stops
+HANDED_OFF --> DELIVERED: COMPLETE from the target
+SENDING --> DECLINED: the target refused the OFFER
+SENDING --> ENDED: every transfer ended otherwise · the pull path recovers
+SENDING --> CANCELLED: user cancel
+SENDING --> EXPIRED: fileTransferTtl · live transfers cancelled
+HANDED_OFF --> EXPIRED: fileTransferTtl
+}
+
+state "Outgoing transfer — any hop we send: ours, deposits, serves, relay forwards (routing · file_transfers_out + outbox rows)" as out {
+[*] --> OFFERED: OFFER queued (tag FILE_TRANSFER)
+OFFERED --> STREAMING: OFFER ACKed · chunks flow within maxInFlightChunks
+STREAMING --> DONE: the receiver holds every chunk
+OFFERED --> DECLINED: the receiver refused the OFFER (target: no space · relay: no room)
+STREAMING --> ENDED: a chunk DECLINED · gone there, outcome unknown
+OFFERED --> ENDED: other terminal NACK on the OFFER
+STREAMING --> EXPIRED: the seal's expiresAt
+STREAMING --> CANCELLED: its owner ended it (seal end, superseding serve, relay drop)
+OFFERED --> CANCELLED: its owner ended it
+}
+
+state "Incoming relay hop — final target is another device (routing · file_incoming_transfers + file_relay_seals/chunks)" as relay {
+[*] --> FILLING: admitted · from the seal's origin · within the pledge budget
+FILLING --> WHOLE: every chunk of the shape stored
+FILLING --> DROPPED: idle for fileRelayIdleTtl · evicted · origin CANCEL · expiry
+WHOLE --> FORWARDING: one forward started (an ordinary outgoing transfer)
+FORWARDING --> DROPPED: the forward ended (done, declined, expired, cancelled)
+WHOLE --> DROPPED: evicted · expiry
+DROPPED --> [*]: the hop row goes, its ciphertext with it
     }
 
 state "Pull — a large file (routing · in memory only · one data channel)" as large {
 [*] --> ASKED: session and file channel open · PULL sent
-ASKED --> STREAMING: PULL_OK · block list matches the fileId
+ASKED --> STREAMING_L: PULL_OK · block list matches the fileId
 ASKED --> ENDED_L: DECLINED · bad block list · session dropped
-STREAMING --> STREAMING: PROGRESS at a checkpoint · window moves (largeFileStreamWindowBytes)
-STREAMING --> DONE_L: READY · channel closed
-STREAMING --> ENDED_L: session dropped · gap-trigger ABORT · bad block at the source
+STREAMING_L --> STREAMING_L: PROGRESS at a checkpoint · window moves (largeFileStreamWindowBytes)
+STREAMING_L --> DONE_L: READY · channel closed
+STREAMING_L --> ENDED_L: session dropped · gap-trigger ABORT · bad block at the source
 ENDED_L --> [*]: nothing kept · the next pull starts at the checkpointed P
     }
 
-    state "Receiver (fileId-scoped · transfers and chunkings merge)" as recv {
-        [*] --> PENDING: OFFER or message seen
-PENDING --> IN_FLIGHT: .part reserved (first OFFER, or PULL_OK · keys live on incoming-transfer rows)
-PENDING --> DECLINED: no space, or a large file this device did not fetch (local)
+state "Receiver (orchestrator · file_receives · fileId-scoped · hops and chunkings merge)" as recv {
+[*] --> IN_FLIGHT: first accepted OFFER, or PULL_OK · .part reserved
+[*] --> DECLINED: no space, or a large file this device did not pull (local)
 IN_FLIGHT --> IN_FLIGHT: checkpoint · blocks verified · P committed · fsync
-IN_FLIGHT --> READY: coverage complete · last block verified · atomic rename · COMPLETE to live authors
+IN_FLIGHT --> READY: coverage complete · last block verified · atomic rename · COMPLETE to the seals' origins
 IN_FLIGHT --> STALLED: block mismatch below fileHashRetryLimit · .part truncated to the block start
-IN_FLIGHT --> FAILED: block mismatch at fileHashRetryLimit
-        IN_FLIGHT --> FAILED: ENOSPC mid-write → CANCEL
-IN_FLIGHT --> STALLED: no prefix progress within fileStallTimeout → REQUEST re-opens · transfers kept
+IN_FLIGHT --> FAILED: block mismatch at fileHashRetryLimit, or ENOSPC mid-write → CANCEL live hops
+IN_FLIGHT --> STALLED: no prefix progress within fileStallTimeout → REQUEST re-opens · hops kept
 STALLED --> IN_FLIGHT: any source resumes delivery
 READY --> EVICTED: quota LRU · fetched again only on a user re-open
-READY --> [*]: no message references it within fileTransferTtl · deleted
-        IN_FLIGHT --> EXPIRED: fileTransferTtl · the passive backstop
+READY --> [*]: no message references it within unreferencedFileRetention · deleted
     }
 
-    state "Relay transfer row (routing · file_relay_transfers)" as relay {
-        [*] --> RESERVED: admission ok · quota reserved · signature verified
-        RESERVED --> WHOLE: covered suffix complete
-        RESERVED --> EXPIRED: reservation TTL · sender never finished
-        WHOLE --> FORWARDING: OFFER to target ACKed
-        WHOLE --> EXPIRED: fileTransferTtl before the target surfaced
-        WHOLE --> DROPPED: target DECLINED the forwarded OFFER (no space)
-        FORWARDING --> DRAINED: every stored chunk ACKed by target · row dropped
-    }
-
-    state "Request row (orchestrator · pending_file_requests)" as req {
-[*] --> PENDING: trigger with guards (small: push window · large: auto-download limit or user click)
+state "Request (routing attempt row · the orchestrator's pending row keeps only PENDING / UNAVAILABLE)" as req {
+[*] --> PENDING: trigger (small: after filePullDelay · large: auto-download limit or user click)
 PENDING --> ASKING: one candidate asked (large: session and file channel opened)
 PENDING --> PENDING: large · every remaining candidate unreachable · wait for one to come online
-ASKING --> WAITING: small · ACK · candidate holds it · offer pending
+ASKING --> WAITING: small · REQUEST ACKed · the holder serves with a fresh seal
 ASKING --> SATISFIED: large · PULL_OK · bytes follow on the same channel
-        WAITING --> SATISFIED: OFFER received · serve transfer takes over
-        WAITING --> PENDING: offer timeout → next candidate
-        ASKING --> PENDING: DECLINED or expiry → next candidate at once
-        ASKING --> UNAVAILABLE: every candidate DECLINED or expired
-SATISFIED --> PENDING: serve transfer died re-requestably (STALLED / EXPIRED · pull ended with its session)
-    }
-
-    state "Outbox marker (routing · outbox row · tag FILE)" as marker {
-        [*] --> QUEUED
-        QUEUED --> DISPATCHED: claimed and sent
-        DISPATCHED --> GONE_ACK: ACK · accepted · engine owns the rest
-DISPATCHED --> GONE_NACK: terminal NACK · target DECLINED = refused · relay DECLINED = next relay · other = ENDED
-        DISPATCHED --> QUEUED: retry cadence · the engine resumes, never restarts
-        QUEUED --> GONE_EXPIRY: expiry · engine state re-arms
-        GONE_ACK --> [*]
-        GONE_NACK --> [*]
-        GONE_EXPIRY --> [*]
+WAITING --> SATISFIED: OFFER received · the serve transfer takes over
+WAITING --> PENDING: fileRequestWaitTimeout → next candidate (the silent holder last)
+ASKING --> PENDING: DECLINED or attempt timeout → next candidate at once
+ASKING --> UNAVAILABLE: every candidate declined
+SATISFIED --> PENDING: the receive stalled again · a pull ended with its session
     }

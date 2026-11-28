@@ -2,8 +2,10 @@
 
 The file-transfer protocol: seals, transfers, chunks. The design of record for this file is docs/envelope-redesign.md
 (agreed 2026-11-24, implemented on the `files` branch) §5 — it supersedes docs/file/ wherever the two disagree.
-**docs/file/ is provisional and unreviewed per the owner; do not mine it for conventions.** The implementation under
-orchestrator/file/ and routing/file/ is likewise freshly redesigned and unreviewed.
+The routing side (routing/file/, the routing file stores) was reviewed and cleaned up in November 2026;
+docs/file/cleanup.md records that review and its decisions, and docs/file/design.md describes the resulting steady
+state. **orchestrator/file/ is still unreviewed — do not mine it for conventions** (its follow-ups were deferred,
+cleanup.md §6).
 
 ### File grains: fileId (orchestrator), sealId (routing), transferId (routing)
 

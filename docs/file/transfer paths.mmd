@@ -1,51 +1,50 @@
 flowchart TD
     %% Send side
     ATTACH([User attaches a file to a message]) --> PICK[GUI picks the file · platform chooser]
-PICK --> COPY[Core copies it into the store, or references it in place · keep-a-copy checkbox<br>block hashes → fileId · classify]
-    COPY --> MSG[Publish message with attachment references<br>notification only — no key, no chunk params]
+PICK --> COPY[Core copies it into the store, or references it in place · keep-a-copy checkbox<br>block hashes → fileId]
+COPY --> MSG[Publish message with attachment references<br>notification only — no key, no transfer params]
 COPY --> CLASS{file class}
 MSG --> CLASS
-CLASS -- " small (≤ smallFileMaxBytes · a network value) " --> FAN[Send fans out: one transfer per device of the account]
-CLASS -- " large (no upper bound) " --> NOPUSH([nothing pushed · each device decides to fetch])
+CLASS -- " small (≤ smallFileMaxBytes · a network value) " --> FAN[Seal registry fans out: one seal per device of the account<br>seal = fileId + block list + seal key, ratchet-encrypted to that device]
+CLASS -- " large (no upper bound) " --> NOPUSH([nothing pushed · each device decides to pull])
 
-FAN --> MARKER[OFFER marker per device · direct link first<br>sealed half: fileId + block list + this transfer's own key, ratchet-encrypted]
+FAN --> DIRECT[Direct transfer · OFFER carries the seal · tag FILE_TRANSFER]
+DIRECT -- " OFFER ACKed " --> CHUNKS[Chunk rows in the outbox · windowed · messages go first<br>AEAD under the seal key · AAD = sealId, offset, length<br>chunk ACK = decrypted + durably staged]
+DIRECT -- " DECLINED by the target " --> DEAD([seal DECLINED · refused for that device])
+DIRECT -- " other terminal NACK " --> ENDEDM([transfer ENDED · REQUEST recovers with a fresh seal])
+CHUNKS -- " every chunk held " --> DELIVERED((seal DELIVERED · live deposits cancelled))
+CHUNKS -- " gone: link closed · no link · no chunk ACK at all for chunkAckTimeout " --> REM[Remainder = from the target's ACKed<br>contiguous prefix to the end]
+DIRECT -- " gone before the ACK: no link · no ACK within relayBackupAfter " --> REM
+REM --> DEPOSIT[One deposit round per seal · claimed durably<br>one transfer per relay RelaySelectionPolicy returns · same seal, same remainder]
+DEPOSIT --> ADM{Relay admission<br>from the seal's origin · known target · within the pledge budget}
+ADM -- DECLINED --> OUT([that relay is out · one jump<br>the origin never chases])
+ADM -- admitted --> HOLD["Relay hop = an incoming transfer like any other<br>keeps only the seal bytes and chunk ciphertext<br>chunk outside the shape or for a dead hop → DECLINED"]
+HOLD --> WHOLE{Every chunk stored?}
+WHOLE -- " no, idle for fileRelayIdleTtl " --> TTL[hop dropped · never forwarded]
+WHOLE -- yes --> HANDED((seal HANDED_OFF at the origin · direct push stops))
+WHOLE -- yes --> FWD[Forward = an ordinary transfer to the final target<br>same seal bytes and shape · chunks read from the store]
+FWD -- " DECLINED by the target (no space) " --> DROP([relay drops the hop · quota freed])
+FWD -- " done " --> FORGET((relay forgets the hop))
 
-MARKER -- " ACK (accepted) " --> CHUNKS[Chunk rows in the outbox · windowed · messages go first<br>routing encrypts plaintext from the orchestrator's source<br>chunk ACK = decrypted + durably staged]
-    MARKER -- "DECLINED (relay full)" --> NEXTRELAY[Next relay or re-offer later]
-    MARKER -- "DECLINED (target)" --> DEAD([send to that device terminally DECLINED])
-MARKER -- " other terminal NACK " --> ENDEDM([transfer ENDED · REQUEST recovers])
-    CHUNKS -- "all ACKed" --> PUSHED((push complete))
-CHUNKS -- " link closed · no link · no chunk ACK at all for chunkAckTimeout " --> REM[Remainder = suffix after the<br>highest contiguous ACKed prefix]
-    REM --> DEPOSIT[Deposit once per transfer · identical set<br>at every relay RelaySelectionPolicy returns]
-    DEPOSIT --> ADM{Admission against<br>the storage pledge}
-    ADM -- accepted --> HOLD
-    ADM -- DECLINED --> OUT([that relay is out · one jump<br>the sender never chases])
-    HOLD["Store ciphertext chunks in the relay store<br>PK (transferId, chunkIndex) · signature verified<br>dead transferId or out-of-range index → DECLINED at the door"]
-    HOLD --> WHOLE{Whole covered suffix?}
-    WHOLE -- no --> TTL[Reservation TTL cleans up<br>never pushed, never offered]
-    WHOLE -- yes --> FOFFER[OFFER marker to the target<br>stored OFFER payload replayed verbatim]
-    FOFFER -- ACK --> FWD[Forward chunks from the store<br>per-chunk ACKs delete rows]
-    FOFFER -- "DECLINED (no space)" --> DROP([relay drops the transfer · quota freed])
-    FWD --> DRAINED((transfer row dropped when drained))
-
-
-    %% Teardown
-    PUSHED --> TEARDOWN[Receiver READY → COMPLETE to every live transfer author<br>each resolves its transfer and cancels its deposits]
-    TEARDOWN --> DONE([transfer COMPLETED])
+%% Target side
+CHUNKS -. delivered .-> TARGET
+FWD -. delivered .-> TARGET
+TARGET[Target: seal opened once · its row written at open<br>later hops of the same seal bind by sealId without decrypting]
+TARGET --> MERGE[Receiver merges into fileId-scoped byte coverage<br>blocks verified at checkpoints → READY]
+MERGE --> COMPLETE[READY → ACK everything to live hops · COMPLETE to each seal's origin]
+COMPLETE -. " COMPLETE " .-> DELIVERED
 
     %% Pull path
     MSG -. "synced / processed by any device" .-> TRIG
-TRIG{Message references a fileId · no complete local file ·<br>no progressing transfer · small: push window ·<br>large: auto-download limit or user click} -- yes --> CAND[One candidate at a time · serve gate at the holder<br>sender devices, then own-account siblings]
+TRIG{Message references a fileId · no complete local file ·<br>small: after filePullDelay · large: auto-download limit or user click} -- yes --> CAND[One candidate at a time · serve gate at the holder<br>sender devices, then own-account siblings]
 CAND -- " small " --> REQ[REQUEST envelope · sealed, direct-only<br>ACK → waiting for the OFFER · DECLINED → next candidate]
 CAND -- " large " --> PULL[Requester opens a WebRTC session and a file channel<br>PULL fileId + fromOffset = checkpointed P<br>PULL_OK with the block list · DECLINED → next candidate]
-REQ -- " OFFER (fresh transferId · fresh key) " --> SERVE[Holder serves the suffix from the floor-aligned<br>boundary below the requester's lowest missing byte<br>checks each block as it reads]
+REQ -- " serve: a fresh seal " --> SERVE[Holder opens a transfer from the chunk boundary<br>at or below the requester's held prefix<br>checks each block as it reads]
+SERVE -. delivered .-> TARGET
 PULL -- " PULL_OK " --> STREAM[Holder sends plain DATA frames in order · block-checked<br>no envelope, no key, no transferId · DTLS protects the channel<br>PROGRESS at checkpoints · credit window · ends with the channel]
+STREAM -. delivered .-> MERGE
 STREAM -- " session dropped " --> CAND
 PULL -- " no session possible " --> NOCONN([no direct connection · shown to the user · never over Tor])
-NOPUSH -. " message lands" .-> TRIG
-CAND -- " all DECLINED / expired " --> UNAV([file unavailable · re-openable])
-SERVE --> MERGE[Receiver merges into fileId-scoped byte coverage<br>blocks verified at checkpoints → READY → COMPLETE to live authors]
-    FWD -. delivered .-> MERGE
-    STREAM -. delivered .-> MERGE
-    CHUNKS -. delivered .-> MERGE
-MERGE -. " prefix stalls for fileStallTimeout · live transfers are kept " .-> TRIG
+NOPUSH -. " message lands " .-> TRIG
+CAND -- " all declined " --> UNAV([file unavailable · re-openable])
+MERGE -. " prefix stalls for fileStallTimeout · live hops are kept " .-> TRIG

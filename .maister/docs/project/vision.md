@@ -38,10 +38,11 @@ The rules of the code — layering, data ownership, delivery contract, writing-n
 Owner-selected primary goals:
 
 1. **Review & finalize the file branch** — the file-transfer implementation (`orchestrator/file/*`, `routing/file/*`)
-   was freshly redesigned (Nov 2026) and is currently **unreviewed**; work items: review against
+   was freshly redesigned (Nov 2026); the routing side has been reviewed and cleaned up (`docs/file/cleanup.md`), the
+   orchestrator side is still **unreviewed**; remaining work items: review against
    `docs/envelope-redesign.md` (design of record, 2026-11-24), clean the `[File cleanup]` TODOs (send-state timing
-   dependency, async-loop questions, retention/pins TTL cleanup), rewrite `docs/file/design.md` to the seals-and-hops
-   model, add the missing soak test matrix.
+   dependency, async-loop questions, retention/pins TTL cleanup), add the missing soak test matrix
+   (`docs/file/design.md` now describes the seals-and-hops model as built).
 2. **Wire the GUI file-transfer surface** — `FileTransferService` already exposes progress/accept/decline, but no screen
    calls it yet (`docs/guide.md` §8).
 

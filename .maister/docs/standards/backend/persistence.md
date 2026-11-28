@@ -46,3 +46,25 @@ Evidence:
   anyway. `room_id` and `causal_hold` FKs stay."
 - global events.md §8.2: "no devices row needed for the target (`outbox`/`dedup` deliberately carry no FK to `devices`;
   the override is preferred over the DB lookup at dispatch)."
+
+### Stores hand out composed views of their child tables; consumers never assemble them
+
+When a consumer needs a parent row composed with its child table (the candidate-asking loop needs a pull-attempt row
+plus its declined devices), the store that owns those tables exposes it as a named view, written once in the store's
+file: `FilePullAttemptStore.candidateStore(pullClass): CandidateAttemptStore<FileId>`, `SyncAttemptStore`'s
+`candidateStore(): CandidateAttemptStore<Uuid>`. No consumer-side adapter wrappers ("docks") — we control all the
+interfaces, so there is no need for wrappers. The read is one statement (a LEFT JOIN, the page limit applied to parents
+in a subquery), never one query per row. This is intra-layer; "the reading layer declares the view" applies only to
+cross-layer reads (`DeviceDirectory`, `PeerKeyDirectory`).
+
+Sources: docs (docs/file/cleanup.md §2.7, §7) · confidence 90.
+Evidence:
+
+- cleanup.md §2.7: the view's composition "belongs to **the store that owns the tables**, handed out as a named view,
+  never assembled by consumers"; `SyncAttemptDock` and the anonymous file docks are deleted.
+- cleanup.md §2.7 (layering note): the reading-layer view rule "is for cross-layer reads"; these views are intra-layer
+  and "a store accessor is the right shape for that".
+- cleanup.md §7: "The pull and sync stores read a row with its declined devices in one statement (a LEFT JOIN, the page
+  limit applied to parents in a subquery) instead of one query per row."
+- routing/store/FilePullAttemptStore.kt and routing/store/SyncAttemptStore.kt declare `candidateStore(…)`; sqldelight
+  FilePullAttempt.sq / SyncAttempt.sq select with `LEFT JOIN … declined_devices`.

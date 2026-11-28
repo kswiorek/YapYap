@@ -48,3 +48,28 @@ Evidence:
   `fileTransferTtl`) < `supersededSessionRetention`."
 - e2ee.md (Planned: session-retention window for file transfers): "the config invariant
   `fileTransferTtl < supersededSessionRetention` is enforced at wiring."
+
+### Four kinds of number: protocol constants, derived sizes, network values, local mechanics
+
+Every number belongs to exactly one kind. (1) **Protocol constants** change only with the format: the block-size rule
+and `fileId` version tag, key lengths, decode-time allocation guards, `MIN_FILE_CHUNK_SIZE_BYTES`. (2) **Derived sizes**
+are chained by the composition root from the transport limits and never configured nor checked after the fact
+(`chunkSizeBytes`, `largeFileFrameBytes`, `maxSealBytes` in `wiring/FileLimits`). (3) **Network values** are
+`RouterConfig` fields registered as `FieldSource.NETWORK` in `wiring/Settings.kt` — settled network-wide, never
+user-editable, enforced by the receiver (`smallFileMaxBytes`). (4) **Local mechanics** — timeouts, sweep/tick cadences,
+delays, windows — are plain `RouterConfig` fields deliberately not in the settings `FIELDS`. Never invent a value
+because it sounds right: a bound either derives from something real or is a stated protocol contract.
+
+Sources: docs (docs/file/cleanup.md §2.8.1–§2.8.6) · confidence 90.
+Evidence:
+
+- cleanup.md §2.8.1 (the taxonomy): "four kinds of number" — protocol constants, derived sizes, network values, local
+  mechanics, each with the examples above.
+- cleanup.md §2.8.2: `SMALL_FILE_MAX_BYTES` deleted; `RouterConfig.smallFileMaxBytes` with
+  `source = FieldSource.NETWORK`; "the receiver enforces the limit if it differs for the two".
+- cleanup.md §2.8.3: `MAX_SEAL_BYTES` "was invented"; "let's not invent a value just because it sounds correct" —
+  replaced by `maxSealBytes` derived in `wiring/fileLimitsFor` by pure subtraction.
+- cleanup.md §2.8.4–§2.8.5: `MIN_FILE_CHUNK_SIZE_BYTES` and `MAX_ROUTING_HEADER_BYTES` stay protocol constants (format
+  contract / key-length category).
+- cleanup.md §2.8.6: magic timings and sweep floors become `RouterConfig` fields — "local mechanics, kind 4,
+  deliberately not in `FIELDS`".

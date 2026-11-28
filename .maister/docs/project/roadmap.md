@@ -12,16 +12,20 @@
     - Compose Multiplatform desktop GUI (chat, setup, settings, room creation, quick switcher)
     - Architecture enforcement via governance tests (`ArchitectureTest`, `PublicApiSurfaceTest`, `GuiApiBoundaryTest`)
 - **Recent Updates** (Nov 2026): envelope redesign — single signed `BinaryEnvelope` for all 5 packet families
-  (`docs/envelope-redesign.md`); file-transfer redesign implemented — **review pending**
+  (`docs/envelope-redesign.md`); file-transfer redesign implemented; routing side reviewed and cleaned up
+  (`docs/file/cleanup.md`), orchestrator side
+  pending
 
 ## Planned Enhancements (Next 3-6 Months)
 
 ### High Priority (owner-selected)
 
-- [ ] **Review & finalize the file branch** — the freshly redesigned file implementation is unreviewed: review against
-  `docs/envelope-redesign.md` (design of record); clean `[File cleanup]` TODOs (send-state timing dependency in
+- [ ] **Review & finalize the file branch** — routing side done (`docs/file/cleanup.md`, Nov 2026); remaining: review
+  `orchestrator/file/*` (the coordinator's long functions and the umbrella renames deferred in cleanup.md §6); clean
+  `[File cleanup]` TODOs (send-state timing dependency in
   `DefaultMessagingService`, async-loop questions in `FileSendService`, TTL-cleanup removal pending in `FileRetention`/
-  `FilePins`); rewrite `docs/file/design.md` to the seals-and-hops model; add the missing soak test matrix
+  `FilePins`); add the missing soak test matrix (`docs/file/design.md` was rewritten to the seals-and-hops model,
+  Nov 2026)
 - [ ] **Wire the GUI file-transfer surface** — `FileTransferService` exposes progress/accept/decline but no screen calls
   it yet (`docs/guide.md` §8)
 
@@ -36,8 +40,8 @@
 
 ### Technical Debt
 
-- [ ] **Unreviewed file implementation** — treat `orchestrator/file/*`, `routing/file/*`, `docs/file/` as provisional;
-  do not mine for conventions or quality examples
+- [ ] **Unreviewed orchestrator file code** — treat `orchestrator/file/*` as provisional; do not mine for conventions or
+  quality examples (`routing/file/*` was reviewed, `docs/file/cleanup.md`)
 - [ ] **ArchitectureTest `knownDebt` list** — only-shrinks by design; keep shrinking it
 - [ ] **Dangling items** — unused `spaces` table; WebRTC health/LinkKeeper TODOs in `DefaultRouter`/`PeerLinks`
 

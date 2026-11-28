@@ -31,12 +31,15 @@ internal class DefaultDagEngine(private val messageRepository: MessageRepository
 
 ### PascalCase file-per-type with <Area>Types.kt vocabulary files
 
-A file that contains one primary type is PascalCase-named after that type. Files holding a cluster of related small
-types use a descriptive plural/concept name ending in `Types` (`ProtocolTypes.kt`, `RoutingTypes.kt`,
-`CryptoSessionTypes.kt`, `WebRtcSessionTypes.kt`) or naming the concept (`NackPolicy.kt`, `Keys.kt`,
-`EnvelopeProtections.kt`). No other naming scheme appears.
+Behaviour — classes and interfaces that do work — keeps file-per-type: the file is PascalCase-named after that type,
+and a file holding two behaviour types splits. Data-only types — sealed vocabularies, enums, row/data classes, result
+types — go into one `[Concern]Types.kt` per concern (`ProtocolTypes.kt`, `RoutingTypes.kt`,
+routing/file/FileTypes.kt, routing/file/port/FilePortTypes.kt, routing/store/FileStoreTypes.kt), not one file each and
+not riding along in a behaviour file. A data class with exactly one consumer may live in that consumer's file, but
+first suspect it as an unneeded wrapper. Wire-concept files that pair a codec with the vocabulary it owns
+(`FileHeader.kt`, `LargeFileFrame.kt`, `FileIds.kt`) and other concept-named files (`NackPolicy.kt`, `Keys.kt`) stay.
 
-Sources: code · confidence 82.
+Sources: code; docs (docs/file/cleanup.md §2.13) · confidence 86.
 Evidence:
 
 - 190 of 224 sampled core files (85%) are named exactly after a type declared in them.
@@ -45,3 +48,8 @@ Evidence:
 - Examples: routing/router/DefaultRouter.kt, protocol/envelopes/MessageHeader.kt, orchestrator/dag/DagTypes.kt,
   routing/policy/NackPolicy.kt; `MessageHeader.kt` declares `internal class MessageHeader`; `ProtocolTypes.kt` groups
   PeerId, TorEndpoint and wire enums with section banner comments.
+- cleanup.md §2.13: "Behavior — classes and interfaces that do work — keeps file-per-type"; "Data-only types … go in one
+  `[Concern]Types.kt` per concern"; "A data class used by exactly one behavior type may live in that type's file — but
+  first suspect it as an unneeded wrapper"; "Wire/protocol concept files stay".
+- cleanup.md §2.13 moves: routing/file/port/FilePortTypes.kt, routing/file/FileTypes.kt, routing/store/FileStoreTypes.kt
+  (`FileRequestProcessor.kt` split into `FilePullProcessor.kt` + `FileRequestStrategy.kt`).

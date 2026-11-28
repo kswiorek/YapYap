@@ -21,21 +21,24 @@ Located in `.maister/docs/project/`
 
 Generated from project analysis on 2026-11-25 (maister-init Phase 6). These four documents describe YapYap as it
 actually is; read the ones relevant to your task. Standing caveat that appears throughout: the file-transfer
-implementation is freshly redesigned and **unreviewed** — do not mine it for conventions.
+implementation's routing side was reviewed in November 2026 (`docs/file/cleanup.md`); the orchestrator side
+(`orchestrator/file/`) is still **unreviewed** — do not mine it for conventions.
 
 ### Vision (`project/vision.md`)
 
 YapYap's mission and design premises: a decentralized, serverless messenger for small trusted networks (20–40 people) —
 every device runs the same Kotlin core, all traffic is E2EE (X3DH + Double Ratchet) over Tor with store-and-forward
 relays, and WebRTC (signaled over Tor) is the low-latency / large-file path. Covers current state (pre-release v0.0.6;
-desktop works end-to-end, mobile behaviors not done), owner-selected goals (review the unreviewed file branch; wire the
+desktop works end-to-end, mobile behaviors not done), owner-selected goals (finish the file-branch review on the
+orchestrator side; wire the
 GUI file-transfer surface), and project evolution.
 
 ### Roadmap (`project/roadmap.md`)
 
 Where the project stands and what's next: working features (Tor/WebRTC transports, router with outbox/relays/ACK/sync,
 1:1 and group E2EE, DAG-based history, sponsor-QR onboarding, SQLCipher persistence, Compose GUI); owner-selected high
-priorities (review & finalize the unreviewed file-transfer branch; wire the GUI file-transfer surface); medium
+priorities (finish the file-transfer review — routing side done, orchestrator side pending; wire the GUI file-transfer
+surface); medium
 priorities (mobile behaviors, E2EE backlog, docs drift fixes); technical debt; future considerations (AV/media,
 hardening).
 
@@ -104,7 +107,9 @@ locators, no lateinit), routing is its own composition root below wiring.
 
 Each layer defines its own config type next to its code, size limits are chained by the composition root from the
 transport limits, content-lifetime config invariants (content lifetime < supersededSessionRetention) are checked at
-wiring.
+wiring, four kinds of number (protocol constants change only with the format; derived sizes chained from transport
+limits, never configured or checked after the fact; network values as FieldSource.NETWORK RouterConfig fields,
+receiver-enforced; local mechanics as plain RouterConfig fields outside the settings FIELDS — never invent a value).
 
 #### API Surface (`standards/architecture/api-surface.md`)
 
@@ -138,7 +143,8 @@ changes.
 File grains (fileId orchestrator, sealId/transferId routing), one seal per (file, target device) with fresh seals on
 serve, seal key never leaves routing and protection, chunk AEAD binds the byte range, relays forward only whole
 transfers, HANDED_OFF/DELIVERED completion, incoming seal row written at open, seal registry owns seals, fileId stays
-off the wire — per envelope-redesign.md (docs/file/ is provisional and unreviewed).
+off the wire — per envelope-redesign.md (routing/file reviewed per docs/file/cleanup.md; orchestrator/file still
+unreviewed).
 
 #### E2EE (`standards/protocol/e2ee.md`)
 
@@ -175,7 +181,8 @@ dependencies, consistent reviews, testing standards, feature flags, changelog up
 
 Naming consistency, automatic formatting, descriptive names, focused functions, uniform indentation, no dead code, no
 backward compatibility unless required, DRY, no star imports in Kotlin (explicit per-key imports; enforced via
-.editorconfig).
+.editorconfig), stores named for their type / live components for their concern (same port, same field name; names
+state their axis — Large/Small, Push/Pull, no "fetch").
 
 #### Commenting (`standards/global/commenting.md`)
 
@@ -271,7 +278,9 @@ on missing), keys live in the OS keyring never in the data directory.
 #### Persistence (`standards/backend/persistence.md`)
 
 Schema changes ship with a migration (FKs off + foreign_key_check), persistence is infrastructure not a layer (stores
-live with their owner), the log is the source of truth (no FKs from messages to identity tables).
+live with their owner), the log is the source of truth (no FKs from messages to identity tables), stores hand out
+composed views of their child tables (named candidateStore views, no consumer-side docks, one LEFT JOIN statement not
+one query per row; intra-layer).
 
 #### Events (`standards/backend/events.md`)
 
@@ -288,8 +297,16 @@ session state (observers in start ()), never dial an unpublished onion (publish 
 
 #### Structure (`standards/backend/structure.md`)
 
-Interface + Default* implementation pairs (Default* referenced only by wiring/tests), PascalCase file-per-type
-with <Area>Types.kt vocabulary files.
+Interface + Default* implementation pairs (Default* referenced only by wiring/tests), behaviour keeps PascalCase
+file-per-type while data-only types (sealed vocabularies, enums, rows, results) group into one [Concern]Types.kt per
+concern (single-consumer data classes suspected as wrappers; codec + vocabulary wire-concept files stay).
+
+#### Concurrency (`standards/backend/concurrency.md`)
+
+Long-lived per-item work runs as an actor session over a mux (own mailbox and coroutine; engine is registry + recovery +
+mux; fixed-cadence CONFLATED tick, never a mailbox idle timeout), nothing slow on a shared path (crypto/file IO/sends in
+guarded coroutines, enqueue inline; plan under the lock, execute outside; no per-call timeouts on local work),
+structured children not stored scopes, one catch-and-log shape (fileGuarded: rethrow cancellation, catch Exception).
 
 #### Models (`standards/backend/models.md`)
 

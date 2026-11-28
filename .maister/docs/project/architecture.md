@@ -135,9 +135,10 @@ TOML files parsed via tomlkt into typed config objects, injected as `StateFlow`.
   (`docs/guide.md` §8)
 
 ---
-**Quality caveat (owner note)**: the file-transfer implementation (`orchestrator/file/*`, `routing/file/*`,
-`docs/file/`, `File group diagram.mmd`) is **unreviewed and provisional**; `docs/envelope-redesign.md` is its design of
-record. Do not mine file code for conventions or quality examples. The reviewed exemplar is the core excluding file:
-routing (message/outbox/presence/sync), orchestrator (dag/fold/pipeline/boot), crypto, protocol, persistence, wiring.
+**Quality caveat (owner note)**: the routing side of file transfer (`routing/file/*`, the routing file stores) was
+reviewed and cleaned up in November 2026 (`docs/file/cleanup.md`); `docs/envelope-redesign.md` stays its design of
+record. The orchestrator side (`orchestrator/file/*`) is still **unreviewed** — do not mine it for conventions or
+quality examples. The reviewed exemplar is the core excluding `orchestrator/file`: routing (including file),
+orchestrator (dag/fold/pipeline/boot), crypto, protocol, persistence, wiring.
 
 *Based on codebase analysis performed 2026-11-25*
