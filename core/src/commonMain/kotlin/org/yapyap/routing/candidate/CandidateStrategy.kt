@@ -31,7 +31,7 @@ internal data class CandidateWaiting(val device: PeerId, val until: Instant)
  * candidate tables composes the parent row and its declined children into a view of this
  * interface; consumers never assemble the join themselves.
  *
- * TODO: reconsider the name; it should say "the asking loop's row state", not "database rows".
+ * TODO [Router cleanup]: reconsider the name; it should say "the asking loop's row state", not "database rows".
  */
 internal interface CandidateAttemptStore<K> {
     /** Starts tracking [id] (idempotent: a known id keeps its state). */

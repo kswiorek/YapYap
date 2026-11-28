@@ -28,7 +28,7 @@ internal class JvmInMemorySqliteDriverFactory : DriverFactory {
 
 internal fun openMemoryDatabase(): DatabaseConnection =
     DatabaseFactory(JvmInMemorySqliteDriverFactory()).createConnection()
-// TODO: multiplatform this fixture (expect/actual openMemoryDatabase with the SQLDelight
+// TODO [multiplatform]: multiplatform this fixture (expect/actual openMemoryDatabase with the SQLDelight
 //  native driver) so the SQL-backed file suites (push, relay, outcome routing, store semantics)
 //  can move back from jvmTest to commonTest. They are JVM-only solely because of this fixture.
 

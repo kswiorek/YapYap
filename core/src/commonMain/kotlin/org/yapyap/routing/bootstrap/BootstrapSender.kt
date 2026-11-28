@@ -51,7 +51,7 @@ internal class BootstrapSender(
             nextRetryAt = now,
             relayMessage = false,
             targetEndpoint = targetEndpoint,
-            // TODO: consider keying bootstrap outcomes by a domain id (like FILE_REQUEST's
+            // TODO [Router cleanup]: consider keying bootstrap outcomes by a domain id (like FILE_REQUEST's
             // transferId) instead of the packet id, so callers stop tracking packet ids.
             tag = OutboxTag(OutboxTag.Kind.BOOTSTRAP, envelope.packetId),
         )

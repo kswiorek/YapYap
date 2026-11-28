@@ -25,7 +25,7 @@ import kotlin.time.Instant
  * [accountReach], [localLinkStatus]) and us telling them what we look like ([announceOnline]).
  * The device-level registry stays internal; the orchestrator only ever sees accounts.
  */
-//TODO: consider conforming PresenceService to RouterService later: it has no outbox outcomes and no
+//TODO [Router cleanup]: consider conforming PresenceService to RouterService later: it has no outbox outcomes and no
 // inbound handler, and it takes its scope in the constructor instead of via runIn.
 internal class PresenceService(
     private val ctx: RoutingContext,

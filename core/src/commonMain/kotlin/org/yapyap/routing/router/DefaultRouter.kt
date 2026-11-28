@@ -170,7 +170,7 @@ internal class DefaultRouter(
                         peerAvailabilityRegistry.lastSeen(peer)?.let { now - it < freshness } == true
             }
         },
-        ready = flowOf(true), //TODO: webrtc health
+        ready = flowOf(true), //TODO [Router cleanup]: webrtc health
         config = ctx.routerConfig
             .map { it.webrtcLinkKeeperConfig }
             .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.webrtcLinkKeeperConfig),
@@ -213,7 +213,8 @@ internal class DefaultRouter(
         lifecycle = lifecycle,
         outboxProcessor = outboxProcessor,
     )
-    //TODO: consider webrtc link keeper
+
+    //TODO [Router cleanup]: consider webrtc link keeper in presence service
     private val presenceService = PresenceService(
         ctx = ctx,
         lifecycle = lifecycle,
