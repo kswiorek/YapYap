@@ -18,7 +18,7 @@ private val fileIndexes = listOf(
     "file_incoming_transfers_seal_idx",
     "file_seals_file_target_idx",
     "file_transfers_out_seal_idx",
-    "file_transfers_out_relay_idx",
+    "file_transfers_out_source_idx",
     "file_transfer_chunks_packet_idx",
     "file_pull_attempts_due_idx",
 )
@@ -28,6 +28,8 @@ private val fileTables = listOf(
     "file_receive_chunks",
     "file_receives",
     "pending_file_requests",
+    "file_relay_chunks",
+    "file_relay_seals",
     "file_incoming_seals",
     "file_incoming_transfers",
     "file_seals",
@@ -35,8 +37,6 @@ private val fileTables = listOf(
     "file_transfer_chunks",
     "file_pull_declined_devices",
     "file_pull_attempts",
-    "file_relay_chunks",
-    "file_relay_transfers",
 )
 
 /** Tables whose shape 6.sqm must match fresh, including the outbox retry_class column. */

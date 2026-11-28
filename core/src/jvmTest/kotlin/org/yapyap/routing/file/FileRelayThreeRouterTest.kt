@@ -71,11 +71,8 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFilePullAttemptStore
-import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
-import org.yapyap.routing.store.FileRelayStatus
-import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileSealStatus
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -273,9 +270,9 @@ class FileRelayThreeRouterTest {
         val aliceSealStore = DefaultFileSealStore(aliceDb)
         val aliceTransferStore = DefaultFileTransferStore(aliceDb)
         val aliceOutbox = TrackingPacketOutbox()
-        val relay1Store = DefaultFileRelayStore(relay1Db)
+        val relay1Store = DefaultFileIncomingStore(relay1Db)
         val relay1TransferStore = DefaultFileTransferStore(relay1Db)
-        val relay2Store = DefaultFileRelayStore(relay2Db)
+        val relay2Store = DefaultFileIncomingStore(relay2Db)
         val relay2TransferStore = DefaultFileTransferStore(relay2Db)
         val bobIncoming = DefaultFileIncomingStore(bobDb)
 
@@ -288,7 +285,6 @@ class FileRelayThreeRouterTest {
             plaintext: FilePlaintextSource,
             sealStore: org.yapyap.routing.store.FileSealStore,
             transferStore: org.yapyap.routing.store.FileTransferStore,
-            relay: FileRelayStore,
             incomingOverride: org.yapyap.routing.store.FileIncomingStore? = null,
             db: YapYapDatabase = aliceDb,
             routerConfig: RouterConfig = RouterConfig(),
@@ -324,7 +320,6 @@ class FileRelayThreeRouterTest {
                 fileSealStore = sealStore,
                 fileTransferStore = transferStore,
                 fileIncomingStore = incomingOverride ?: DefaultFileIncomingStore(db),
-                fileRelayStore = relay,
                 filePullAttemptStore = DefaultFilePullAttemptStore(db),
             )
         }
@@ -335,7 +330,6 @@ class FileRelayThreeRouterTest {
             DefaultFilePlaintextSource(aliceDescriptors, aliceFileStore, files, crypto),
             aliceSealStore,
             aliceTransferStore,
-            DefaultFileRelayStore(aliceDb),
             db = aliceDb,
             routerConfig = senderRouterConfig,
             availability = aliceAvailability,
@@ -347,7 +341,7 @@ class FileRelayThreeRouterTest {
             FakeFilePlaintextSource(),
             DefaultFileSealStore(relay1Db),
             relay1TransferStore,
-            relay1Store,
+            incomingOverride = relay1Store,
             db = relay1Db,
             routerConfig = relayRouterConfig,
         )
@@ -357,7 +351,7 @@ class FileRelayThreeRouterTest {
             FakeFilePlaintextSource(),
             DefaultFileSealStore(relay2Db),
             relay2TransferStore,
-            relay2Store,
+            incomingOverride = relay2Store,
             db = relay2Db,
             routerConfig = relayRouterConfig,
         )
@@ -367,7 +361,6 @@ class FileRelayThreeRouterTest {
             DefaultFilePlaintextSource(bobDescriptors, bobFileStore, files, crypto),
             DefaultFileSealStore(bobDb),
             DefaultFileTransferStore(bobDb),
-            DefaultFileRelayStore(bobDb),
             incomingOverride = bobIncoming,
             db = bobDb,
         )
@@ -485,32 +478,24 @@ class FileRelayThreeRouterTest {
                 withTimeout(120.seconds) {
                     var n = 0
                     while (
-                        relay1Store.all().none { row ->
-                            row.status == FileRelayStatus.WHOLE &&
-                                    relay1Store.chunkIndices(row.transferId).size >= expectedChunks
-                        } ||
-                        relay2Store.all().none { row ->
-                            row.status == FileRelayStatus.WHOLE &&
-                                    relay2Store.chunkIndices(row.transferId).size >= expectedChunks
-                        }
+                        relay1Store.relayHops().none { it.isWhole && it.storedChunks >= expectedChunks } ||
+                        relay2Store.relayHops().none { it.isWhole && it.storedChunks >= expectedChunks }
                     ) {
                         delay(100.milliseconds)
                         if (++n % 50 == 0) {
                             println(
                                 "DIAG outbox=" + aliceOutbox.enqueued.size +
                                         " sender=" + aliceSealStore.byFile(fileId).map { it.status } +
-                                        " r1=" + relay1Store.all()
-                                    .map { it.status to relay1Store.chunkIndices(it.transferId).size } +
-                                        " r2=" + relay2Store.all()
-                                    .map { it.status to relay2Store.chunkIndices(it.transferId).size },
+                                        " r1=" + relay1Store.relayHops().map { it.storedChunks } +
+                                        " r2=" + relay2Store.relayHops().map { it.storedChunks },
                             )
                         }
                     }
                 }
-                val r1InboundId = relay1Store.all().single().transferId
-                val r2InboundId = relay2Store.all().single().transferId
-                val r1ForwardId = relay1TransferStore.byRelayTransfer(r1InboundId).single().transferId
-                val r2ForwardId = relay2TransferStore.byRelayTransfer(r2InboundId).single().transferId
+                val r1InboundId = relay1Store.relayHops().single().transfer.transferId
+                val r2InboundId = relay2Store.relayHops().single().transfer.transferId
+                val r1ForwardId = relay1TransferStore.bySourceTransfer(r1InboundId).single().transferId
+                val r2ForwardId = relay2TransferStore.bySourceTransfer(r2InboundId).single().transferId
 
                 // Target online: both relays forward; the target reaches READY once.
                 bobOffline = false
@@ -547,11 +532,11 @@ class FileRelayThreeRouterTest {
                 // Forget after delivery: both relay copies are gone, and the sender's
                 // seal resolved DELIVERED on the target's confirmation.
                 withTimeout(120.seconds) {
-                    while (relay1Store.all().isNotEmpty() || relay2Store.all().isNotEmpty()) {
+                    while (relay1Store.relayHops().isNotEmpty() || relay2Store.relayHops().isNotEmpty()) {
                         delay(100.milliseconds)
                     }
                 }
-                assertTrue(relay1Store.all().isEmpty() && relay2Store.all().isEmpty())
+                assertTrue(relay1Store.relayHops().isEmpty() && relay2Store.relayHops().isEmpty())
                 // Both relays actually streamed chunks (a row dropped by a COMPLETE alone
                 // would not prove it served any bytes).
                 // Forward transfer ids differ from inbound ids; count any chunks seen.

@@ -30,7 +30,7 @@ import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.DefaultFileRelayStore
+import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.FileSealStore
@@ -157,7 +157,7 @@ internal fun sealTransferHarness(
         packets = FilePackets(ctx),
         transferStore = transferStore,
         sealStore = sealStore,
-        relayStore = DefaultFileRelayStore(db, Dispatchers.Unconfined),
+        incomingStore = DefaultFileIncomingStore(db, Dispatchers.Unconfined),
         plaintext = plaintext,
         outbox = processor,
         outboxStore = outbox,

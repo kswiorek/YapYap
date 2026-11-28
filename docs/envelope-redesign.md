@@ -294,9 +294,12 @@ acknowledgement proves delivery, its absence proves nothing.
 - **Tag kinds:** `FILE_PUSH` and `FILE_FORWARD` collapse into `FILE_TRANSFER`; `FILE_REQUEST` stays.
 - **One transfer actor** over a `ChunkSource` (`SealChunkSource`: plaintext from `FilePlaintextSource`
   encrypted with the seal key; `RelayChunkSource`: stored ciphertext). `ForwardActor` goes.
-- **One inbound transfer handler** over a `ChunkSink` (`TargetSink`: decrypt and ingest; `RelaySink`:
-  park). The shared checks (sender, index range, exact length) live once; `FileRelayDoor` keeps only
-  admission and the budget.
+- **One inbound transfer handler** over a `TransferSink` (`TargetSide`: decrypt and ingest; `RelayDoor`:
+  park, forward when whole). Every hop delivering to us is one `file_incoming_transfers` row whatever its
+  sink; the re-sent-OFFER rule, the shared admission (shape, small-file limit, seal size) and the chunk
+  checks (sender, index range, exact length) live once. `RelayDoor` keeps only the relay's admission (from the origin,
+  known final target) and the budget; the relay's own rows hold only the ciphertext
+  it can't open.
 - **A seal registry** owns seals at the origin (creation, deposit round, HANDED_OFF, COMPLETE, expiry,
   account-level events). Hops report to it; they never emit account events themselves.
 - `FilePushKind` (DIRECT/DEPOSIT/SERVE), `via_relay`, the inner/outer target split in `FileEnvelope`,
@@ -320,7 +323,7 @@ file_seals (
 )
 file_transfers_out (                  -- replaces file_pushes: every hop this device sends
   transfer_id TEXT PK, seal_id BLOB NULL,        -- NULL for relay forwards (they hold no seal row)
-  relay_transfer_id TEXT NULL,                   -- the relay's inbound transfer it forwards
+  source_transfer_id TEXT NULL,                  -- a forward: the incoming relay hop whose ciphertext it sends
   peer TEXT,                                     -- the hop's receiver
   chunk_size INT, byte_from INT, byte_to INT,
   next_chunk_index INT, contiguous_acked INT, marker_packet_id NULL,
@@ -328,17 +331,16 @@ file_transfers_out (                  -- replaces file_pushes: every hop this de
 )
 file_transfer_chunks                  -- packet id → chunk index, keyed by the hop's transfer_id
 
--- routing: target side
+-- routing: receiving side (target and relay alike)
 file_incoming_seals (seal_id PK, origin_device, file_id, seal BLOB, expires_at)   -- the opened seal, key included
-file_incoming_transfers (transfer_id PK, seal_id, sender_device, chunk_size, byte_from, byte_to, expires_at)
-
--- routing: relay side
-file_relay_transfers (                -- the relay's inbound transfers
-  transfer_id PK, seal_id, origin_device, final_target,
-  chunk_size, byte_from, byte_to, seal_bytes BLOB,
-  status, reserved_bytes, created_at, last_chunk_at, expires_at
+file_incoming_transfers (             -- every hop delivering to us; final_target picks its sink
+  transfer_id PK, seal_id, sender_device, final_target, chunk_size, byte_from, byte_to, expires_at
 )
-file_relay_chunks (transfer_id, chunk_index PK, ciphertext BLOB)   -- ciphertext, not envelopes
+
+-- routing: what a relay holds of a hop it can't open (cascades with the hop; wholeness, the
+-- reservation and the idle clock are derived from these rows)
+file_relay_seals (transfer_id PK, seal_bytes BLOB, stored_at)
+file_relay_chunks (transfer_id, chunk_index PK, stored_at, ciphertext BLOB)   -- ciphertext, not envelopes
 
 -- routing: pull attempts (the ask loop's rows for both classes; renamed from file_request_attempts
 -- at the file-branch review, file/cleanup.md §4)
@@ -450,11 +452,12 @@ Where the code settled what this document left open (the code is the reference f
   forwards) over a `ChunkSource` — each is an `OutgoingTransferSession` with its own mailbox and
   coroutine, while `TransferEngine` is the registry, start-time recovery and mux — and reports
   `TransferEvent`s (progress, gone, ended) on an unbounded flow; `seal/SealRegistry` owns seals, the
-  deposit round, hand-off, delivery and the account-level events; `relay/RelayDoor` admits deposits
-  and parks chunks, `relay/RelayForwards` forwards whole deposits and forgets them when the forward
-  ends; `inbound/TargetSide` holds seals and incoming transfers and feeds the receive engine;
-  `inbound/FileInboundHandler` dispatches by header and runs the shared chunk checks before a
-  `ChunkSink` sees a chunk. The registry and the forwards subscribe to the engine's events (guide
+  deposit round, hand-off, delivery and the account-level events; `relay/RelayDoor` admits relay
+  hops and parks their chunks, `relay/RelayForwards` forwards whole hops and forgets them when the
+  forward ends; `inbound/TargetSide` holds seals and feeds the receive engine;
+  `inbound/FileInboundHandler` keeps every incoming hop, dispatches by header and runs the shared
+  OFFER and chunk checks before the hop's `TransferSink` sees it. The registry and the forwards subscribe to the
+  engine's events (guide
   §5), and each sweeps its rows so a restart that cut an event short still settles.
 - **Gone signals.** Before the OFFER is ACKed: no link to the peer, or no ACK within
   `relayBackupAfter`. After: chunks in flight and no link, or no ACK at all for `chunkAckTimeout`, or

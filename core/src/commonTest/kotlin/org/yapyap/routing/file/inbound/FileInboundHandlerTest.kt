@@ -472,7 +472,7 @@ class FileInboundHandlerTest {
             OutgoingTransfer(
                 transferId = transferId,
                 sealId = sealId,
-                relayTransferId = null,
+                sourceTransferId = null,
                 peer = h.remoteId,
                 shape = shape,
                 nextChunkIndex = 0,

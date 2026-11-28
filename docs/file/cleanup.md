@@ -686,3 +686,13 @@ fixed in the same branch. Recorded here so the reasons are not lost:
 - **The pull and sync stores read a row with its declined devices in one statement** (a LEFT JOIN, the
   page limit applied to parents in a subquery) instead of one query per row.
 - **`DefaultRouter`'s collectors catch `Exception`, not `Throwable`,** and log the stack trace.
+- **A relay hop is an incoming transfer like any other.** The relay kept its inbound hops in their own
+  `file_relay_transfers` table (`RelayTransfer`, `FileRelayStatus`, `FileRelayStore`), so the inbound
+  face looked every CHUNK and CANCEL up twice and the door repeated the target's re-sent-OFFER check and
+  admission. Every hop delivering to us is now one `file_incoming_transfers` row with its `final_target`;
+  `FileInboundHandler` runs the shared OFFER and chunk checks once and hands the hop to its
+  `TransferSink` (`TargetSide` or `RelayDoor`, picked by the final target). The relay's own rows hold
+  only what it can't open — `file_relay_seals` and `file_relay_chunks`, cascading with the hop — and
+  wholeness, the reservation and the idle clock are derived from them instead of stored. The forward
+  names its source hop (`file_transfers_out.source_transfer_id`, was `relay_transfer_id`). The transfer
+  itself was already one path: a forward is an ordinary outgoing transfer over `RelayChunkSource`.

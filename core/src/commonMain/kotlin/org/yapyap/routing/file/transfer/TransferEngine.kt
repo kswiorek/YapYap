@@ -23,7 +23,7 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStatus
 import org.yapyap.routing.store.FileTransferStore
@@ -47,7 +47,7 @@ internal class TransferEngine(
     private val packets: FilePackets,
     private val transferStore: FileTransferStore,
     private val sealStore: FileSealStore,
-    private val relayStore: FileRelayStore,
+    private val incomingStore: FileIncomingStore,
     private val plaintext: FilePlaintextSource,
     private val outbox: OutboxProcessor,
     private val outboxStore: PacketOutbox,
@@ -206,9 +206,11 @@ internal class TransferEngine(
     }
 
     private suspend fun sourceFor(transfer: OutgoingTransfer): ChunkSource? {
-        val relayTransferId = transfer.relayTransferId
-        return if (relayTransferId != null) {
-            relayStore.find(relayTransferId)?.let { RelayChunkSource(it, relayStore) }
+        val hopId = transfer.sourceTransferId
+        return if (hopId != null) {
+            val hop = incomingStore.findTransfer(hopId) ?: return null
+            val sealBytes = incomingStore.relaySealBytes(hopId) ?: return null
+            RelayChunkSource(hop, sealBytes, incomingStore)
         } else {
             sealStore.find(transfer.sealId)?.let {
                 SealChunkSource(ctx.localDeviceId, it, transfer.shape, plaintext, ctx.envelopeProtections.file)

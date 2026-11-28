@@ -191,6 +191,7 @@ internal class DatabaseFactory(
                     transfer_idAdapter = TransferIdAdapter(),
                     seal_idAdapter = ContentIdAdapter(),
                     sender_deviceAdapter = PeerIdAdapter(),
+                    final_targetAdapter = PeerIdAdapter(),
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 file_sealsAdapter = File_seals.Adapter(
@@ -205,7 +206,7 @@ internal class DatabaseFactory(
                 file_transfers_outAdapter = File_transfers_out.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
                     seal_idAdapter = ContentIdAdapter(),
-                    relay_transfer_idAdapter = TransferIdAdapter(),
+                    source_transfer_idAdapter = TransferIdAdapter(),
                     peerAdapter = PeerIdAdapter(),
                     offer_packet_idAdapter = UuidAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
@@ -231,17 +232,13 @@ internal class DatabaseFactory(
                     file_idAdapter = FileIdAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                 ),
-                file_relay_transfersAdapter = File_relay_transfers.Adapter(
+                file_relay_sealsAdapter = File_relay_seals.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
-                    seal_idAdapter = ContentIdAdapter(),
-                    origin_deviceAdapter = PeerIdAdapter(),
-                    final_targetAdapter = PeerIdAdapter(),
-                    created_atAdapter = InstantEpochSecondsAdapter,
-                    last_chunk_atAdapter = InstantEpochSecondsAdapter,
-                    expires_atAdapter = InstantEpochSecondsAdapter,
+                    stored_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 file_relay_chunksAdapter = File_relay_chunks.Adapter(
                     transfer_idAdapter = TransferIdAdapter(),
+                    stored_atAdapter = InstantEpochSecondsAdapter,
                 ),
             ),
             driver = driver,

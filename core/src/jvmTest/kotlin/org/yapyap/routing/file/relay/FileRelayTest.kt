@@ -47,10 +47,8 @@ import org.yapyap.routing.router.passthroughProtections
 import org.yapyap.routing.router.testRoutingContext
 import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFilePullAttemptStore
-import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
-import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -86,7 +84,7 @@ class FileRelayTest {
 
     private inner class Harness(
         val handler: FileInboundHandler,
-        val relay: DefaultFileRelayStore,
+        val incoming: DefaultFileIncomingStore,
         val transfers: DefaultFileTransferStore,
         val forwards: RelayForwards,
         val engine: TransferEngine,
@@ -103,8 +101,8 @@ class FileRelayTest {
                 .map { env -> env to outbox.tagOf(env.packetId) }
     }
 
-    private suspend fun Harness.awaitForwardGone(relayTransferId: TransferId) {
-        withTimeout(5_000.milliseconds) { while (relay.find(relayTransferId) != null) delay(10.milliseconds) }
+    private suspend fun Harness.awaitForwardGone(hopId: TransferId) {
+        withTimeout(5_000.milliseconds) { while (incoming.relayHop(hopId) != null) delay(10.milliseconds) }
     }
 
     private suspend fun Harness.awaitSentSize(size: Int) {
@@ -141,7 +139,6 @@ class FileRelayTest {
             fileChunkSize = chunkSize,
         )
         val db = openMemoryDatabase().database
-        val relay = DefaultFileRelayStore(db, Dispatchers.Unconfined)
         val transfers = DefaultFileTransferStore(db, Dispatchers.Unconfined)
         val seals = DefaultFileSealStore(db, Dispatchers.Unconfined)
         val incoming = DefaultFileIncomingStore(db, Dispatchers.Unconfined)
@@ -154,9 +151,9 @@ class FileRelayTest {
         val ports = ScriptedFilePorts()
         val events = MutableSharedFlow<org.yapyap.routing.file.port.FileEvent>(extraBufferCapacity = 64)
         val packets = FilePackets(ctx)
-        val engine = TransferEngine(ctx, packets, transfers, seals, relay, plaintext, processor, outbox)
-        val forwards = RelayForwards(ctx, relay, transfers, engine)
-        val door = RelayDoor(ctx, packets, relay, forwards)
+        val engine = TransferEngine(ctx, packets, transfers, seals, incoming, plaintext, processor, outbox)
+        val forwards = RelayForwards(ctx, incoming, transfers, engine)
+        val door = RelayDoor(ctx, packets, incoming, forwards)
         // Target side for offers addressed to us (not exercised: our offers are for others).
         // Build a minimal target with a dummy request processor that never runs.
         val fetchService = LargeFileService(
@@ -183,8 +180,8 @@ class FileRelayTest {
         val target = TargetSide(ctx, packets, incoming, ports, ports, requestProcessor, processor)
         val sealRegistry = SealRegistry(ctx, seals, transfers, engine, plaintext, NoRelaySelection, events)
         val serve = FileServeHandler(ctx, ports, sealRegistry)
-        val handler = FileInboundHandler(ctx, target, door, engine, sealRegistry, serve)
-        return Harness(handler, relay, transfers, forwards, engine, outbox, ctx, clock)
+        val handler = FileInboundHandler(ctx, incoming, target, door, engine, sealRegistry, serve)
+        return Harness(handler, incoming, transfers, forwards, engine, outbox, ctx, clock)
     }
 
     private fun seal(
@@ -260,8 +257,7 @@ class FileRelayTest {
         for (i in 0 until 3) {
             assertIs<InboundHandleResult.Success>(handler.handle(depositChunk(transferId, i)))
         }
-        val status = relay.find(transferId)?.status
-        assertEquals(FileRelayStatus.WHOLE, status, "expected WHOLE, got $status")
+        assertEquals(true, incoming.relayHop(transferId)?.isWhole, "expected a whole hop")
         return transferId
     }
 
@@ -279,7 +275,7 @@ class FileRelayTest {
         }
         h.awaitSentSize(1)
         // One forward, one marker: exactly one outgoing transfer for the relay deposit.
-        val forwards = h.transfers.byRelayTransfer(transferId)
+        val forwards = h.transfers.bySourceTransfer(transferId)
         assertEquals(1, forwards.size, "one forward, one marker")
     }
 
@@ -289,7 +285,7 @@ class FileRelayTest {
         val transferId = TransferId(Uuid.random())
         val rejected = assertIs<InboundHandleResult.Rejected>(h.handler.handle(h.depositOffer(transferId)))
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
-        assertNull(h.relay.find(transferId), "a banned account's deposit stores nothing")
+        assertNull(h.incoming.relayHop(transferId), "a banned account's deposit stores nothing")
     }
 
     @Test
@@ -301,7 +297,7 @@ class FileRelayTest {
         )
         val rejected = assertIs<InboundHandleResult.Rejected>(result, "unknown inner source is declined")
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
-        assertNull(h.relay.find(transferId), "a declined admission stores nothing")
+        assertNull(h.incoming.relayHop(transferId), "a declined admission stores nothing")
     }
 
     @Test
@@ -311,7 +307,7 @@ class FileRelayTest {
         val result = h.handler.handle(h.depositChunk(transferId, 0))
         assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, result.reason)
-        assertTrue(h.relay.all().isEmpty())
+        assertTrue(h.incoming.relayHops().isEmpty())
     }
 
     @Test
@@ -322,7 +318,11 @@ class FileRelayTest {
         val result = h.handler.handle(h.depositChunk(transferId, 7, plaintextBytes = chunkSize))
         assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, result.reason)
-        assertEquals(0, h.relay.chunkIndices(transferId).size, "out-of-range bytes never count toward wholeness")
+        assertEquals(
+            0,
+            (h.incoming.relayHop(transferId)?.storedChunks ?: 0),
+            "out-of-range bytes never count toward wholeness"
+        )
     }
 
     @Test
@@ -333,7 +333,7 @@ class FileRelayTest {
         val transferId = TransferId(Uuid.random())
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositOffer(transferId)))
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositChunk(transferId, 0)))
-        assertEquals(FileRelayStatus.RESERVED, h.relay.find(transferId)?.status)
+        assertEquals(false, h.incoming.relayHop(transferId)?.isWhole)
         delay(300.milliseconds)
         assertTrue(h.sent.isEmpty(), "an incomplete transfer is never pushed or offered")
     }
@@ -353,7 +353,7 @@ class FileRelayTest {
         }
         h.awaitSentSize(1)
         // The stored seal is replayed in the forward's OFFER content.
-        val forward = h.transfers.byRelayTransfer(transferId).single()
+        val forward = h.transfers.bySourceTransfer(transferId).single()
         assertEquals(h.targetId, forward.peer)
         val marker = h.sent.single()
         val offerHeader = FileHeader.decode(marker.first.routingHeader) as FileHeader.Offer
@@ -388,7 +388,7 @@ class FileRelayTest {
             )
         }
         h.awaitForwardGone(transferId)
-        assertNull(h.relay.find(transferId), "the relay forgets after delivery")
+        assertNull(h.incoming.relayHop(transferId), "the relay forgets after delivery")
     }
 
     @Test
@@ -398,7 +398,7 @@ class FileRelayTest {
         h.forwards.runIn(backgroundScope)
         val transferId = h.depositWhole()
         h.awaitSentSize(1)
-        val forward = h.transfers.byRelayTransfer(transferId).single()
+        val forward = h.transfers.bySourceTransfer(transferId).single()
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
                 OutboxTag(OutboxTag.Kind.FILE_TRANSFER, forward.transferId.value),
@@ -408,7 +408,7 @@ class FileRelayTest {
             )
         )
         h.awaitForwardGone(transferId)
-        assertNull(h.relay.find(transferId), "a refused forward is dropped, never re-offered")
+        assertNull(h.incoming.relayHop(transferId), "a refused forward is dropped, never re-offered")
     }
 
     @Test
@@ -418,12 +418,12 @@ class FileRelayTest {
         h.forwards.runIn(backgroundScope)
         val transferId = h.depositWhole()
         h.awaitSentSize(1)
-        val forward = h.transfers.byRelayTransfer(transferId).single()
+        val forward = h.transfers.bySourceTransfer(transferId).single()
         // The forward goes to the ultimate target, never to another relay.
         assertEquals(h.targetId, forward.peer)
         assertTrue(
             h.transfers.live()
-                .none { it.peer == h.relayId || it.peer == authorId && it.transferId != forward.transferId && it.relayTransferId == null })
+                .none { it.peer == h.relayId || it.peer == authorId && it.transferId != forward.transferId && it.sourceTransferId == null })
     }
 
     @Test
@@ -442,8 +442,8 @@ class FileRelayTest {
         )
         assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, result.reason)
-        assertNotNull(h.relay.find(first), "a refused admission never disturbs the store")
-        assertNull(h.relay.find(huge))
+        assertNotNull(h.incoming.relayHop(first), "a refused admission never disturbs the store")
+        assertNull(h.incoming.relayHop(huge))
     }
 
     @Test
@@ -455,8 +455,8 @@ class FileRelayTest {
 
         val second = TransferId(Uuid.random())
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositOffer(second)))
-        assertNull(h.relay.find(first), "the evicted mid-deposit transfer is gone")
-        assertNotNull(h.relay.find(second))
+        assertNull(h.incoming.relayHop(first), "the evicted mid-deposit transfer is gone")
+        assertNotNull(h.incoming.relayHop(second))
 
         val result = h.handler.handle(h.depositChunk(first, 1))
         assertIs<InboundHandleResult.Rejected>(result)
@@ -472,7 +472,7 @@ class FileRelayTest {
         assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(oversized).reason)
         val short = h.handler.handle(h.depositChunk(transferId, 1, plaintextBytes = 100))
         assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(short).reason)
-        assertEquals(0, h.relay.chunkIndices(transferId).size)
+        assertEquals(0, (h.incoming.relayHop(transferId)?.storedChunks ?: 0))
     }
 
     @Test
@@ -482,7 +482,7 @@ class FileRelayTest {
             h.depositOffer(TransferId(Uuid.random()), shape = TransferShape(1, 0, totalBytes))
         )
         assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(result).reason)
-        assertTrue(h.relay.all().isEmpty())
+        assertTrue(h.incoming.relayHops().isEmpty())
     }
 
     @Test
@@ -495,7 +495,7 @@ class FileRelayTest {
         val chunk = h.depositChunk(transferId, 0)
         assertIs<InboundHandleResult.Success>(h.handler.handle(chunk))
         assertIs<InboundHandleResult.Success>(h.handler.handle(chunk))
-        assertEquals(1, h.relay.chunkIndices(transferId).size)
+        assertEquals(1, (h.incoming.relayHop(transferId)?.storedChunks ?: 0))
     }
 
     @Test
@@ -505,7 +505,7 @@ class FileRelayTest {
         val aboveLimit = h.ctx.routerConfig.value.smallFileMaxBytes + 1
         val result = h.handler.handle(h.depositOffer(shape = TransferShape(chunkSize, 0, aboveLimit)))
         assertIs<InboundHandleResult.Rejected>(result, "large files never touch relays")
-        assertTrue(h.relay.all().isEmpty())
+        assertTrue(h.incoming.relayHops().isEmpty())
     }
 
     @Test
@@ -519,12 +519,12 @@ class FileRelayTest {
         // sweeps run at the configured fileSweepInterval (15 s per session tick at the default);
         // wait for them instead of assuming an immediate first pass.
         withTimeout(120.seconds) {
-            while (h.relay.find(transferId) != null) {
+            while (h.incoming.relayHop(transferId) != null) {
                 // Advance the clock and let the sweep loops fire.
                 delay(100.milliseconds)
             }
         }
-        assertNull(h.relay.find(transferId), "reservations die with the transfer TTL")
+        assertNull(h.incoming.relayHop(transferId), "reservations die with the transfer TTL")
     }
 
     @Test
@@ -535,12 +535,12 @@ class FileRelayTest {
         val transferId = TransferId(Uuid.random())
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositOffer(transferId)))
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositChunk(transferId, 0)))
-        assertEquals(FileRelayStatus.RESERVED, h.relay.find(transferId)?.status)
+        assertEquals(false, h.incoming.relayHop(transferId)?.isWhole)
         h.clock.advanceBy(2.seconds + RouterConfig().fileRelayIdleTtl)
         withTimeout(120.seconds) {
-            while (h.relay.find(transferId) != null) delay(100.milliseconds)
+            while (h.incoming.relayHop(transferId) != null) delay(100.milliseconds)
         }
-        assertNull(h.relay.find(transferId), "an idle partial transfer is dropped")
+        assertNull(h.incoming.relayHop(transferId), "an idle partial transfer is dropped")
     }
 
     @Test
@@ -563,6 +563,6 @@ class FileRelayTest {
             signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
         )
         assertIs<InboundHandleResult.Success>(h.handler.handle(cancel))
-        assertNull(h.relay.find(transferId))
+        assertNull(h.incoming.relayHop(transferId))
     }
 }

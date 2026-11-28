@@ -64,7 +64,6 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFilePullAttemptStore
-import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.DefaultPacketDeduplicator
@@ -361,7 +360,6 @@ internal fun jvmRouterUnderTest(
     fileSealStore = DefaultFileSealStore(db),
     fileTransferStore = DefaultFileTransferStore(db),
     fileIncomingStore = DefaultFileIncomingStore(db),
-    fileRelayStore = DefaultFileRelayStore(db),
     filePullAttemptStore = DefaultFilePullAttemptStore(db),
 )
 

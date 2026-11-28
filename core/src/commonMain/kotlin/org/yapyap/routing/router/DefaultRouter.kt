@@ -44,7 +44,6 @@ import org.yapyap.routing.presence.PingProvider
 import org.yapyap.routing.presence.PresenceService
 import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FilePullAttemptStore
-import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutboxTag
@@ -90,7 +89,6 @@ internal class DefaultRouter(
     fileSealStore: FileSealStore,
     fileTransferStore: FileTransferStore,
     fileIncomingStore: FileIncomingStore,
-    fileRelayStore: FileRelayStore,
     filePullAttemptStore: FilePullAttemptStore,
 ) : Router {
 
@@ -234,7 +232,6 @@ internal class DefaultRouter(
         sealStore = fileSealStore,
         transferStore = fileTransferStore,
         incomingStore = fileIncomingStore,
-        relayStore = fileRelayStore,
         pullAttempts = filePullAttemptStore,
         outboxProcessor = outboxProcessor,
         packetOutbox = packetOutbox,

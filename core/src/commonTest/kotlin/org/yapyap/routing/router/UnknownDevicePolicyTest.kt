@@ -164,7 +164,6 @@ class UnknownDevicePolicyTest {
             fileIncomingStore = InMemoryFileIncomingStore(),
             fileSealStore = InMemoryFileSealStore(),
             fileTransferStore = InMemoryFileTransferStore(),
-            fileRelayStore = InMemoryFileRelayStore(),
             filePullAttemptStore = InMemoryFilePullAttemptStore(),
         )
         router.start()

@@ -75,6 +75,7 @@ CREATE TABLE file_incoming_transfers (
     transfer_id TEXT NOT NULL PRIMARY KEY,
     seal_id BLOB NOT NULL,
     sender_device TEXT NOT NULL,
+    final_target TEXT NOT NULL,
     chunk_size INTEGER NOT NULL,
     byte_from INTEGER NOT NULL,
     byte_to INTEGER NOT NULL,
@@ -102,7 +103,7 @@ CREATE INDEX file_seals_file_target_idx ON file_seals(file_id, target_device);
 CREATE TABLE file_transfers_out (
     transfer_id TEXT NOT NULL PRIMARY KEY,
     seal_id BLOB NOT NULL,
-    relay_transfer_id TEXT,
+    source_transfer_id TEXT,
     peer TEXT NOT NULL,
     chunk_size INTEGER NOT NULL,
     byte_from INTEGER NOT NULL,
@@ -116,7 +117,7 @@ CREATE TABLE file_transfers_out (
 );
 
 CREATE INDEX file_transfers_out_seal_idx ON file_transfers_out(seal_id);
-CREATE INDEX file_transfers_out_relay_idx ON file_transfers_out(relay_transfer_id);
+CREATE INDEX file_transfers_out_source_idx ON file_transfers_out(source_transfer_id);
 
 CREATE TABLE file_transfer_chunks (
     transfer_id TEXT NOT NULL,
@@ -147,28 +148,20 @@ CREATE TABLE file_pull_declined_devices (
 
 CREATE INDEX file_pull_attempts_due_idx ON file_pull_attempts(next_attempt_at);
 
-CREATE TABLE file_relay_transfers (
+CREATE TABLE file_relay_seals (
     transfer_id TEXT NOT NULL PRIMARY KEY,
-    seal_id BLOB NOT NULL,
-    origin_device TEXT NOT NULL,
-    final_target TEXT NOT NULL,
-    chunk_size INTEGER NOT NULL,
-    byte_from INTEGER NOT NULL,
-    byte_to INTEGER NOT NULL,
     seal_bytes BLOB NOT NULL,
-    status TEXT NOT NULL,
-    reserved_bytes INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    last_chunk_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL
+    stored_at INTEGER NOT NULL,
+    FOREIGN KEY (transfer_id) REFERENCES file_incoming_transfers(transfer_id) ON DELETE CASCADE
 );
 
 CREATE TABLE file_relay_chunks (
     transfer_id TEXT NOT NULL,
     chunk_index INTEGER NOT NULL,
+    stored_at INTEGER NOT NULL,
     ciphertext BLOB NOT NULL,
     PRIMARY KEY (transfer_id, chunk_index),
-    FOREIGN KEY (transfer_id) REFERENCES file_relay_transfers(transfer_id) ON DELETE CASCADE
+    FOREIGN KEY (transfer_id) REFERENCES file_incoming_transfers(transfer_id) ON DELETE CASCADE
 );
 
 -- The outbox is not a file table, so its retry class arrives as ALTER TABLE plus the

@@ -16,7 +16,7 @@ internal interface FileTransferStore {
     suspend fun find(transferId: TransferId): OutgoingTransfer?
     suspend fun live(): List<OutgoingTransfer>
     suspend fun bySeal(sealId: ContentId): List<OutgoingTransfer>
-    suspend fun byRelayTransfer(relayTransferId: TransferId): List<OutgoingTransfer>
+    suspend fun bySourceTransfer(sourceTransferId: TransferId): List<OutgoingTransfer>
     suspend fun setStatus(transferId: TransferId, status: FileTransferStatus)
     suspend fun setOffer(transferId: TransferId, packetId: Uuid)
     suspend fun setProgress(transferId: TransferId, nextChunkIndex: Int, contiguousAcked: Int)
@@ -45,7 +45,7 @@ internal class DefaultFileTransferStore(
             queries.insertFileTransfer(
                 transfer_id = transfer.transferId,
                 seal_id = transfer.sealId,
-                relay_transfer_id = transfer.relayTransferId,
+                source_transfer_id = transfer.sourceTransferId,
                 peer = transfer.peer,
                 chunk_size = transfer.shape.chunkSizeBytes.toLong(),
                 byte_from = transfer.shape.byteFrom,
@@ -72,9 +72,9 @@ internal class DefaultFileTransferStore(
         queries.selectFileTransfersBySeal(sealId).executeAsList().map { it.toTransfer() }
     }
 
-    override suspend fun byRelayTransfer(relayTransferId: TransferId): List<OutgoingTransfer> =
+    override suspend fun bySourceTransfer(sourceTransferId: TransferId): List<OutgoingTransfer> =
         withContext(dbDispatcher) {
-            queries.selectFileTransfersByRelayTransfer(relayTransferId).executeAsList().map { it.toTransfer() }
+            queries.selectFileTransfersBySourceTransfer(sourceTransferId).executeAsList().map { it.toTransfer() }
         }
 
     override suspend fun setStatus(transferId: TransferId, status: FileTransferStatus) {
@@ -120,7 +120,7 @@ internal class DefaultFileTransferStore(
     private fun File_transfers_out.toTransfer() = OutgoingTransfer(
         transferId = transfer_id,
         sealId = seal_id,
-        relayTransferId = relay_transfer_id,
+        sourceTransferId = source_transfer_id,
         peer = peer,
         shape = TransferShape(chunk_size.toInt(), byte_from, byte_to),
         nextChunkIndex = next_chunk_index.toInt(),

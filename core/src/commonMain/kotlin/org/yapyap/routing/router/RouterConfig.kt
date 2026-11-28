@@ -225,7 +225,7 @@ internal data class RouterConfig(
     val fileRelayIdleTtl: Duration = 1.hours,
     /**
      * This device's store-and-forward pledge (design §15): the bytes it holds for other
-     * devices' traffic, split between the file relay store and the message relay cache by
+     * devices' traffic, split between relayed file ciphertext and the message relay cache by
      * [fileRelayShare]. Our own outbox rows are never part of it.
      */
     val relayStoragePledgeBytes: Long = 100L * 1024L * 1024L,

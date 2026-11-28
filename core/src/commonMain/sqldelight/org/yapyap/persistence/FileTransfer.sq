@@ -5,13 +5,13 @@ import org.yapyap.protocol.PeerId;
 import org.yapyap.protocol.TransferId;
 
 -- Every transfer this device sends (docs/envelope-redesign.md §5.3): one hop of one seal's chunks
--- to [peer]. Ours carry a seal we hold (file_seals); a relay forward names the inbound relay
--- transfer it forwards. Restart-recoverable from these rows plus the outbox. Status is a plain
+-- to [peer]. Ours carry a seal we hold (file_seals); a relay forward names the incoming hop whose
+-- stored ciphertext it sends ([source_transfer_id]). Restart-recoverable from these rows plus the outbox. Status is a plain
 -- string mapped in the store.
 CREATE TABLE file_transfers_out (
     transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
     seal_id BLOB AS ContentId NOT NULL,
-    relay_transfer_id TEXT AS TransferId,
+    source_transfer_id TEXT AS TransferId,
     peer TEXT AS PeerId NOT NULL,
     chunk_size INTEGER NOT NULL,
     byte_from INTEGER NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE file_transfers_out (
 );
 
 CREATE INDEX file_transfers_out_seal_idx ON file_transfers_out(seal_id);
-CREATE INDEX file_transfers_out_relay_idx ON file_transfers_out(relay_transfer_id);
+CREATE INDEX file_transfers_out_source_idx ON file_transfers_out(source_transfer_id);
 
 -- Chunk index recovery across restarts: packet id → index, recorded when a chunk is enqueued, so
 -- a restart rebuilds the window from outbox rows instead of re-encrypting.
@@ -41,7 +41,7 @@ CREATE INDEX file_transfer_chunks_packet_idx ON file_transfer_chunks(packet_id);
 
 insertFileTransfer:
 INSERT INTO file_transfers_out (
-    transfer_id, seal_id, relay_transfer_id, peer, chunk_size, byte_from, byte_to,
+    transfer_id, seal_id, source_transfer_id, peer, chunk_size, byte_from, byte_to,
     next_chunk_index, contiguous_acked, offer_packet_id, status, created_at, expires_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?);
 
@@ -54,8 +54,8 @@ SELECT * FROM file_transfers_out WHERE status IN ?;
 selectFileTransfersBySeal:
 SELECT * FROM file_transfers_out WHERE seal_id = ?;
 
-selectFileTransfersByRelayTransfer:
-SELECT * FROM file_transfers_out WHERE relay_transfer_id = ?;
+selectFileTransfersBySourceTransfer:
+SELECT * FROM file_transfers_out WHERE source_transfer_id = ?;
 
 updateFileTransferStatus:
 UPDATE file_transfers_out SET status = ? WHERE transfer_id = ?;

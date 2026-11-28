@@ -7,9 +7,9 @@ import org.yapyap.routing.file.TransferOffer
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
-import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileIncomingStore
+import org.yapyap.routing.store.IncomingTransfer
 import org.yapyap.routing.store.OutgoingSeal
-import org.yapyap.routing.store.RelayTransfer
 
 /**
  * Where an outgoing transfer's OFFER and chunk ciphertext come from (docs/envelope-redesign.md
@@ -85,12 +85,16 @@ internal class SealChunkSource(
     }
 }
 
-/** A relay forward: the ciphertext the origin deposited, as it arrived. */
+/**
+ * A relay forward: the ciphertext of relay [hop], as it arrived. The hop's sender is the seal's
+ * origin (a relay admits only from it), so the OFFER names it.
+ */
 internal class RelayChunkSource(
-    private val relay: RelayTransfer,
-    private val store: FileRelayStore,
+    private val hop: IncomingTransfer,
+    sealBytes: ByteArray,
+    private val store: FileIncomingStore,
 ) : ChunkSource {
-    override val offer = TransferOffer(relay.origin, relay.finalTarget, relay.sealBytes)
+    override val offer = TransferOffer(hop.sender, hop.finalTarget, sealBytes)
 
-    override suspend fun chunk(index: Int): ByteArray? = store.chunk(relay.transferId, index)
+    override suspend fun chunk(index: Int): ByteArray? = store.relayChunk(hop.transferId, index)
 }

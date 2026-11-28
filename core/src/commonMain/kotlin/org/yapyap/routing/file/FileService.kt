@@ -36,7 +36,6 @@ import org.yapyap.routing.router.RouterService
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FilePullAttemptStore
-import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.routing.store.OutboxTag
@@ -49,8 +48,8 @@ import kotlin.time.Duration
  *
  * - **transfers** ([TransferEngine]) — every hop we send, ours and relay forwards alike;
  * - **seals** ([SealRegistry]) — the origin side: push, serve, deposits, delivery state;
- * - **relay** ([RelayDoor], [RelayForwards]) — deposits for other devices, forwarded when whole;
- * - **target** ([TargetSide]) — seals and transfers delivering to us, into the receive engine;
+ * - **relay** ([RelayDoor], [RelayForwards]) — hops for other devices, forwarded when whole;
+ * - **target** ([TargetSide]) — hops whose seal is for us, into the receive engine;
  * - **pull** ([FilePullProcessor], [LargeFileService]) — REQUEST/serve and the large-file pull.
  *
  * Everything file-specific lives in this package; the orchestrator seam is under `port/`.
@@ -64,7 +63,6 @@ internal class FileService(
     sealStore: FileSealStore,
     transferStore: FileTransferStore,
     incomingStore: FileIncomingStore,
-    relayStore: FileRelayStore,
     pullAttempts: FilePullAttemptStore,
     outboxProcessor: OutboxProcessor,
     packetOutbox: PacketOutbox,
@@ -89,14 +87,14 @@ internal class FileService(
         packets,
         transferStore,
         sealStore,
-        relayStore,
+        incomingStore,
         plaintext,
         outboxProcessor,
         packetOutbox,
     )
     private val seals = SealRegistry(ctx, sealStore, transferStore, engine, plaintext, relaySelection, events)
-    private val forwards = RelayForwards(ctx, relayStore, transferStore, engine)
-    private val relayDoor = RelayDoor(ctx, packets, relayStore, forwards)
+    private val forwards = RelayForwards(ctx, incomingStore, transferStore, engine)
+    private val relayDoor = RelayDoor(ctx, packets, incomingStore, forwards)
 
     // Large-file pull (design §6.6): the pull protocol on dedicated file channels; no
     // envelopes, no outbox. One session per channel on each end; state dies with the channel.
@@ -131,8 +129,9 @@ internal class FileService(
     /** FILE envelopes, dispatched by routing header. */
     val inboundHandler = FileInboundHandler(
         ctx = ctx,
+        incomingStore = incomingStore,
         target = target,
-        door = relayDoor,
+        relay = relayDoor,
         engine = engine,
         seals = seals,
         serve = FileServeHandler(ctx, requests, seals),

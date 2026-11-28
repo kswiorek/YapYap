@@ -89,8 +89,6 @@ import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FilePullAttempt
 import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FilePullClass
-import org.yapyap.routing.store.FileRelayStatus
-import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileSealStatus
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStatus
@@ -104,10 +102,12 @@ import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
-import org.yapyap.routing.store.RelayTransfer
+import org.yapyap.routing.store.RelayCoverage
+import org.yapyap.routing.store.RelayHop
 import org.yapyap.routing.store.RetryClass
 import org.yapyap.routing.store.SyncAttempt
 import org.yapyap.routing.store.SyncAttemptStore
+import org.yapyap.routing.store.relayReservedBytes
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -433,8 +433,8 @@ internal class InMemoryFileTransferStore : FileTransferStore {
         rows.values.filter { it.sealId == sealId }
     }
 
-    override suspend fun byRelayTransfer(relayTransferId: TransferId): List<OutgoingTransfer> = mutex.withLock {
-        rows.values.filter { it.relayTransferId == relayTransferId }
+    override suspend fun bySourceTransfer(sourceTransferId: TransferId): List<OutgoingTransfer> = mutex.withLock {
+        rows.values.filter { it.sourceTransferId == sourceTransferId }
     }
 
     override suspend fun setStatus(transferId: TransferId, status: FileTransferStatus) = mutex.withLock {
@@ -483,101 +483,6 @@ internal class InMemoryFileTransferStore : FileTransferStore {
     }
 
     fun all(): List<OutgoingTransfer> = rows.values.toList()
-}
-
-/** In-memory [FileRelayStore], mirroring the SQL semantics. */
-internal class InMemoryFileRelayStore : FileRelayStore {
-    private val transfers = linkedMapOf<TransferId, RelayTransfer>()
-    private val chunks = linkedMapOf<Pair<TransferId, Int>, ByteArray>()
-    private val mutex = Mutex()
-
-    override suspend fun admit(transfer: RelayTransfer, budget: Long): AdmitResult = mutex.withLock {
-        val used = transfers.values.sumOf { it.reservedBytes }
-        if (used + transfer.reservedBytes <= budget) {
-            transfers.getOrPut(transfer.transferId) { transfer }
-            AdmitResult(true, emptyList())
-        } else {
-            val victims = mutableListOf<TransferId>()
-            var remaining = used
-            for (candidate in transfers.values.sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value }))) {
-                if (remaining + transfer.reservedBytes <= budget) break
-                if (candidate.transferId == transfer.transferId) continue
-                victims += candidate.transferId
-                remaining -= candidate.reservedBytes
-            }
-            if (remaining + transfer.reservedBytes > budget) {
-                AdmitResult(false, emptyList())
-            } else {
-                for (victim in victims) {
-                    transfers.remove(victim)
-                    chunks.keys.removeAll { it.first == victim }
-                }
-                transfers.getOrPut(transfer.transferId) { transfer }
-                AdmitResult(true, victims)
-            }
-        }
-    }
-
-    override suspend fun find(transferId: TransferId): RelayTransfer? = mutex.withLock { transfers[transferId] }
-
-    override suspend fun all(): List<RelayTransfer> = mutex.withLock { transfers.values.toList() }
-
-    override suspend fun storeChunk(
-        transferId: TransferId,
-        index: Int,
-        ciphertext: ByteArray,
-        now: Instant,
-    ): FileRelayStatus? = mutex.withLock {
-        val row = transfers[transferId] ?: return@withLock null
-        chunks.getOrPut(transferId to index) { ciphertext }
-        transfers[transferId] = RelayTransfer(
-            transferId = row.transferId,
-            sealId = row.sealId,
-            origin = row.origin,
-            finalTarget = row.finalTarget,
-            shape = row.shape,
-            sealBytes = row.sealBytes,
-            status = row.status,
-            reservedBytes = row.reservedBytes,
-            createdAt = row.createdAt,
-            lastChunkAt = now,
-            expiresAt = row.expiresAt,
-        )
-        val updated = transfers.getValue(transferId)
-        val whole = chunks.keys.count { it.first == transferId } >= updated.shape.chunkCount
-        if (updated.status == FileRelayStatus.RESERVED && whole) {
-            transfers[transferId] = RelayTransfer(
-                transferId = updated.transferId,
-                sealId = updated.sealId,
-                origin = updated.origin,
-                finalTarget = updated.finalTarget,
-                shape = updated.shape,
-                sealBytes = updated.sealBytes,
-                status = FileRelayStatus.WHOLE,
-                reservedBytes = updated.reservedBytes,
-                createdAt = updated.createdAt,
-                lastChunkAt = updated.lastChunkAt,
-                expiresAt = updated.expiresAt,
-            )
-            FileRelayStatus.WHOLE
-        } else {
-            updated.status
-        }
-    }
-
-    override suspend fun chunkIndices(transferId: TransferId): List<Int> = mutex.withLock {
-        chunks.keys.filter { it.first == transferId }.map { it.second }.sorted()
-    }
-
-    override suspend fun chunk(transferId: TransferId, index: Int): ByteArray? = mutex.withLock {
-        chunks[transferId to index]
-    }
-
-    override suspend fun delete(transferId: TransferId) = mutex.withLock {
-        transfers.remove(transferId)
-        chunks.keys.removeAll { it.first == transferId }
-        Unit
-    }
 }
 
 /** Scriptable [FilePlaintextSource] for pusher tests. */
@@ -783,6 +688,8 @@ internal class RefusingFilePorts : FakeFilePorts {
 internal class InMemoryFileIncomingStore : FileIncomingStore {
     private val seals = linkedMapOf<ContentId, IncomingSeal>()
     private val transfers = linkedMapOf<TransferId, IncomingTransfer>()
+    private val relaySeals = linkedMapOf<TransferId, Pair<ByteArray, Instant>>()
+    private val relayChunks = linkedMapOf<Pair<TransferId, Int>, Pair<ByteArray, Instant>>()
     private val mutex = Mutex()
 
     override suspend fun insertSeal(seal: IncomingSeal) = mutex.withLock {
@@ -812,14 +719,85 @@ internal class InMemoryFileIncomingStore : FileIncomingStore {
     }
 
     override suspend fun deleteTransfer(transferId: TransferId) = mutex.withLock {
-        transfers.remove(transferId)
-        Unit
+        removeTransfer(transferId)
     }
 
     override suspend fun pruneExpired(now: Instant) = mutex.withLock {
-        transfers.entries.removeAll { it.value.expiresAt <= now }
+        transfers.entries.removeAll { it.value.expiresAt <= now && it.key !in relaySeals }
         seals.entries.removeAll { it.value.expiresAt <= now }
         Unit
+    }
+
+    override suspend fun admitRelay(
+        transfer: IncomingTransfer,
+        sealBytes: ByteArray,
+        budget: Long,
+        now: Instant,
+    ): AdmitResult = mutex.withLock {
+        val needed = relayReservedBytes(transfer.shape, sealBytes.size)
+        val hops = relayHopsLocked()
+        var used = hops.sumOf { it.reservedBytes }
+        val victims = mutableListOf<TransferId>()
+        for (hop in hops) {
+            if (used + needed <= budget) break
+            victims += hop.transfer.transferId
+            used -= hop.reservedBytes
+        }
+        if (used + needed > budget) return@withLock AdmitResult(false, emptyList())
+        victims.forEach { removeTransfer(it) }
+        if (transfer.transferId !in transfers) {
+            transfers[transfer.transferId] = transfer
+            relaySeals[transfer.transferId] = sealBytes to now
+        }
+        AdmitResult(true, victims)
+    }
+
+    override suspend fun relayHops(): List<RelayHop> = mutex.withLock { relayHopsLocked() }
+
+    override suspend fun relayHop(transferId: TransferId): RelayHop? = mutex.withLock { relayHopLocked(transferId) }
+
+    override suspend fun relaySealBytes(transferId: TransferId): ByteArray? = mutex.withLock {
+        relaySeals[transferId]?.first
+    }
+
+    override suspend fun storeRelayChunk(
+        transferId: TransferId,
+        index: Int,
+        ciphertext: ByteArray,
+        now: Instant,
+    ): RelayCoverage? = mutex.withLock {
+        val hop = relayHopLocked(transferId) ?: return@withLock null
+        relayChunks.getOrPut(transferId to index) { ciphertext to now }
+        val stored = relayChunks.keys.filter { it.first == transferId }.map { it.second }.sorted()
+        val contiguous = stored.withIndex().takeWhile { (position, index) -> index == position }.count()
+        RelayCoverage(contiguous - 1, stored.size >= hop.transfer.shape.chunkCount)
+    }
+
+    override suspend fun relayChunk(transferId: TransferId, index: Int): ByteArray? = mutex.withLock {
+        relayChunks[transferId to index]?.first
+    }
+
+    private fun relayHopsLocked(): List<RelayHop> =
+        relaySeals.keys.mapNotNull { relayHopLocked(it) }
+            .sortedWith(compareBy({ it.lastStoredAt }, { it.transfer.transferId.value }))
+
+    private fun relayHopLocked(transferId: TransferId): RelayHop? {
+        val transfer = transfers[transferId] ?: return null
+        val (sealBytes, sealStoredAt) = relaySeals[transferId] ?: return null
+        val chunks = relayChunks.filterKeys { it.first == transferId }.values
+        return RelayHop(
+            transfer = transfer,
+            sealSize = sealBytes.size,
+            storedChunks = chunks.size,
+            lastStoredAt = chunks.maxOfOrNull { it.second } ?: sealStoredAt,
+        )
+    }
+
+    /** The hop and, like the SQL cascade, whatever a relay holds of it. */
+    private fun removeTransfer(transferId: TransferId) {
+        transfers.remove(transferId)
+        relaySeals.remove(transferId)
+        relayChunks.keys.removeAll { it.first == transferId }
     }
 }
 
@@ -1389,7 +1367,6 @@ internal fun e2eeRouterUnderTest(
     fileSealStore: FileSealStore = InMemoryFileSealStore(),
     fileTransferStore: FileTransferStore = InMemoryFileTransferStore(),
     fileIncomingStore: FileIncomingStore = InMemoryFileIncomingStore(),
-    fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
     fileRequestAttemptStore: FilePullAttemptStore = InMemoryFilePullAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
@@ -1418,7 +1395,6 @@ internal fun e2eeRouterUnderTest(
         fileSealStore = fileSealStore,
         fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
-        fileRelayStore = fileRelayStore,
         filePullAttemptStore = fileRequestAttemptStore,
     )
 }
@@ -1480,7 +1456,6 @@ internal fun defaultRouterUnderTest(
     fileSealStore: FileSealStore = InMemoryFileSealStore(),
     fileTransferStore: FileTransferStore = InMemoryFileTransferStore(),
     fileIncomingStore: FileIncomingStore = InMemoryFileIncomingStore(),
-    fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
     fileRequestAttemptStore: FilePullAttemptStore = InMemoryFilePullAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
@@ -1509,7 +1484,6 @@ internal fun defaultRouterUnderTest(
         fileSealStore = fileSealStore,
         fileTransferStore = fileTransferStore,
         fileIncomingStore = fileIncomingStore,
-        fileRelayStore = fileRelayStore,
         filePullAttemptStore = fileRequestAttemptStore,
     )
 }

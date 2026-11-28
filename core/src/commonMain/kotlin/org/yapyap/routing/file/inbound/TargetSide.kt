@@ -11,13 +11,11 @@ import org.yapyap.logging.LogLevel
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.FilePackets
 import org.yapyap.routing.file.FilePullProcessor
-import org.yapyap.routing.file.IncomingHop
 import org.yapyap.routing.file.fileGuarded
 import org.yapyap.routing.file.port.FileIngestPort
 import org.yapyap.routing.file.port.FileIngestResult
@@ -54,25 +52,14 @@ internal class TargetSide(
     private val requests: FileRequestSource,
     private val pullProcessor: FilePullProcessor,
     private val outbox: OutboxProcessor,
-) : ChunkSink {
-    suspend fun offer(env: BinaryEnvelope, header: FileHeader.Offer): InboundHandleResult {
-        incomingStore.findTransfer(header.transferId)?.let { existing ->
-            // The sender re-sends its OFFER until our ACK lands; only it may.
-            return if (existing.sender == env.source) InboundHandleResult.Success() else declined()
-        }
-        // Admission before the seal is opened, so a refused OFFER never spends a ratchet message:
-        // the receiver enforces its own small-file limit (a large file is pulled, never pushed).
-        val shape = header.shape
-        val admissible = shape.isAcceptable() &&
-                shape.byteTo <= ctx.routerConfig.value.smallFileMaxBytes &&
-                env.content.size in 1..ctx.fileLimits.value.maxSealBytes
-        if (!admissible) return declined()
+) : TransferSink {
+    override suspend fun offer(env: BinaryEnvelope, header: FileHeader.Offer): InboundHandleResult {
         val seal = when (val lookup = sealOf(env, header)) {
             is SealLookup.Found -> lookup.seal
             is SealLookup.Refused -> return lookup.result
         }
         // Transfers always run to the end of the file; any other range is not one we can place.
-        if (shape.byteTo != seal.seal.totalBytes) return declined()
+        if (header.shape.byteTo != seal.seal.totalBytes) return declined()
         val manifest = seal.manifest()
         return when (val verdict = ingest.checkOffer(manifest)) {
             FileOfferVerdict.Accept -> accept(env, header, seal, manifest)
@@ -103,6 +90,7 @@ internal class TargetSide(
                 transferId = header.transferId,
                 sealId = seal.sealId,
                 sender = env.source,
+                finalTarget = header.finalTarget,
                 shape = header.shape,
                 expiresAt = env.expiresAt,
             ),
@@ -178,16 +166,9 @@ internal class TargetSide(
         class Refused(val result: InboundHandleResult) : SealLookup
     }
 
-    override suspend fun find(transferId: TransferId): IncomingHop? =
-        incomingStore.findTransfer(transferId)
-            ?.takeIf { it.expiresAt > ctx.clock.now() }
-            ?.let { IncomingHop(it.transferId, it.sender, it.shape) }
-
-    override suspend fun accept(hop: IncomingHop, index: Int, ciphertext: ByteArray): InboundHandleResult {
-        val transfer =
-            incomingStore.findTransfer(hop.transferId) ?: return declined()
+    override suspend fun accept(transfer: IncomingTransfer, index: Int, ciphertext: ByteArray): InboundHandleResult {
         val seal = incomingStore.findSeal(transfer.sealId) ?: return declined()
-        val offset = hop.shape.chunkOffset(index)
+        val offset = transfer.shape.chunkOffset(index)
         val plaintext = try {
             ctx.envelopeProtections.file.decryptChunk(seal.sealId, seal.seal.key, offset, ciphertext)
         } catch (e: CancellationException) {
@@ -204,22 +185,20 @@ internal class TargetSide(
                     component = LogComponent.FILE,
                     event = LogEvent.FILE_CHUNK_DEFERRED,
                     message = "File chunk deferred: staging bound or transient failure",
-                    fields = mapOf("transferId" to hop.transferId),
+                    fields = mapOf("transferId" to transfer.transferId),
                 )
                 return InboundHandleResult.Deferred()
             }
 
             FileIngestResult.Refused -> return declined()
         }
-        val ack = FileHeader.Ack(hop.transferId, hop.shape.highestContiguousIndex(contiguous), emptyList())
-        return InboundHandleResult.Success(listOf(reply(hop.sender, ack, transfer.expiresAt)))
+        val ack = FileHeader.Ack(transfer.transferId, transfer.shape.highestContiguousIndex(contiguous), emptyList())
+        return InboundHandleResult.Success(listOf(reply(transfer.sender, ack, transfer.expiresAt)))
     }
 
-    /** The sender ended its transfer: drop it. False when [transferId] is no transfer of ours. */
-    suspend fun cancel(transferId: TransferId, from: PeerId): Boolean {
-        val transfer = incomingStore.findTransfer(transferId) ?: return false
-        if (transfer.sender == from) incomingStore.deleteTransfer(transferId)
-        return true
+    /** The sender ended its transfer: drop it. */
+    override suspend fun cancel(transfer: IncomingTransfer) {
+        incomingStore.deleteTransfer(transfer.transferId)
     }
 
     /**
@@ -243,7 +222,7 @@ internal class TargetSide(
         }
     }
 
-    /** Drops seals and transfers past their expiry. */
+    /** Drops seals and our transfers past their expiry. */
     fun runIn(scope: CoroutineScope): Job = scope.launch {
         while (true) {
             fileGuarded("Incoming file sweep failed") { incomingStore.pruneExpired(ctx.clock.now()) }

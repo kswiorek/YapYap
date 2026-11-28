@@ -18,11 +18,14 @@ CREATE TABLE file_incoming_seals (
 
 CREATE INDEX file_incoming_seals_file_idx ON file_incoming_seals(file_id);
 
--- The hops delivering to us: chunk placement and the sender to answer. Rows end with their hop.
+-- Every hop delivering chunks to us: chunk placement and the sender to answer. [final_target] is
+-- the seal's target: us, or another device when we relay the hop (§5.4). The target's rows end
+-- with their hop; a relay's end when its forward does.
 CREATE TABLE file_incoming_transfers (
     transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
     seal_id BLOB AS ContentId NOT NULL,
     sender_device TEXT AS PeerId NOT NULL,
+    final_target TEXT AS PeerId NOT NULL,
     chunk_size INTEGER NOT NULL,
     byte_from INTEGER NOT NULL,
     byte_to INTEGER NOT NULL,
@@ -30,6 +33,27 @@ CREATE TABLE file_incoming_transfers (
 );
 
 CREATE INDEX file_incoming_transfers_seal_idx ON file_incoming_transfers(seal_id);
+
+-- What a relay holds for a hop it can't open (§5.4): the seal bytes and each chunk's ciphertext,
+-- passed on as they arrived. A row here is what makes an incoming hop a relay hop. [stored_at]
+-- dates the deposit's activity: the idle timeout and the eviction order read it.
+CREATE TABLE file_relay_seals (
+    transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
+    seal_bytes BLOB NOT NULL,
+    stored_at INTEGER AS Instant NOT NULL,
+    FOREIGN KEY (transfer_id) REFERENCES file_incoming_transfers(transfer_id) ON DELETE CASCADE
+);
+
+-- The PK makes a re-sent chunk a no-op; [stored_at] sits before the blob so reading it never
+-- touches the ciphertext.
+CREATE TABLE file_relay_chunks (
+    transfer_id TEXT AS TransferId NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    stored_at INTEGER AS Instant NOT NULL,
+    ciphertext BLOB NOT NULL,
+    PRIMARY KEY (transfer_id, chunk_index),
+    FOREIGN KEY (transfer_id) REFERENCES file_incoming_transfers(transfer_id) ON DELETE CASCADE
+);
 
 insertFileIncomingSeal:
 INSERT OR IGNORE INTO file_incoming_seals (seal_id, origin_device, file_id, seal, expires_at)
@@ -43,8 +67,8 @@ SELECT * FROM file_incoming_seals WHERE file_id = ?;
 
 insertFileIncomingTransfer:
 INSERT OR IGNORE INTO file_incoming_transfers (
-    transfer_id, seal_id, sender_device, chunk_size, byte_from, byte_to, expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+    transfer_id, seal_id, sender_device, final_target, chunk_size, byte_from, byte_to, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectFileIncomingTransfer:
 SELECT * FROM file_incoming_transfers WHERE transfer_id = ?;
@@ -57,8 +81,49 @@ WHERE s.file_id = ?;
 deleteFileIncomingTransfer:
 DELETE FROM file_incoming_transfers WHERE transfer_id = ?;
 
+-- The target's hops only: a relay hop ends with its forward (the relay sweep).
 deleteFileIncomingTransfersExpiredAt:
-DELETE FROM file_incoming_transfers WHERE expires_at <= ?;
+DELETE FROM file_incoming_transfers
+WHERE expires_at <= ?
+  AND NOT EXISTS (SELECT 1 FROM file_relay_seals r WHERE r.transfer_id = file_incoming_transfers.transfer_id);
 
 deleteFileIncomingSealsExpiredAt:
 DELETE FROM file_incoming_seals WHERE expires_at <= ?;
+
+insertFileRelaySeal:
+INSERT INTO file_relay_seals (transfer_id, seal_bytes, stored_at) VALUES (?, ?, ?);
+
+selectFileRelaySealBytes:
+SELECT seal_bytes FROM file_relay_seals WHERE transfer_id = ?;
+
+-- Every relay hop with what the relay holds of it, least recently fed first (the eviction order).
+selectFileRelayHops:
+SELECT t.*,
+       length(s.seal_bytes) AS seal_size,
+       COUNT(c.chunk_index) AS stored_chunks,
+       COALESCE(MAX(c.stored_at), s.stored_at) AS last_stored_at
+FROM file_incoming_transfers t
+JOIN file_relay_seals s ON s.transfer_id = t.transfer_id
+LEFT JOIN file_relay_chunks c ON c.transfer_id = t.transfer_id
+GROUP BY t.transfer_id
+ORDER BY last_stored_at ASC, t.transfer_id ASC;
+
+selectFileRelayHop:
+SELECT t.*,
+       length(s.seal_bytes) AS seal_size,
+       COUNT(c.chunk_index) AS stored_chunks,
+       COALESCE(MAX(c.stored_at), s.stored_at) AS last_stored_at
+FROM file_incoming_transfers t
+JOIN file_relay_seals s ON s.transfer_id = t.transfer_id
+LEFT JOIN file_relay_chunks c ON c.transfer_id = t.transfer_id
+WHERE t.transfer_id = ?
+GROUP BY t.transfer_id;
+
+insertFileRelayChunk:
+INSERT OR IGNORE INTO file_relay_chunks (transfer_id, chunk_index, stored_at, ciphertext) VALUES (?, ?, ?, ?);
+
+selectFileRelayChunkIndices:
+SELECT chunk_index FROM file_relay_chunks WHERE transfer_id = ? ORDER BY chunk_index ASC;
+
+selectFileRelayChunk:
+SELECT ciphertext FROM file_relay_chunks WHERE transfer_id = ? AND chunk_index = ?;

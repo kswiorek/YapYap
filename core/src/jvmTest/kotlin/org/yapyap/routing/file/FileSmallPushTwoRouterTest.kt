@@ -66,7 +66,6 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFilePullAttemptStore
-import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileSealStore
 import org.yapyap.routing.store.DefaultFileTransferStore
 import org.yapyap.routing.store.FileSealStatus
@@ -271,7 +270,6 @@ class FileSmallPushTwoRouterTest {
                 fileSealStore = DefaultFileSealStore(db),
                 fileTransferStore = DefaultFileTransferStore(db),
                 fileIncomingStore = DefaultFileIncomingStore(db),
-                fileRelayStore = DefaultFileRelayStore(db),
                 filePullAttemptStore = DefaultFilePullAttemptStore(db),
             )
         }

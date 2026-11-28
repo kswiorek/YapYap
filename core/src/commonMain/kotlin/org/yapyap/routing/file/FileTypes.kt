@@ -5,8 +5,6 @@ import org.yapyap.protocol.LargeFileAbortReason
 import org.yapyap.protocol.LargeFileDeclineReason
 import org.yapyap.protocol.LargeFileFrame
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.TransferShape
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.transport.webrtc.types.FileChannelId
@@ -29,9 +27,6 @@ internal sealed interface TransferEvent {
 
 /** What an outgoing transfer's OFFER carries: the seal's origin, final target and the seal bytes. */
 internal class TransferOffer(val origin: PeerId, val finalTarget: PeerId, val sealBytes: ByteArray)
-
-/** A transfer delivering to us: who sends it and what it describes. */
-internal class IncomingHop(val transferId: TransferId, val sender: PeerId, val shape: TransferShape)
 
 /**
  * Outcome of one large-file pull, for the candidate core (design §6.6, §9).

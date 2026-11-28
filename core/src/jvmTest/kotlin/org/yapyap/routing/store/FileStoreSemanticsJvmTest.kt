@@ -30,7 +30,7 @@ import kotlin.uuid.Uuid
 /**
  * Contract tests for the routing file stores on real in-memory SQLite: the exact semantics
  * the seal registry, the transfer engine and the relay door depend on — atomic deposit claims,
- * chunk-index recovery, atomic relay admission, and outbox tag queries.
+ * chunk-index recovery, atomic relay admission and coverage, and outbox tag queries.
  */
 class FileStoreSemanticsJvmTest {
 
@@ -73,7 +73,7 @@ class FileStoreSemanticsJvmTest {
     ) = OutgoingTransfer(
         transferId = transferId,
         sealId = sealId,
-        relayTransferId = null,
+        sourceTransferId = null,
         peer = device,
         shape = TransferShape(32 * 1024, 0, 10_000L),
         nextChunkIndex = 1,
@@ -84,25 +84,24 @@ class FileStoreSemanticsJvmTest {
         expiresAt = now + 2.days,
     )
 
-    private fun relayRow(
+    /**
+     * A relay hop. With the default empty shape its reservation is exactly its seal's size, so a
+     * budget test can say how many bytes each hop holds.
+     */
+    private fun relayHop(
         transferId: TransferId = TransferId(Uuid.random()),
-        origin: PeerId = device,
-        finalTarget: PeerId = relay,
-        reserved: Long = 3000L,
-        lastChunkAt: kotlin.time.Instant = now,
-    ) = RelayTransfer(
+        shape: TransferShape = TransferShape(1000, 0, 0),
+        expiresAt: kotlin.time.Instant = now + 2.days,
+    ) = IncomingTransfer(
         transferId = transferId,
         sealId = ContentId(ByteArray(32) { 3 }),
-        origin = origin,
-        finalTarget = finalTarget,
-        shape = TransferShape(1000, 0, 3000L),
-        sealBytes = byteArrayOf(9),
-        status = FileRelayStatus.RESERVED,
-        reservedBytes = reserved,
-        createdAt = now,
-        lastChunkAt = lastChunkAt,
-        expiresAt = now + 2.days,
+        sender = device,
+        finalTarget = relay,
+        shape = shape,
+        expiresAt = expiresAt,
     )
+
+    private fun sealOf(size: Int) = ByteArray(size) { 9 }
 
     @Test
     fun claimDeposit_exactlyOnceAcrossConcurrentClaimants() = runTest {
@@ -158,72 +157,107 @@ class FileStoreSemanticsJvmTest {
 
     @Test
     fun relayAdmit_evictsOldestFirst() = runTest {
-        val store = DefaultFileRelayStore(db())
+        val store = DefaultFileIncomingStore(db())
         val first = TransferId(Uuid.random())
-        val admission = store.admit(relayRow(first, reserved = 3000L), 3000L)
+        val admission = store.admitRelay(relayHop(first), sealOf(3000), 3000L, now)
         assertTrue(admission.admitted)
         val second = TransferId(Uuid.random())
-        val result = store.admit(relayRow(second, reserved = 3000L), 3000L)
+        val result = store.admitRelay(relayHop(second), sealOf(3000), 3000L, now + 1.seconds)
         assertTrue(result.admitted)
         assertEquals(listOf(first), result.evicted)
-        assertNull(store.find(first), "the evicted mid-deposit transfer is gone")
-        assertNotNull(store.find(second))
+        assertNull(store.findTransfer(first), "the evicted mid-deposit hop is gone")
+        assertNull(store.relaySealBytes(first), "its ciphertext goes with it")
+        assertNotNull(store.relayHop(second))
     }
 
     @Test
     fun relayAdmit_evictsAsManyAsItTakes() = runTest {
-        val store = DefaultFileRelayStore(db())
-        // Thirty small deposits fill the budget; one large OFFER needs twenty of them gone.
+        val store = DefaultFileIncomingStore(db())
+        // Thirty small hops fill the budget; one large OFFER needs twenty of them gone.
         val small = (0 until 30).map { i ->
             TransferId(Uuid.random()).also { id ->
-                val row = relayRow(id, reserved = 300L, lastChunkAt = now + i.seconds)
-                store.admit(row, 9_000L)
+                store.admitRelay(
+                    relayHop(id),
+                    sealOf(300),
+                    9_000L,
+                    now + i.seconds
+                )
             }
         }
         val large = TransferId(Uuid.random())
-        val result = store.admit(relayRow(large, reserved = 6_000L), 9_000L)
+        val result = store.admitRelay(relayHop(large), sealOf(6_000), 9_000L, now + 1.days)
         assertTrue(result.admitted, "evicting twenty of thirty makes room")
         assertEquals(small.take(20), result.evicted, "oldest fed first, exactly as many as needed")
-        assertNotNull(store.find(large))
-        assertEquals(10, store.all().size - 1, "the ten newest deposits stay")
+        assertNotNull(store.relayHop(large))
+        assertEquals(10, store.relayHops().size - 1, "the ten newest hops stay")
     }
 
     @Test
-    fun relayStoreChunk_forGoneRow_writesNothing() = runTest {
-        val store = DefaultFileRelayStore(db())
+    fun relayAdmit_ordersByLastStoredChunk() = runTest {
+        val store = DefaultFileIncomingStore(db())
+        val older = TransferId(Uuid.random())
+        val fed = TransferId(Uuid.random())
+        val shape = TransferShape(1000, 0, 2000L)
+        store.admitRelay(relayHop(older, shape), sealOf(1), 100L * 1024 * 1024, now + 1.seconds)
+        store.admitRelay(relayHop(fed, shape), sealOf(1), 100L * 1024 * 1024, now)
+        // Admitted first, but fed later: a stored chunk is what counts as activity.
+        store.storeRelayChunk(fed, 0, byteArrayOf(1), now + 1.hours)
+
+        assertEquals(listOf(older, fed), store.relayHops().map { it.transfer.transferId })
+        assertEquals(now + 1.hours, store.relayHop(fed)?.lastStoredAt)
+    }
+
+    @Test
+    fun relayStoreChunk_forGoneHop_writesNothing() = runTest {
+        val store = DefaultFileIncomingStore(db())
         val id = TransferId(Uuid.random())
-        store.admit(relayRow(id), 100L * 1024 * 1024)
-        store.delete(id)
+        store.admitRelay(relayHop(id, TransferShape(1000, 0, 3000L)), sealOf(1), 100L * 1024 * 1024, now)
+        store.deleteTransfer(id)
         // An eviction or drop raced the door's read: no foreign-key failure, no write.
-        assertNull(store.storeChunk(id, 0, byteArrayOf(1), now))
-        assertEquals(listOf(), store.chunkIndices(id))
+        assertNull(store.storeRelayChunk(id, 0, byteArrayOf(1), now))
+        assertNull(store.relayChunk(id, 0))
     }
 
     @Test
     fun relayAdmit_refusedOversizeWritesNothing() = runTest {
-        val store = DefaultFileRelayStore(db())
+        val store = DefaultFileIncomingStore(db())
         val first = TransferId(Uuid.random())
-        store.admit(relayRow(first, reserved = 3000L), 4000L)
+        store.admitRelay(relayHop(first), sealOf(3000), 4000L, now)
         // 5000 bytes fit nowhere, even after evicting everything on offer.
         val huge = TransferId(Uuid.random())
-        val result = store.admit(relayRow(huge, reserved = 5000L), 4000L)
+        val result = store.admitRelay(relayHop(huge), sealOf(5000), 4000L, now)
         assertFalse(result.admitted)
         assertTrue(result.evicted.isEmpty(), "a refused admission evicts nothing")
-        assertNotNull(store.find(first), "the held deposit is untouched")
-        assertNull(store.find(huge))
+        assertNotNull(store.relayHop(first), "the held hop is untouched")
+        assertNull(store.findTransfer(huge))
     }
 
     @Test
-    fun relayStoreChunk_promotesWholeAtomically() = runTest {
-        val store = DefaultFileRelayStore(db())
+    fun relayStoreChunk_reportsCoverageAndWholeness() = runTest {
+        val store = DefaultFileIncomingStore(db())
         val id = TransferId(Uuid.random())
-        store.admit(relayRow(id), 100L * 1024 * 1024)
+        store.admitRelay(relayHop(id, TransferShape(1000, 0, 3000L)), sealOf(1), 100L * 1024 * 1024, now)
 
-        assertEquals(FileRelayStatus.RESERVED, store.storeChunk(id, 0, byteArrayOf(1), now))
-        assertEquals(FileRelayStatus.RESERVED, store.storeChunk(id, 1, byteArrayOf(2), now))
+        assertEquals(RelayCoverage(0, false), store.storeRelayChunk(id, 0, byteArrayOf(1), now))
+        assertEquals(RelayCoverage(0, false), store.storeRelayChunk(id, 2, byteArrayOf(3), now))
         // Duplicate chunk stores are no-ops (PK dedup), not double counts.
-        assertEquals(FileRelayStatus.RESERVED, store.storeChunk(id, 0, byteArrayOf(1), now))
-        assertEquals(FileRelayStatus.WHOLE, store.storeChunk(id, 2, byteArrayOf(3), now))
+        assertEquals(RelayCoverage(0, false), store.storeRelayChunk(id, 0, byteArrayOf(1), now))
+        assertEquals(RelayCoverage(2, true), store.storeRelayChunk(id, 1, byteArrayOf(2), now))
+        assertEquals(true, store.relayHop(id)?.isWhole)
+    }
+
+    @Test
+    fun pruneExpired_leavesRelayHopsToTheirForward() = runTest {
+        val store = DefaultFileIncomingStore(db())
+        val relayed = TransferId(Uuid.random())
+        val ours = TransferId(Uuid.random())
+        store.admitRelay(relayHop(relayed, expiresAt = now), sealOf(1), 100L * 1024 * 1024, now)
+        store.insertTransfer(relayHop(ours, expiresAt = now).copy(finalTarget = device))
+
+        store.pruneExpired(now)
+
+        assertNull(store.findTransfer(ours), "the target's expired hop goes")
+        assertNotNull(store.relayHop(relayed), "a relay hop ends with its forward, not the target sweep")
     }
 
     @Test
@@ -284,6 +318,7 @@ class FileStoreSemanticsJvmTest {
                     transferId = id,
                     sealId = sealId,
                     sender = device,
+                    finalTarget = relay,
                     shape = TransferShape(1024, 0, 1000L),
                     expiresAt = expiresAt,
                 ),

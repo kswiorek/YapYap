@@ -34,7 +34,6 @@ import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFileIncomingStore
 import org.yapyap.routing.router.InMemoryFilePullAttemptStore
-import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InMemoryFileSealStore
 import org.yapyap.routing.router.InMemoryFileTransferStore
 import org.yapyap.routing.router.RouterConfig
@@ -45,7 +44,6 @@ import org.yapyap.routing.router.passthroughProtections
 import org.yapyap.routing.router.testRoutingContext
 import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FilePullAttemptStore
-import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStore
 import org.yapyap.testfixtures.FakeClock
@@ -123,7 +121,6 @@ internal class FileInboundHarness(
     val sealStore: FileSealStore,
     val transferStore: FileTransferStore,
     val incomingStore: FileIncomingStore,
-    val relayStore: FileRelayStore,
     val pullAttempts: FilePullAttemptStore,
     val outbox: TrackingPacketOutbox,
     val outboxProcessor: OutboxProcessor,
@@ -184,14 +181,14 @@ internal fun fileInboundHarness(
     val sealStore: FileSealStore = InMemoryFileSealStore()
     val transferStore: FileTransferStore = InMemoryFileTransferStore()
     val incomingStore: FileIncomingStore = InMemoryFileIncomingStore()
-    val relayStore: FileRelayStore = InMemoryFileRelayStore()
     val pullAttempts = InMemoryFilePullAttemptStore()
     val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
     val packets = FilePackets(ctx)
-    val engine = TransferEngine(ctx, packets, transferStore, sealStore, relayStore, plaintext, outboxProcessor, outbox)
+    val engine =
+        TransferEngine(ctx, packets, transferStore, sealStore, incomingStore, plaintext, outboxProcessor, outbox)
     val seals = SealRegistry(ctx, sealStore, transferStore, engine, plaintext, NoRelaySelection, events)
-    val forwards = RelayForwards(ctx, relayStore, transferStore, engine)
-    val door = RelayDoor(ctx, packets, relayStore, forwards)
+    val forwards = RelayForwards(ctx, incomingStore, transferStore, engine)
+    val door = RelayDoor(ctx, packets, incomingStore, forwards)
     val fetchService = LargeFileService(
         devices = ctx.devices,
         transport = ctx.webRtcTransport,
@@ -219,8 +216,9 @@ internal fun fileInboundHarness(
     val target = TargetSide(ctx, packets, incomingStore, ports, ports, requestProcessor, outboxProcessor)
     val handler = FileInboundHandler(
         ctx = ctx,
+        incomingStore = incomingStore,
         target = target,
-        door = door,
+        relay = door,
         engine = engine,
         seals = seals,
         serve = FileServeHandler(ctx, ports, seals),
@@ -235,7 +233,6 @@ internal fun fileInboundHarness(
         sealStore = sealStore,
         transferStore = transferStore,
         incomingStore = incomingStore,
-        relayStore = relayStore,
         pullAttempts = pullAttempts,
         outbox = outbox,
         outboxProcessor = outboxProcessor,

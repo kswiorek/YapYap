@@ -481,7 +481,7 @@ internal class SealRegistry(
     private fun newTransfer(seal: OutgoingSeal, peer: PeerId, shape: TransferShape) = OutgoingTransfer(
         transferId = TransferId(Uuid.random()),
         sealId = seal.sealId,
-        relayTransferId = null,
+        sourceTransferId = null,
         peer = peer,
         shape = shape,
         nextChunkIndex = 0,
