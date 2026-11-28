@@ -32,7 +32,7 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.FakeFilePorts
@@ -210,7 +210,7 @@ class LargeFileStrategyTest {
             devices = identity,
             torTransport = requesterTor,
             webRtcTransport = requesterWebRtc,
-            peerLinks = PeerLinks(identity, requesterWebRtc, requesterTor),
+            torPeers = TorPeerSessions(identity, requesterTor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
@@ -218,7 +218,7 @@ class LargeFileStrategyTest {
             routerConfig = configFlow,
         )
         for (device in holderDevices) {
-            ctx.peerLinks.bindTorEndpoint(device, TorEndpoint("${device.id}.onion", 80))
+            ctx.torPeers.bind(device, TorEndpoint("${device.id}.onion", 80))
         }
         val outbox = TrackingPacketOutbox()
         val outboxProcessor = outboxProcessorUnderTest(
@@ -231,7 +231,7 @@ class LargeFileStrategyTest {
         )
         val torLinkKeeper = LinkKeeper(
             name = "fetch-test-tor",
-            sessions = ctx.peerLinks.tor,
+            sessions = ctx.torPeers,
             targets = { emptyList() },
             ready = kotlinx.coroutines.flow.flowOf(false),
             config = MutableStateFlow(routerConfig.torLinkKeeperConfig),

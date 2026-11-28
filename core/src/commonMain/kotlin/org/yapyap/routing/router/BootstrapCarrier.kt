@@ -5,10 +5,12 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
-import kotlin.uuid.Uuid
 
-/** An accepted bootstrap ACK reported by [BootstrapCarrier.deliveries]. */
-internal data class BootstrapAck(val packetId: Uuid, val account: AccountId?)
+/**
+ * An accepted bootstrap ACK reported by [BootstrapCarrier.deliveries]: [target] acknowledged a
+ * bootstrap packet we sent it; [account] is its account when it has a row.
+ */
+internal data class BootstrapAck(val target: PeerId, val account: AccountId?)
 
 /** Bootstrap-family packets: onboarding intros and account-recovery requests. */
 internal interface BootstrapCarrier {
@@ -35,12 +37,12 @@ internal interface BootstrapCarrier {
      * @param targetEndpoint out-of-band endpoint override for targets with no local devices row.
      * @param sharedSecret sender's in-memory one-time secret, required for INTRO (used once,
      *   never persisted). Null for RECOVERY_REQUEST.
-     * @return the queued packet's id, as later reported in [BootstrapCarrier.deliveries].
+     * [target]'s ACK is later reported in [BootstrapCarrier.deliveries].
      */
     suspend fun sendBootstrap(
         payload: BootstrapPayload,
         target: PeerId,
         targetEndpoint: TorEndpoint? = null,
         sharedSecret: ByteArray? = null,
-    ): Uuid
+    )
 }

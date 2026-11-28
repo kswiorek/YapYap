@@ -25,6 +25,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -53,7 +54,7 @@ internal object FixturePeerIds {
 
 internal fun sampleTextPayload(): DagPayload.Text =
     DagPayload.Text(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-1"),
         prevIds = emptyList(),

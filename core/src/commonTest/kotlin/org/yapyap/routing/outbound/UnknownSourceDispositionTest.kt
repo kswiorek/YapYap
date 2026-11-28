@@ -51,7 +51,7 @@ class UnknownSourceDispositionTest {
         val router: DefaultRouter,
         val tor: RecordingTorTransport,
         val outbox: TrackingPacketOutbox,
-        val delivered: MutableList<Uuid>,
+        val delivered: MutableList<PeerId>,
     )
 
     /** A router that knows no peers, with one queued packet of [type] to [target] (not due yet). */
@@ -90,7 +90,7 @@ class UnknownSourceDispositionTest {
             ),
             nextRetryAt = epochSeconds(now + 3_000),
             targetEndpoint = sponsorTor,
-            tag = if (type == PacketType.BOOTSTRAP) OutboxTag(OutboxTag.Kind.BOOTSTRAP, packetId) else null,
+            tag = if (type == PacketType.BOOTSTRAP) OutboxTag.Bootstrap else null,
         )
         return Setup(router, tor, outbox, mutableListOf()) to packetId
     }
@@ -122,7 +122,7 @@ class UnknownSourceDispositionTest {
     private suspend fun Setup.deliver(envelope: TorIncomingEnvelope) = coroutineScope {
         router.start()
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-            router.bootstrap.deliveries.collect { d -> delivered += d.packetId }
+            router.bootstrap.deliveries.collect { d -> delivered += d.target }
         }
         tor.tryEmitIncoming(envelope)
         delay(400.milliseconds)
@@ -136,7 +136,7 @@ class UnknownSourceDispositionTest {
         s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.BOOTSTRAP)))
 
         assertEquals(listOf(packetId), s.outbox.removeCalls, "the request stops being re-sent")
-        assertEquals(listOf(packetId), s.delivered, "the newcomer side learns it was delivered")
+        assertEquals(listOf(sponsor), s.delivered, "the newcomer side learns it was delivered")
         assertTrue(s.tor.sendsExcludingHeartbeat().isEmpty(), "nothing is ever sent back to an unknown device")
     }
 

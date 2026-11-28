@@ -23,6 +23,7 @@ import org.yapyap.routing.file.fixtureAccount
 import org.yapyap.routing.file.fixtureFileId
 import org.yapyap.routing.file.offerHeaders
 import org.yapyap.routing.file.offerPacketOf
+import org.yapyap.routing.file.onOutcome
 import org.yapyap.routing.file.peerA
 import org.yapyap.routing.file.peerB
 import org.yapyap.routing.file.port.FileEvent
@@ -339,7 +340,7 @@ class SealRegistryTest {
         // One device refused while the other still sends: still SENDING, never failed.
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferA.transferId.value),
+                OutboxTag.FileTransfer(transferA.transferId),
                 peerA,
                 h.offerPacketOf(transferA.transferId),
                 PacketNackReason.DECLINED,
@@ -351,7 +352,7 @@ class SealRegistryTest {
         // Both refused: the send reads DECLINED.
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferB.transferId.value),
+                OutboxTag.FileTransfer(transferB.transferId),
                 peerB,
                 h.offerPacketOf(transferB.transferId),
                 PacketNackReason.DECLINED,
@@ -383,7 +384,7 @@ class SealRegistryTest {
         }.packetId
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferA.transferId.value),
+                OutboxTag.FileTransfer(transferA.transferId),
                 peerA,
                 chunkPacket,
                 PacketNackReason.DECLINED,
@@ -394,7 +395,7 @@ class SealRegistryTest {
         h.clock.advanceTo(h.clock.now() + 3.days)
         h.engine.onOutcome(
             OutboxOutcome.Expired(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferB.transferId.value),
+                OutboxTag.FileTransfer(transferB.transferId),
                 peerB,
                 h.offerPacketOf(transferB.transferId)
             ),

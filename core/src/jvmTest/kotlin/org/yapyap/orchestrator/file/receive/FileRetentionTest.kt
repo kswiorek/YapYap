@@ -24,6 +24,7 @@ import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -46,7 +47,7 @@ class FileRetentionTest {
         val db = openMemoryDatabase().database
         val receives = DefaultFileReceiveStore(db)
         val descriptors = DefaultFileDescriptorStore(db)
-        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-ret-${Uuid.random()}")
+        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-ret-${MessageId(Uuid.random())}")
         files.createDirectories(work)
         val paths = ReceivePaths(Path(work.toString(), "incoming"), Path(work.toString(), "store"))
         files.createDirectories(paths.incomingDir)
@@ -100,7 +101,7 @@ class FileRetentionTest {
         val receives = DefaultFileReceiveStore(db)
         val descriptors = DefaultFileDescriptorStore(db)
         val messages = DefaultMessageRepository(db)
-        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-ret-${Uuid.random()}")
+        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-ret-${MessageId(Uuid.random())}")
         files.createDirectories(work)
         val paths = ReceivePaths(Path(work.toString(), "incoming"), Path(work.toString(), "store"))
         files.createDirectories(paths.incomingDir)
@@ -113,7 +114,7 @@ class FileRetentionTest {
         // Seed a message referencing the file first so the sweep links the origin instead of deleting.
         val fileId = FileId("b".repeat(64))
         val roomId = RoomId(Uuid.random())
-        val msgId = Uuid.random()
+        val msgId = MessageId(Uuid.random())
         val rooms = DefaultRoomRepository(db)
         rooms.ensureRoomExists(roomId, RoomType.TEXT_CHANNEL, "t")
         messages.insert(
@@ -163,7 +164,7 @@ class FileRetentionTest {
         val db = openMemoryDatabase().database
         val receives = DefaultFileReceiveStore(db)
         val descriptors = DefaultFileDescriptorStore(db)
-        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-ret-${Uuid.random()}")
+        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-ret-${MessageId(Uuid.random())}")
         files.createDirectories(work)
         val paths = ReceivePaths(Path(work.toString(), "incoming"), Path(work.toString(), "store"))
         files.createDirectories(paths.incomingDir)

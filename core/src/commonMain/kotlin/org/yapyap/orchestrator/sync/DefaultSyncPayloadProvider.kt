@@ -8,10 +8,11 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.message.port.SyncPayloadProvider
-import kotlin.uuid.Uuid
 
 internal class DefaultSyncPayloadProvider(
     private val messageRepository: MessageRepository,
@@ -20,13 +21,13 @@ internal class DefaultSyncPayloadProvider(
     private val visibility: RoomVisibility,
 ) : SyncPayloadProvider {
 
-    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? =
+    override suspend fun syncRequest(syncId: SyncId): SyncPayload.Request? =
         pendingSyncRepository.buildSyncRequest(syncId)
 
-    override suspend fun syncCandidates(syncId: Uuid): List<AccountId> =
+    override suspend fun syncCandidates(syncId: SyncId): List<AccountId> =
         pendingSyncRepository.candidateAccounts(syncId)
 
-    override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> =
+    override suspend fun syncsWithCandidate(account: AccountId): List<SyncId> =
         pendingSyncRepository.syncIdsWithCandidate(account)
 
     override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> {
@@ -37,7 +38,7 @@ internal class DefaultSyncPayloadProvider(
         // removal node, removal event included); never-members get the generic NACK.
         // Denial returns empty so the router declines the request (a generic NACK), without
         // revealing whether the room is empty or access was denied.
-        val removalRoot: Uuid? = when (val scope = visibility.scope(roomId, requester)) {
+        val removalRoot: MessageId? = when (val scope = visibility.scope(roomId, requester)) {
             VisibilityScope.All -> null
             is VisibilityScope.UpTo -> {
                 AppLog.info(
@@ -81,9 +82,9 @@ internal class DefaultSyncPayloadProvider(
         // missing ids. The removal event itself always serves (a fresh removed device needs
         // it to flip its own row), and everything collected is member-era history by
         // construction: the walk only goes to parents, so it can never leave the closure.
-        val collected = LinkedHashMap<Uuid, DagPayload>()
-        val visited = HashSet<Uuid>()
-        val queue = ArrayDeque<Uuid>()
+        val collected = LinkedHashMap<MessageId, DagPayload>()
+        val visited = HashSet<MessageId>()
+        val queue = ArrayDeque<MessageId>()
         val seeds = removalRoot?.let { listOf(it) } ?: request.missingIds
         for (id in seeds) {
             if (visited.add(id)) queue.add(id)
@@ -106,8 +107,8 @@ internal class DefaultSyncPayloadProvider(
         // Nodes that never become ready (a forged causality cycle) cannot be ordered; they
         // are appended deterministically so nothing the responder holds is silently dropped —
         // the requester's retry loop still terminates against other candidates.
-        val pendingParents = HashMap<Uuid, MutableSet<Uuid>>()
-        val childrenOf = HashMap<Uuid, MutableList<Uuid>>()
+        val pendingParents = HashMap<MessageId, MutableSet<MessageId>>()
+        val childrenOf = HashMap<MessageId, MutableList<MessageId>>()
         for ((id, payload) in collected) {
             for (parentId in payload.prevIds) {
                 if (parentId in collected) {
@@ -116,7 +117,7 @@ internal class DefaultSyncPayloadProvider(
                 }
             }
         }
-        val ready = ArrayDeque<Uuid>()
+        val ready = ArrayDeque<MessageId>()
         for (id in collected.keys.sortedWith(compareBy({ collected.getValue(it).createdAt }, { it }))) {
             if (id !in pendingParents) ready.add(id)
         }

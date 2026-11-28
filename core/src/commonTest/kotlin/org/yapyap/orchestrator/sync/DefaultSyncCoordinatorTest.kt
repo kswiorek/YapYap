@@ -7,10 +7,12 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.message.FakeInboundMessagePipeline
 import org.yapyap.routing.message.FakePendingSyncRepository
@@ -61,11 +63,11 @@ class DefaultSyncCoordinatorTest {
 
     private fun textMsg(
         roomId: RoomId,
-        prevIds: List<Uuid>,
+        prevIds: List<MessageId>,
         sender: AccountId = remoteAccount,
     ): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = sender,
             authorDeviceId = remoteDevice,
@@ -82,8 +84,8 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun requestFrontierSync_unknownTips_createsOneSyncPerTip() = runTest {
         val coordinator = buildCoordinator()
-        val tip1 = Uuid.random()
-        val tip2 = Uuid.random()
+        val tip1 = MessageId(Uuid.random())
+        val tip2 = MessageId(Uuid.random())
 
         coordinator.requestFrontierSync(roomId, listOf(tip1, tip2))
 
@@ -118,7 +120,7 @@ class DefaultSyncCoordinatorTest {
         // A known tip is either chainable (nothing to do) or a local orphan whose
         // parents our causal holds already chase — no new sync in either case.
         val coordinator = buildCoordinator()
-        val orphan = textMsg(roomId, prevIds = listOf(Uuid.random()))
+        val orphan = textMsg(roomId, prevIds = listOf(MessageId(Uuid.random())))
         messageRepo.insert(
             orphan,
             isOrphaned = true,
@@ -134,9 +136,9 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun requestFrontierSync_duplicateTip_doesNotDuplicate() = runTest {
         val coordinator = buildCoordinator()
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId,
+            syncId = SyncId(Uuid.random()), roomId = roomId,
             targetMessageId = tip,
             candidateAccounts = listOf(remoteAccount),
         )
@@ -152,7 +154,7 @@ class DefaultSyncCoordinatorTest {
         val thirdAccount = AccountId("third-account")
         val coordinator = buildCoordinator(roomMembers = listOf(localAccount, remoteAccount, thirdAccount))
 
-        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()))
+        coordinator.requestFrontierSync(roomId, listOf(MessageId(Uuid.random())))
 
         val sync = pendingRepo.all().single()
         assertEquals(listOf(localAccount, remoteAccount, thirdAccount), sync.candidateAccounts)
@@ -165,7 +167,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         roomRepo.removeMember(roomId, remoteAccount)
 
-        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()))
+        coordinator.requestFrontierSync(roomId, listOf(MessageId(Uuid.random())))
 
         val sync = pendingRepo.all().single()
         // Only the still-ACTIVE local account remains a candidate.
@@ -184,8 +186,8 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
-        val missing1 = Uuid.random()
-        val missing2 = Uuid.random()
+        val missing1 = MessageId(Uuid.random())
+        val missing2 = MessageId(Uuid.random())
         val orphan = textMsg(roomId, prevIds = listOf(missing1, missing2))
 
         pipeline.emit(
@@ -209,9 +211,9 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
-        val sharedMissing = Uuid.random()
+        val sharedMissing = MessageId(Uuid.random())
         val orphan1 = textMsg(roomId, prevIds = listOf(sharedMissing))
-        val orphan2 = textMsg(roomId, prevIds = listOf(sharedMissing, Uuid.random()))
+        val orphan2 = textMsg(roomId, prevIds = listOf(sharedMissing, MessageId(Uuid.random())))
 
         pipeline.emit(
             IngestResult.BecameOrphan(
@@ -238,9 +240,9 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun becameOrphan_existingSyncForTarget_noDuplicate() = runTest {
         val coordinator = buildCoordinator()
-        val missing = Uuid.random()
+        val missing = MessageId(Uuid.random())
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId,
+            syncId = SyncId(Uuid.random()), roomId = roomId,
             targetMessageId = missing,
             candidateAccounts = listOf(remoteAccount),
         )
@@ -270,12 +272,12 @@ class DefaultSyncCoordinatorTest {
         val target = textMsg(roomId, prevIds = emptyList())
         val other = textMsg(roomId, prevIds = emptyList())
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId,
+            syncId = SyncId(Uuid.random()), roomId = roomId,
             targetMessageId = target.messageId,
             candidateAccounts = listOf(remoteAccount),
         )
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId,
+            syncId = SyncId(Uuid.random()), roomId = roomId,
             targetMessageId = other.messageId,
             candidateAccounts = listOf(remoteAccount),
         )
@@ -312,7 +314,7 @@ class DefaultSyncCoordinatorTest {
     fun requestFrontierSync_unknownRoom_withSender_createsRowWithSenderAsCandidate() = runTest {
         val coordinator = buildCoordinator()
         val unknownRoom = RoomId(Uuid.random())
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
 
         coordinator.requestFrontierSync(unknownRoom, listOf(tip), senderAccount = remoteAccount)
 
@@ -329,7 +331,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         val unknownRoom = RoomId(Uuid.random())
 
-        coordinator.requestFrontierSync(unknownRoom, listOf(Uuid.random()), senderAccount = null)
+        coordinator.requestFrontierSync(unknownRoom, listOf(MessageId(Uuid.random())), senderAccount = null)
 
         assertTrue(pendingRepo.all().isEmpty())
     }
@@ -339,7 +341,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         val pingerAccount = AccountId("pinger-account")
 
-        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()), senderAccount = pingerAccount)
+        coordinator.requestFrontierSync(roomId, listOf(MessageId(Uuid.random())), senderAccount = pingerAccount)
 
         val sync = pendingRepo.all().single()
         assertEquals(setOf(localAccount, remoteAccount, pingerAccount), sync.candidateAccounts.toSet())
@@ -351,7 +353,7 @@ class DefaultSyncCoordinatorTest {
         // the rows its signal re-triggers — insert-if-absent, so repeat pings
         // and multi-device senders of one account dedup naturally.
         val coordinator = buildCoordinator()
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
         val pingerAccount = AccountId("pinger-account")
         coordinator.requestFrontierSync(roomId, listOf(tip), senderAccount = pingerAccount)
 
@@ -372,7 +374,7 @@ class DefaultSyncCoordinatorTest {
         roomRepo.removeMember(roomId, remoteAccount)
         roomRepo.removeMember(roomId, localAccount)
 
-        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()), senderAccount = null)
+        coordinator.requestFrontierSync(roomId, listOf(MessageId(Uuid.random())), senderAccount = null)
 
         val sync = pendingRepo.all().single()
         assertTrue(sync.candidateAccounts.isEmpty())
@@ -391,7 +393,7 @@ class DefaultSyncCoordinatorTest {
         val authorAccount = AccountId("author-account")
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
-        val missing = Uuid.random()
+        val missing = MessageId(Uuid.random())
 
         pipeline.emit(
             IngestResult.BecameOrphan(
@@ -411,12 +413,12 @@ class DefaultSyncCoordinatorTest {
     fun becameOrphan_existingRow_appendsAuthor() = runTest {
         val coordinator = buildCoordinator()
         val authorAccount = AccountId("author-account")
-        val missing = Uuid.random()
+        val missing = MessageId(Uuid.random())
         // Seeded after start: start's boot sweep appends the room's members to existing rows.
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId,
+            syncId = SyncId(Uuid.random()), roomId = roomId,
             targetMessageId = missing,
             candidateAccounts = listOf(remoteAccount),
         )
@@ -442,7 +444,7 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun refreshCandidatesFor_appendsCurrentMembersAndPreservesOthers() = runTest {
         val coordinator = buildCoordinator()
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
         val pingerAccount = AccountId("pinger-account")
         coordinator.requestFrontierSync(roomId, listOf(tip), senderAccount = pingerAccount)
         // A new member joins after the row was minted.
@@ -464,8 +466,8 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         val unknownRoom = RoomId(Uuid.random())
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = unknownRoom,
-            targetMessageId = Uuid.random(),
+            syncId = SyncId(Uuid.random()), roomId = unknownRoom,
+            targetMessageId = MessageId(Uuid.random()),
             candidateAccounts = listOf(remoteAccount),
         )
 
@@ -480,8 +482,8 @@ class DefaultSyncCoordinatorTest {
     fun refreshCandidatesFor_globalRoom_appendsGlobalMembers() = runTest {
         val coordinator = buildCoordinator()
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = RoomId.GLOBAL,
-            targetMessageId = Uuid.random(),
+            syncId = SyncId(Uuid.random()), roomId = RoomId.GLOBAL,
+            targetMessageId = MessageId(Uuid.random()),
             candidateAccounts = emptyList(),
         )
         roomRepo.upsertMember(RoomId.GLOBAL, remoteAccount, RoomMemberRole.MEMBER)
@@ -499,17 +501,17 @@ class DefaultSyncCoordinatorTest {
     fun requestFrontierSync_fromKnownSender_reopensOnlyThatRoomsSyncs() = runTest {
         val coordinator = buildCoordinator()
         val otherRoom = RoomId(Uuid.random())
-        val inRoom = Uuid.random()
+        val inRoom = SyncId(Uuid.random())
         pendingRepo.insertSync(
             inRoom,
             roomId,
-            targetMessageId = Uuid.random(),
+            targetMessageId = MessageId(Uuid.random()),
             candidateAccounts = listOf(remoteAccount)
         )
         pendingRepo.insertSync(
-            Uuid.random(),
+            SyncId(Uuid.random()),
             otherRoom,
-            targetMessageId = Uuid.random(),
+            targetMessageId = MessageId(Uuid.random()),
             candidateAccounts = listOf(remoteAccount)
         )
 
@@ -524,9 +526,9 @@ class DefaultSyncCoordinatorTest {
     fun requestFrontierSync_fromUnknownSender_reopensNothing() = runTest {
         val coordinator = buildCoordinator()
         pendingRepo.insertSync(
-            Uuid.random(),
+            SyncId(Uuid.random()),
             roomId,
-            targetMessageId = Uuid.random(),
+            targetMessageId = MessageId(Uuid.random()),
             candidateAccounts = listOf(remoteAccount)
         )
 
@@ -565,11 +567,11 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun start_handsEveryExistingSyncToTheRouter() = runTest {
         val coordinator = buildCoordinator()
-        val existing = Uuid.random()
+        val existing = SyncId(Uuid.random())
         pendingRepo.insertSync(
             existing,
             roomId,
-            targetMessageId = Uuid.random(),
+            targetMessageId = MessageId(Uuid.random()),
             candidateAccounts = listOf(remoteAccount)
         )
 

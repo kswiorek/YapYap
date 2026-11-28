@@ -106,8 +106,9 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - **protocol** — wire types and codecs: the one `BinaryEnvelope` every family shares (a signed hop
   header, a public routing header, end-to-end content) and each family's routing header (`MessageHeader`,
   `SignalHeader`, `SystemPayload`, `BootstrapHeader`, `FileHeader`), ids (`AccountId`, `PeerId`, `RoomId`,
-  `TorEndpoint`, `ContentId`), and the observability profiles (`EnvelopeObservability`) that say which routing
-  metadata is visible on the wire. Also the public identity vocabulary that travels on the wire (`protocol/identity`:
+  `MessageId`, `SyncId`, `TorEndpoint`, `ContentId`), and the observability profiles (`EnvelopeObservability`) that
+  say which routing metadata is visible on the wire. Also the public identity vocabulary that travels on the wire
+  (`protocol/identity`:
   public
   keys, prekey ids, `SignedPreKey`, `AccountIdentity`, `DeviceIdentity`) and the WebRTC signal types. It is the
   bottom of the graph: it depends on nothing else in the core. Codecs encode and decode; signing, hashing and
@@ -287,7 +288,9 @@ never a loss.
 
 - Every outbox entry that someone waits on carries a tag saying what it is for (a message push, a bootstrap
   packet, a sync attempt, a file transfer: `FILE_TRANSFER` for every transfer we send, ours and relay
-  forwards alike, `FILE_REQUEST` for REQUESTs). However the entry leaves the outbox — ACK, terminal NACK, expiry —
+  forwards alike, `FILE_REQUEST` for REQUESTs). The tag carries its owner's typed correlation id (a `MessageId`, a
+  `SyncId`, a `TransferId`) in the packet's own row, or none when the owner correlates by packet id. However the
+  entry leaves the outbox — ACK, terminal NACK, expiry —
   the outcome is reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets
   a tag; it does not add another callback path. The due query loads only ids, targets, tags and retry classes (never
   blobs), claims non-file rows first, hides targets already at their per-target in-flight cap, and
@@ -346,7 +349,8 @@ never a loss.
 - Unknown devices: an ACK/NACK from a device with no row is accepted only when it refers to a bootstrap packet
   in our outbox addressed to exactly that device (a recovering device can't verify its sponsor's hop signature yet;
   the unguessable packet id authenticates the reply). It is never answered. Accepted bootstrap ACKs are
-  reported to the orchestrator so onboarding can show "request delivered".
+  reported to the orchestrator per target device (`BootstrapCarrier.deliveries`) so onboarding can show
+  "request delivered"; packet ids never leave the router.
 
 ## 7. Identity and keys
 

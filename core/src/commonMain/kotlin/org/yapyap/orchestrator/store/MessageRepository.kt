@@ -10,11 +10,11 @@ import org.yapyap.persistence.Messages
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.DagPayload
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * DB row mapped from [org.yapyap.persistence.Messages]: the decoded [DagPayload]
@@ -37,7 +37,7 @@ internal data class StoredMessage(
  */
 internal data class MessageCursor(
     val createdAt: Instant,
-    val messageId: Uuid,
+    val messageId: MessageId,
 )
 
 internal interface MessageRepository {
@@ -51,9 +51,9 @@ internal interface MessageRepository {
     ): Boolean
 
     /** Read-only lookup for the serve gate: messageIds referencing [fileId]. */
-    suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid>
+    suspend fun findMessageIdsByFileId(fileId: FileId): List<MessageId>
 
-    suspend fun findById(messageId: Uuid): StoredMessage?
+    suspend fun findById(messageId: MessageId): StoredMessage?
 
     /**
      * Chainable frontier (covering antichain): chainable messages that no chainable
@@ -62,18 +62,18 @@ internal interface MessageRepository {
     suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage>
 
     /** Parent IDs of a stored message (empty for the DAG root). */
-    suspend fun findParents(messageId: Uuid): List<Uuid>
+    suspend fun findParents(messageId: MessageId): List<MessageId>
 
     /**
      * True when [messageId] is [of] or one of its ancestors over parent edges.
      * Used by the shared visibility rule for removed members.
      */
-    suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean
+    suspend fun isAncestorOrSelf(messageId: MessageId, of: MessageId): Boolean
 
-    suspend fun insertParent(messageId: Uuid, parentId: Uuid)
+    suspend fun insertParent(messageId: MessageId, parentId: MessageId)
 
     /** Stored messages in [roomId] referencing [parentId] (used for the ancestry cascade). */
-    suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage>
+    suspend fun findChildrenInRoom(parentId: MessageId, roomId: RoomId): List<StoredMessage>
 
     suspend fun findMessagesInRoomPageDesc(
         roomId: RoomId,
@@ -99,7 +99,7 @@ internal interface MessageRepository {
      * (live window inserts, the incoming-message event). Same predicate as
      * [renderableMessagesInRoom] — a missing row reads as not renderable.
      */
-    suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean
+    suspend fun isRenderable(roomId: RoomId, messageId: MessageId): Boolean
 
     suspend fun findAllInRoom(roomId: RoomId): List<StoredMessage>
 
@@ -113,13 +113,13 @@ internal interface MessageRepository {
     /** True if the room holds any message at all (genesis/empty-room checks). */
     suspend fun hasMessages(roomId: RoomId): Boolean
 
-    suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
+    suspend fun updateOrphanedFlag(messageId: MessageId, isOrphaned: Boolean)
 
     /** Mark a stored message's ancestry transitively complete/incomplete. */
-    suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean)
+    suspend fun updateAncestryComplete(messageId: MessageId, complete: Boolean)
 
     /** Transition a stored message between verification states (e.g. PENDING -> VERIFIED/REJECTED). */
-    suspend fun updateVerificationState(messageId: Uuid, state: VerificationState)
+    suspend fun updateVerificationState(messageId: MessageId, state: VerificationState)
 
     /** Messages waiting on identity state for [deviceId] (used to re-verify once the device is known). */
     suspend fun findPendingByAuthor(deviceId: PeerId): List<StoredMessage>
@@ -182,13 +182,13 @@ internal class DefaultMessageRepository(
         }
     }
 
-    override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> =
+    override suspend fun findMessageIdsByFileId(fileId: FileId): List<MessageId> =
         withContext(dbDispatcher) {
             queries.selectMessageIdsByFileId(fileId).executeAsList()
         }
 
     private fun insertAttachmentRows(
-        messageId: Uuid,
+        messageId: MessageId,
         attachments: List<DagPayload.Attachment>?,
     ) {
         attachments?.forEach { attachment ->
@@ -196,7 +196,7 @@ internal class DefaultMessageRepository(
         }
     }
 
-    override suspend fun findById(messageId: Uuid): StoredMessage? =
+    override suspend fun findById(messageId: MessageId): StoredMessage? =
         withContext(dbDispatcher) {
             val row = queries.selectMessageById(messageId).executeAsOneOrNull()?.toRow()
             if (row == null) {
@@ -236,25 +236,25 @@ internal class DefaultMessageRepository(
             rows
         }
 
-    override suspend fun findParents(messageId: Uuid): List<Uuid> =
+    override suspend fun findParents(messageId: MessageId): List<MessageId> =
         withContext(dbDispatcher) {
             queries.selectParentsByMessage(messageId).executeAsList()
         }
 
-    override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+    override suspend fun isAncestorOrSelf(messageId: MessageId, of: MessageId): Boolean {
         if (messageId == of) return true
         return withContext(dbDispatcher) {
             queries.isAncestorOrSelf(of, messageId).executeAsOne()
         }
     }
 
-    override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
+    override suspend fun insertParent(messageId: MessageId, parentId: MessageId) {
         withContext(dbDispatcher) {
             queries.insertMessageParent(message_id = messageId, parent_id = parentId)
         }
     }
 
-    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> =
+    override suspend fun findChildrenInRoom(parentId: MessageId, roomId: RoomId): List<StoredMessage> =
         withContext(dbDispatcher) {
             queries.selectChildrenInRoom(parentId, roomId).executeAsList().map { it.toRow() }
         }
@@ -324,7 +324,7 @@ internal class DefaultMessageRepository(
             rows
         }
 
-    override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean =
+    override suspend fun isRenderable(roomId: RoomId, messageId: MessageId): Boolean =
         withContext(dbDispatcher) {
             queries.selectIsRenderable(roomId, messageId).executeAsOne()
         }
@@ -349,7 +349,7 @@ internal class DefaultMessageRepository(
             rows
         }
 
-    override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
+    override suspend fun updateOrphanedFlag(messageId: MessageId, isOrphaned: Boolean) {
         withContext(dbDispatcher) {
             queries.updateMessageOrphanedFlag(isOrphaned, messageId)
             AppLog.debug(
@@ -364,7 +364,7 @@ internal class DefaultMessageRepository(
         }
     }
 
-    override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
+    override suspend fun updateVerificationState(messageId: MessageId, state: VerificationState) {
         withContext(dbDispatcher) {
             queries.updateMessageVerificationState(state, messageId)
             AppLog.debug(
@@ -389,7 +389,7 @@ internal class DefaultMessageRepository(
             queries.selectAllPending().executeAsList().map { it.toRow() }
         }
 
-    override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) {
+    override suspend fun updateAncestryComplete(messageId: MessageId, complete: Boolean) {
         withContext(dbDispatcher) {
             queries.updateMessageAncestryComplete(complete, messageId)
             AppLog.debug(

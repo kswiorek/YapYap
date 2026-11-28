@@ -23,6 +23,7 @@ import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -130,13 +131,13 @@ private suspend fun bindingSig(crypto: CryptoProvider, account: TestAccount, dev
 private suspend fun globalNode(
     crypto: CryptoProvider,
     author: TestDevice,
-    prevIds: List<Uuid>,
+    prevIds: List<MessageId>,
     createdAt: Instant,
     event: GlobalEventPayload,
     signWith: ByteArray = author.signingPrivate,
 ): DagPayload.GlobalEvent {
     val unsigned = DagPayload.GlobalEvent(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         senderAccountId = author.account.accountId,
         authorDeviceId = author.deviceId,
         prevIds = prevIds,
@@ -348,14 +349,14 @@ private class Harness(
         pipeline.emit(IngestResult.Inserted(node))
     }
 
-    suspend fun frontier(): List<Uuid> =
+    suspend fun frontier(): List<MessageId> =
         messageRepo.findRoomFrontier(RoomId.GLOBAL).map { it.payload.messageId }
 
-    suspend fun rootId(): Uuid =
+    suspend fun rootId(): MessageId =
         messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { it.payload.prevIds.isEmpty() }.payload.messageId
 
-    suspend fun verdictOf(messageId: Uuid): VerificationState? =
+    suspend fun verdictOf(messageId: MessageId): VerificationState? =
         messageRepo.findById(messageId)?.verificationState
 }
 
@@ -747,7 +748,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         // The add references a parent the banner never synced: parked outside the frontier.
-        val missingParent = Uuid.random()
+        val missingParent = MessageId(Uuid.random())
         val parked = newDevice(h.crypto, h.account, "parked")
         val parkedAdd = globalNode(
             crypto = h.crypto,
@@ -1189,7 +1190,7 @@ class DefaultGlobalEventProjectorTest {
 
         h.store(
             DagPayload.Text(
-                messageId = Uuid.random(),
+                messageId = MessageId(Uuid.random()),
                 roomId = RoomId.GLOBAL,
                 senderAccountId = h.account.accountId,
                 authorDeviceId = h.oldPhone.deviceId,
@@ -1626,7 +1627,7 @@ class DefaultGlobalEventProjectorTest {
         return account to device
     }
 
-    private suspend fun Harness.removeAccountNodes(target: AccountId): List<Uuid> =
+    private suspend fun Harness.removeAccountNodes(target: AccountId): List<MessageId> =
         messageRepo.findAllInRoom(RoomId.GLOBAL).mapNotNull { row ->
             val event = (row.payload as? DagPayload.GlobalEvent)?.decodeEvent()
             if (event is GlobalEventPayload.RemoveAccount && event.targetAccountId == target) {
@@ -2196,7 +2197,7 @@ class DefaultGlobalEventProjectorTest {
 
     private data class FuzzSnapshot(
         val roleStatuses: Map<String, String?>,
-        val verdicts: Map<Uuid, VerificationState>,
+        val verdicts: Map<MessageId, VerificationState>,
         val seenSize: Int,
     )
 

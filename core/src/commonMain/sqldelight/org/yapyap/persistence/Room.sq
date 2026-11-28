@@ -1,10 +1,10 @@
 import kotlin.time.Instant;
-import kotlin.uuid.Uuid;
 import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.RoomId;
 import org.yapyap.protocol.RoomMemberRole;
 import org.yapyap.protocol.RoomMemberStatus;
 import org.yapyap.protocol.RoomType;
+import org.yapyap.protocol.MessageId;
 
 CREATE TABLE rooms (
     room_id TEXT AS RoomId NOT NULL PRIMARY KEY,
@@ -23,7 +23,7 @@ CREATE TABLE room_members (
     -- bounded sync serve + ping-contradiction re-push + the removal-boundary
     -- display policy, docs/room events.md §3/§6);
     -- null on ACTIVE rows and on GLOBAL rows (no room-DAG removal exists there).
-    removal_node_id TEXT AS Uuid,
+    removal_node_id TEXT AS MessageId,
     joined_timestamp INTEGER AS Instant NOT NULL,
     PRIMARY KEY (room_id, account_id),
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),

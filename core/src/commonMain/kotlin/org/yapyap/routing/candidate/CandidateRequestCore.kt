@@ -71,7 +71,7 @@ internal class CandidateRequestCore<K>(
     private val activeCalls = MutableStateFlow(0)
 
     private val retryLoop = RetryLoop(
-        earliestPendingRetryAt = { strategy.attempts.earliestDueAt() },
+        earliestPendingRetryAt = { strategy.ledger.earliestDueAt() },
         clock = ctx.clock,
         // Call attempts launch as children of the due loop's own job, so stopping the loop
         // stops them; the due pass itself never waits for them.
@@ -100,7 +100,7 @@ internal class CandidateRequestCore<K>(
 
     /** Starts asking for [id] (idempotent). */
     suspend fun start(id: K, firstAttemptAt: Instant) {
-        strategy.attempts.start(id, firstAttemptAt)
+        strategy.ledger.start(id, firstAttemptAt)
         wake()
     }
 
@@ -110,12 +110,12 @@ internal class CandidateRequestCore<K>(
      * is left alone, so one candidate cannot hog the requests while others never get a turn.
      */
     suspend fun reopen(id: K, account: AccountId) {
-        val declined = strategy.attempts.declinedDevices(id)
+        val declined = strategy.ledger.declinedDevices(id)
         if (declined.isEmpty()) return
         val candidates = candidateDevices(strategy.candidateAccounts(id))
         if (candidates.any { it !in declined }) return
-        strategy.attempts.removeDeclined(id, ctx.devices.getAllPeerDevicesForAccount(account))
-        strategy.attempts.advanceToNow(listOf(id), ctx.clock.now())
+        strategy.ledger.removeDeclined(id, ctx.devices.getAllPeerDevicesForAccount(account))
+        strategy.ledger.advanceToNow(listOf(id), ctx.clock.now())
         wake()
     }
 
@@ -126,7 +126,7 @@ internal class CandidateRequestCore<K>(
         when (outcome) {
             is OutboxOutcome.Acked -> when (val action = outboxStrategy.onSuccess(id, outcome.target)) {
                 is SuccessAction.Done -> forget(id)
-                is SuccessAction.AwaitUntil -> strategy.attempts.setWaiting(id, outcome.target, action.until)
+                is SuccessAction.AwaitUntil -> strategy.ledger.setWaiting(id, outcome.target, action.until)
             }
 
             is OutboxOutcome.Nacked -> if (outcome.reason in DECLINES) {
@@ -141,9 +141,9 @@ internal class CandidateRequestCore<K>(
 
     /** [deviceId] won't serve [id]: never ask it again for this id; ask the next one now. */
     suspend fun onDeclined(id: K, deviceId: PeerId) {
-        strategy.attempts.addDeclined(id, deviceId)
-        strategy.attempts.clearWaiting(id)
-        strategy.attempts.advanceToNow(listOf(id), ctx.clock.now())
+        strategy.ledger.addDeclined(id, deviceId)
+        strategy.ledger.clearWaiting(id)
+        strategy.ledger.advanceToNow(listOf(id), ctx.clock.now())
         wake()
     }
 
@@ -165,10 +165,10 @@ internal class CandidateRequestCore<K>(
     private suspend fun onUnanswered(id: K, deviceId: PeerId) {
         noteSilent(id, deviceId)
         val silent = unansweredLock.withLock { unanswered[id]?.toSet().orEmpty() }
-        val declined = strategy.attempts.declinedDevices(id)
+        val declined = strategy.ledger.declinedDevices(id)
         val untried = candidateDevices(strategy.candidateAccounts(id)).any { it !in declined && it !in silent }
         if (!untried) return
-        strategy.attempts.advanceToNow(listOf(id), ctx.clock.now())
+        strategy.ledger.advanceToNow(listOf(id), ctx.clock.now())
         wake()
     }
 
@@ -179,7 +179,7 @@ internal class CandidateRequestCore<K>(
 
     /** Drops all of the core's state for [id]: attempts row (WAITING with it) and silence. */
     private suspend fun forget(id: K) {
-        strategy.attempts.drop(id)
+        strategy.ledger.drop(id)
         unansweredLock.withLock { unanswered.remove(id) }
     }
 
@@ -187,7 +187,7 @@ internal class CandidateRequestCore<K>(
     private suspend fun onLinkUp(deviceId: PeerId) {
         try {
             val account = ctx.devices.getAccountIdForDevice(deviceId) ?: return
-            strategy.attempts.advanceToNow(strategy.idsWithCandidate(account), ctx.clock.now())
+            strategy.ledger.advanceToNow(strategy.idsWithCandidate(account), ctx.clock.now())
             wake()
         } catch (e: CancellationException) {
             throw e
@@ -203,7 +203,7 @@ internal class CandidateRequestCore<K>(
 
     private suspend fun processDue(loopScope: CoroutineScope) {
         val now = ctx.clock.now()
-        val dueRows = strategy.attempts.findDue(now, limit = DUE_PAGE)
+        val dueRows = strategy.ledger.findDue(now, limit = DUE_PAGE)
         if (dueRows.isNotEmpty()) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
@@ -222,7 +222,7 @@ internal class CandidateRequestCore<K>(
         if (dueRows.size == DUE_PAGE) wake()
     }
 
-    private suspend fun processDueRow(row: CandidateRow<K>, now: Instant, loopScope: CoroutineScope) {
+    private suspend fun processDueRow(row: CandidateEntry<K>, now: Instant, loopScope: CoroutineScope) {
         // Satisfied or gone while waiting: stop asking before choosing a candidate.
         if (!strategy.isWanted(row.id)) {
             forget(row.id)
@@ -232,24 +232,24 @@ internal class CandidateRequestCore<K>(
         // A running Call owns its row until the call ends. Postpone rather than skip: a row
         // left due would make the loop wake at once, over and over, for the whole call.
         if (executor is AttemptExecutor.Call<K> && runningLock.withLock { row.id in running }) {
-            strategy.attempts.postpone(row.id, nextAttemptAt)
+            strategy.ledger.postpone(row.id, nextAttemptAt)
             return
         }
         // WAITING (stored on the row): still held → sleep until it ends; expired with no
         // drop → the holder goes silent and the next candidate is asked in this same pass.
         row.waiting?.let { waiting ->
             if (now < waiting.until) {
-                strategy.attempts.postpone(row.id, waiting.until)
+                strategy.ledger.postpone(row.id, waiting.until)
                 return
             }
-            strategy.attempts.clearWaiting(row.id)
+            strategy.ledger.clearWaiting(row.id)
             noteSilent(row.id, waiting.device)
         }
 
         val exec = executor
         if (exec is AttemptExecutor.Outbox<K> && exec.strategy.attemptState(row.id) == AttemptState.Pending) {
             // The last attempt is still queued (waiting for a link).
-            strategy.attempts.postpone(row.id, nextAttemptAt)
+            strategy.ledger.postpone(row.id, nextAttemptAt)
             return
         }
 
@@ -259,7 +259,7 @@ internal class CandidateRequestCore<K>(
         if (nextDevice == null) {
             // Every known candidate refused (none merely unreachable): terminal for loops
             // that say so (file requests go UNAVAILABLE); sync never terminates this way.
-            val declined = strategy.attempts.declinedDevices(row.id)
+            val declined = strategy.ledger.declinedDevices(row.id)
             if (candidateDevices.isNotEmpty() && candidateDevices.all { it in declined } &&
                 strategy.onExhausted(row.id)
             ) {
@@ -279,7 +279,7 @@ internal class CandidateRequestCore<K>(
             // No sendable candidate (every device declined, or none linked):
             // the id is inert, not dead. Exponential backoff keeps a dead id at ~one
             // query per interval, capped at an hour.
-            strategy.attempts.recordAttempt(row.id, nextAttemptAt)
+            strategy.ledger.recordAttempt(row.id, nextAttemptAt)
             return
         }
 
@@ -290,7 +290,7 @@ internal class CandidateRequestCore<K>(
     }
 
     private suspend fun runOutboxAttempt(
-        row: CandidateRow<K>,
+        row: CandidateEntry<K>,
         nextDevice: PeerId,
         now: Instant,
         nextAttemptAt: Instant,
@@ -307,7 +307,7 @@ internal class CandidateRequestCore<K>(
                 message = "Failed to queue candidate request",
                 fields = mapOf("id" to row.id, "deviceId" to nextDevice, "error" to e.toString()),
             )
-            strategy.attempts.recordAttempt(row.id, nextAttemptAt)
+            strategy.ledger.recordAttempt(row.id, nextAttemptAt)
             return
         } ?: run {
             // Satisfied or gone while waiting: stop asking.
@@ -332,18 +332,18 @@ internal class CandidateRequestCore<K>(
                 fields = mapOf("id" to row.id, "deviceId" to nextDevice, "error" to e.toString()),
             )
         }
-        strategy.attempts.recordAttempt(row.id, nextAttemptAt)
+        strategy.ledger.recordAttempt(row.id, nextAttemptAt)
     }
 
     private suspend fun runCallAttempt(
-        row: CandidateRow<K>,
+        row: CandidateEntry<K>,
         nextDevice: PeerId,
         nextAttemptAt: Instant,
         exec: AttemptExecutor.Call<K>,
         loopScope: CoroutineScope,
     ) {
         // The call owns its row while running; record first so a crash mid-call never re-asks at once.
-        strategy.attempts.recordAttempt(row.id, nextAttemptAt)
+        strategy.ledger.recordAttempt(row.id, nextAttemptAt)
         runningLock.withLock { running.add(row.id) }
         // The due loop never blocks on a call: each attempt runs as a child job, bounded by
         // the call slots, and the row is postponed until that job ends.
@@ -390,7 +390,7 @@ internal class CandidateRequestCore<K>(
     /** One call; an unexpected failure counts as an unanswered attempt (logged here, once). */
     private suspend fun runCall(
         exec: AttemptExecutor.Call<K>,
-        row: CandidateRow<K>,
+        row: CandidateEntry<K>,
         nextDevice: PeerId,
     ): CallOutcome {
         return try {
@@ -408,7 +408,7 @@ internal class CandidateRequestCore<K>(
         }
     }
 
-    private suspend fun handleCallOutcome(row: CandidateRow<K>, nextDevice: PeerId, outcome: CallOutcome) {
+    private suspend fun handleCallOutcome(row: CandidateEntry<K>, nextDevice: PeerId, outcome: CallOutcome) {
         when (outcome) {
             is CallOutcome.Satisfied -> forget(row.id)
             is CallOutcome.Declined -> onDeclined(row.id, nextDevice)

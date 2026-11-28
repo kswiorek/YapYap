@@ -8,8 +8,8 @@ import org.yapyap.persistence.File_receives
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * Receive state, `fileId`-scoped (design §14): an accepted OFFER starts IN_FLIGHT (`.part`
@@ -41,7 +41,7 @@ internal data class FileReceiveRow(
     val fileName: String?,
     val mimeType: String?,
     val hashMismatches: Int,
-    val originMessageId: Uuid?,
+    val originMessageId: MessageId?,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
@@ -89,7 +89,7 @@ internal interface FileReceiveStore : FileReceiveReader {
     suspend fun upsert(row: FileReceiveRow)
     suspend fun updateProgress(fileId: FileId, contiguousBytes: Long, mismatches: Int, status: FileReceiveStatus, now: Instant)
     suspend fun updateStatus(fileId: FileId, status: FileReceiveStatus, now: Instant)
-    suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
+    suspend fun updateOrigin(fileId: FileId, messageId: MessageId, now: Instant)
     suspend fun ready(): List<FileReceiveRow>
 
 
@@ -177,7 +177,7 @@ internal class DefaultFileReceiveStore(
         }
     }
 
-    override suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant) {
+    override suspend fun updateOrigin(fileId: FileId, messageId: MessageId, now: Instant) {
         withContext(dbDispatcher) {
             queries.updateFileReceiveOrigin(messageId, now, fileId)
         }

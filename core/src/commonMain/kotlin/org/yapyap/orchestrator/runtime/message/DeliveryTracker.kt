@@ -13,6 +13,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.store.MessageDeliveryRepository
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
@@ -20,7 +21,6 @@ import org.yapyap.routing.router.PingFrontiers
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
-import kotlin.uuid.Uuid
 
 /**
  * Records which member accounts hold the local account's messages, from two kinds of evidence:
@@ -51,7 +51,7 @@ internal class DeliveryTracker(
         },
     )
 
-    suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = deliveryRepository.deliveredTo(messageId)
+    suspend fun deliveredTo(messageId: MessageId): Set<AccountId> = deliveryRepository.deliveredTo(messageId)
 
     private suspend fun onPushAck(delivery: MessageAck) {
         val messageId = delivery.messageId
@@ -79,7 +79,7 @@ internal class DeliveryTracker(
             // Stop descending below the oldest pending message (with slack for author clock skew).
             val floor = pending.mapNotNull { messageRepository.findById(it)?.payload?.createdAt }.minOrNull()
                 ?.minus(CLOCK_SKEW_SLACK) ?: continue
-            val visited = HashSet<Uuid>()
+            val visited = HashSet<MessageId>()
             val queue = ArrayDeque(tips)
             while (queue.isNotEmpty() && pending.isNotEmpty() && visited.size < MAX_WALK) {
                 val id = queue.removeFirst()
@@ -95,7 +95,7 @@ internal class DeliveryTracker(
         }
     }
 
-    private suspend fun record(roomId: RoomId, messageId: Uuid, account: AccountId) {
+    private suspend fun record(roomId: RoomId, messageId: MessageId, account: AccountId) {
         if (deliveryRepository.markDelivered(messageId, account, clock.now())) {
             updateFlow.emit(MessageDelivery(roomId, messageId, account))
         }

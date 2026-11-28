@@ -1,9 +1,11 @@
 package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.test.runTest
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -62,7 +64,7 @@ class FileOutboxProcessorTest {
         signature = ByteArray(BinaryEnvelope.SIGNATURE_BYTES),
     )
 
-    private fun fileTag(transfer: Uuid = Uuid.random()) = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer)
+    private fun fileTag(transfer: Uuid = Uuid.random()) = OutboxTag.FileTransfer(TransferId(transfer))
 
     @Test
     fun processDue_messagesGoOutBeforeFileChunks() = runTest {
@@ -76,14 +78,14 @@ class FileOutboxProcessorTest {
             outbox.enqueue(
                 envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
                 nextRetryAt = epochSeconds(now),
-                tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, chunkId),
+                tag = OutboxTag.FileTransfer(TransferId(chunkId)),
                 retryClass = RetryClass.FLAT,
             )
         }
         outbox.enqueue(
-            envelope = envelope(messageId, PacketType.MESSAGE, OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()), now),
+            envelope = envelope(messageId, PacketType.MESSAGE, OutboxTag.Message(MessageId(Uuid.random())), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.MESSAGE, messageId),
+            tag = OutboxTag.Message(MessageId(messageId)),
         )
         val processor = outboxProcessorUnderTest(
             tor = tor,
@@ -109,7 +111,7 @@ class FileOutboxProcessorTest {
         outbox.enqueue(
             envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, chunkId),
+            tag = OutboxTag.FileTransfer(TransferId(chunkId)),
             retryClass = RetryClass.FLAT,
         )
         // Burn past the message fast-retry budget: FILE rows must not fall back to standby.
@@ -140,7 +142,7 @@ class FileOutboxProcessorTest {
             outbox.enqueue(
                 envelope = envelope(id, PacketType.FILE, fileTag(), now),
                 nextRetryAt = epochSeconds(now),
-                tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, id),
+                tag = OutboxTag.FileTransfer(TransferId(id)),
                 retryClass = RetryClass.FLAT,
             )
         }
@@ -167,7 +169,7 @@ class FileOutboxProcessorTest {
         outbox.enqueue(
             envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, chunkId),
+            tag = OutboxTag.FileTransfer(TransferId(chunkId)),
             retryClass = RetryClass.FLAT,
         )
         val processor = outboxProcessorUnderTest(

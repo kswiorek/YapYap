@@ -2,6 +2,7 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DagPayloadType
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.testfixtures.epochSeconds
@@ -24,11 +25,11 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messagePayload_text_encodeDecode_roundTrip() {
         val original = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = epochSeconds(1_700_000_042L),
             text = "hello",
             authorSignature = testSignature,
@@ -41,7 +42,7 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messagePayload_globalEvent_encodeDecode_roundTrip() {
         val original = DagPayload.GlobalEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevIds = emptyList(),
@@ -57,11 +58,11 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messagePayload_encodeForAuthorSigning_excludesSignature() {
         val payload = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = epochSeconds(1_700_000_042L),
             text = "hello",
             authorSignature = testSignature,
@@ -107,7 +108,7 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messagePayload_types_matchDiscriminant() {
         val text = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
@@ -119,7 +120,7 @@ class MessageEnvelopeCodecTest {
         assertEquals(DagPayloadType.TEXT, text.payloadType)
 
         val ge = DagPayload.GlobalEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevIds = emptyList(),

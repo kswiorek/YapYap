@@ -10,11 +10,13 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.identity.AccountIdentity
@@ -348,8 +350,8 @@ class PersistenceContractsJvmTest {
         val now = 3_000L
         val acked = Uuid.random()
         val expiring = Uuid.random()
-        val ackedTag = OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random())
-        val expiringTag = OutboxTag(OutboxTag.Kind.SYNC, Uuid.random())
+        val ackedTag = OutboxTag.Message(MessageId(Uuid.random()))
+        val expiringTag = OutboxTag.Sync(SyncId(Uuid.random()))
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(acked, FixtureDevicePeerId, now = now),
             nextRetryAt = epochSeconds(now),

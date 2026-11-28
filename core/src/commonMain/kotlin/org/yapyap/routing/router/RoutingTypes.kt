@@ -5,6 +5,7 @@ import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -15,6 +16,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.UnsignedEnvelope
 import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
@@ -83,7 +85,7 @@ internal data class TypingIndicatorEvent(
  */
 internal data class PingFrontiers(
     val senderAccount: AccountId?,
-    val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
+    val roomFrontiers: List<Pair<RoomId, List<MessageId>>>,
 )
 
 /**
@@ -223,7 +225,7 @@ internal interface DeviceRouteStore {
 /**
  * The ambient world of a routing component: who we are ([localIdentity], [localDeviceId]), the
  * device world as the orchestrator reports it ([devices]), how we reach peers ([torTransport],
- * [webRtcTransport] and the open [peerLinks]), how we sign envelopes and seal content
+ * [webRtcTransport], [torPeers] and the open [peerLinks]), how we sign envelopes and seal content
  * ([envelopeProtections]), the sizes the transports leave us ([transportLimits], [fileLimits]),
  * time and rules ([clock], [routerConfig]).
  *
@@ -236,13 +238,19 @@ internal class RoutingContext(
     val devices: DeviceDirectory,
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
-    val peerLinks: PeerLinks,
+    /** Tor's sessions keyed by device id, and where each device's onion is. */
+    val torPeers: TorPeerSessions,
     val transportLimits: StateFlow<TransportLimits>,
     val fileLimits: StateFlow<FileLimits>,
     val envelopeProtections: EnvelopeProtections,
     val clock: Clock,
     val routerConfig: StateFlow<RouterConfig>,
 ) {
+    /** Live links to peers over every transport. */
+    val peerLinks: PeerLinks = PeerLinks(
+        mapOf(RouterTransport.WEBRTC to webRtcTransport, RouterTransport.TOR to torPeers),
+    )
+
     /**
      * A new envelope from this device to [target], signed as its hop (every envelope we send,
      * relay forwards included, is signed by us). [expiresAt] is the content's: a forward copies

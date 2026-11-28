@@ -137,7 +137,7 @@ internal class OutboundMessenger(
             binaryEnvelope,
             nextRetryAt,
             relayBackup = if (supplementRelays) RelayBackup.PENDING else RelayBackup.NONE,
-            tag = OutboxTag(OutboxTag.Kind.MESSAGE, payload.messageId),
+            tag = OutboxTag.Message(payload.messageId),
         )
         AppLog.debug(
             component = LogComponent.ROUTER,

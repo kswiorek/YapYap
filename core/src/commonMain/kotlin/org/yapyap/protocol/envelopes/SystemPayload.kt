@@ -2,6 +2,7 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.RoomId
 import kotlin.math.roundToInt
@@ -152,7 +153,7 @@ internal sealed interface SystemPayload {
          * local ancestry. A tip unknown to the receiver means the receiver is behind
          * on that branch.
          */
-        val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
+        val roomFrontiers: List<Pair<RoomId, List<MessageId>>>,
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
         override fun encode(): ByteArray {
@@ -167,7 +168,7 @@ internal sealed interface SystemPayload {
                 .forEach { (roomId, tips) ->
                     writer.writeUuid(roomId.value)
                     writer.writeInt(tips.size)
-                    tips.forEach { writer.writeUuid(it) }
+                    tips.forEach { writer.writeMessageId(it) }
                 }
             return writer.toByteArray()
         }
@@ -186,7 +187,7 @@ internal sealed interface SystemPayload {
                     count,
                     init = {
                         val roomId = RoomId(reader.readUuid())
-                        val tips = List(reader.readInt()) { reader.readUuid() }
+                        val tips = List(reader.readInt()) { reader.readMessageId() }
                         roomId to tips
                     },
                 )

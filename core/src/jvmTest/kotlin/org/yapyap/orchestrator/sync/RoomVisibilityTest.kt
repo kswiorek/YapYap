@@ -17,10 +17,12 @@ import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.message.FakePendingSyncRepository
@@ -50,10 +52,10 @@ class RoomVisibilityTest {
         roomId: RoomId,
         sender: AccountId,
         tick: Long,
-        parents: List<Uuid> = emptyList(),
+        parents: List<MessageId> = emptyList(),
         attachments: List<DagPayload.Attachment> = emptyList(),
     ): DagPayload.Text = DagPayload.Text(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = roomId,
         senderAccountId = sender,
         authorDeviceId = FixtureDevicePeerId,
@@ -94,8 +96,8 @@ class RoomVisibilityTest {
 
         assertTrue(visibility.isVisible(m0.messageId, active))
         assertFalse(visibility.isVisible(m0.messageId, stranger))
-        assertFalse(visibility.isVisible(Uuid.random(), active))
-        assertFalse(visibility.isVisible(Uuid.random(), stranger))
+        assertFalse(visibility.isVisible(MessageId(Uuid.random()), active))
+        assertFalse(visibility.isVisible(MessageId(Uuid.random()), stranger))
     }
 
     @Test
@@ -165,8 +167,8 @@ class RoomVisibilityTest {
         ensureAccount(removed)
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "v")
 
-        var prev: Uuid? = null
-        var first: Uuid? = null
+        var prev: MessageId? = null
+        var first: MessageId? = null
         repeat(1000) { i ->
             val msg = textMsg(room, removed, i.toLong(), prev?.let { listOf(it) } ?: emptyList())
             messages.seedLinked(msg)
@@ -226,9 +228,9 @@ class RoomVisibilityTest {
             coverage = FakeCoverage(),
         )
 
-        fun syncReq(missing: List<Uuid>): SyncPayload.Request = SyncPayload.Request(
+        fun syncReq(missing: List<MessageId>): SyncPayload.Request = SyncPayload.Request(
             roomId = room,
-            syncId = Uuid.random(),
+            syncId = SyncId(Uuid.random()),
             missingIds = missing,
             knownIds = emptyList(),
         )

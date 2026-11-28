@@ -18,6 +18,7 @@ import org.yapyap.routing.file.chunkIndices
 import org.yapyap.routing.file.fixtureAccount
 import org.yapyap.routing.file.fixtureFileId
 import org.yapyap.routing.file.offerPacketOf
+import org.yapyap.routing.file.onOutcome
 import org.yapyap.routing.file.peerA
 import org.yapyap.routing.file.peerB
 import org.yapyap.routing.file.port.FileEvent
@@ -79,7 +80,7 @@ class TransferEngineTest {
         val firstPacket = chunkPackets.getValue(0)
         h.engine.onOutcome(
             OutboxOutcome.Acked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value),
+                OutboxTag.FileTransfer(transfer.transferId),
                 peerA,
                 firstPacket,
             ),
@@ -140,7 +141,7 @@ class TransferEngineTest {
         // Draining two rows refills the window forward: exactly the next indices go out,
         // never anything below the resume point.
         val queuedPackets = h2.transferStore.chunks(transfer.transferId)
-        val ackTag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value)
+        val ackTag = OutboxTag.FileTransfer(transfer.transferId)
         h2.engine.onOutcome(OutboxOutcome.Acked(ackTag, peerB, queuedPackets.getValue(0)))
         h2.engine.onOutcome(OutboxOutcome.Acked(ackTag, peerB, queuedPackets.getValue(1)))
         withTimeout(5.seconds) {
@@ -163,7 +164,7 @@ class TransferEngineTest {
 
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value),
+                OutboxTag.FileTransfer(transfer.transferId),
                 peerA,
                 h.offerPacketOf(transfer.transferId),
                 PacketNackReason.DECLINED,
@@ -181,7 +182,7 @@ class TransferEngineTest {
         val sibling = h.transfersFor(peerB).single()
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, sibling.transferId.value),
+                OutboxTag.FileTransfer(sibling.transferId),
                 peerB,
                 h.offerPacketOf(sibling.transferId),
                 PacketNackReason.DECLINED,
@@ -211,7 +212,7 @@ class TransferEngineTest {
 
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value),
+                OutboxTag.FileTransfer(transfer.transferId),
                 peerA,
                 chunkPacket,
                 PacketNackReason.DECLINED,
@@ -234,7 +235,7 @@ class TransferEngineTest {
         val transfer = h.transfersFor(peerA).single()
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value),
+                OutboxTag.FileTransfer(transfer.transferId),
                 peerA,
                 h.offerPacketOf(transfer.transferId),
                 PacketNackReason.PERMANENT_PROTECTION_FAILED,
@@ -372,7 +373,7 @@ class TransferEngineTest {
         val offer = h.offerPacketOf(transfer.transferId)
         h.clock.advanceTo(epochSeconds(10_000L) + 3.days)
         h.engine.onOutcome(
-            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value), peerA, offer),
+            OutboxOutcome.Expired(OutboxTag.FileTransfer(transfer.transferId), peerA, offer),
         )
         h.awaitStatus(transfer.transferId, FileTransferStatus.EXPIRED)
         assertEquals(FileTransferStatus.EXPIRED, h.transferStore.find(transfer.transferId)?.status)
@@ -421,7 +422,7 @@ class TransferEngineTest {
         // The offer's outbox row expired before its TTL: the engine re-arms the same
         // transfer from its own state, never as a fresh transfer.
         h.engine.onOutcome(
-            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transfer.transferId.value), peerA, oldOffer),
+            OutboxOutcome.Expired(OutboxTag.FileTransfer(transfer.transferId), peerA, oldOffer),
         )
         withTimeout(5.seconds) {
             while (h.transferStore.find(transfer.transferId)?.offerPacketId == oldOffer) delay(10.milliseconds)
@@ -477,7 +478,7 @@ class TransferEngineTest {
         val h = sealTransferHarness()
 
         h.engine.onOutcome(
-            OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()), peerA, Uuid.random()),
+            OutboxOutcome.Acked(OutboxTag.FileTransfer(TransferId(Uuid.random())), peerA, Uuid.random()),
         )
         h.engine.onAck(TransferId(Uuid.random()), peerA, 0)
         h.engine.onCancelled(TransferId(Uuid.random()), peerA, FileCancelReason.ABORT)

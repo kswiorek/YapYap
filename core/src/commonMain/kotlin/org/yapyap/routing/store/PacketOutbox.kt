@@ -1,7 +1,10 @@
 package org.yapyap.routing.store
 
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -57,17 +60,20 @@ internal interface PacketOutbox {
     /** Loads one row with its envelope blob (the only blob-loading read on the due path). */
     suspend fun getByPacketId(packetId: Uuid): OutboxEntry?
 
-    /** Drops every queued row carrying [tag] (transfer teardown, resume clean-slate). */
+    /** Drops every queued row carrying [tag], which has a [OutboxTag.columnId] (transfer teardown). */
     suspend fun deleteByTag(tag: OutboxTag)
 
     /** Removes every row expired at [now]; returns them. */
     suspend fun pruneExpired(now: Instant): List<OutboxEntry>
 
-    /** Packet ids still queued for [tag] (restart recovery of per-transfer windows). */
+    /** Packet ids still queued for [tag], which has a [OutboxTag.columnId] (restart recovery of per-transfer windows). */
     suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid>
 
-    /** Whether a row carrying [tag] is still queued. */
+    /** Whether a row carrying [tag], which has a [OutboxTag.columnId], is still queued. */
     suspend fun hasTagged(tag: OutboxTag): Boolean
+
+    /** Whether [packetId]'s row is still queued. */
+    suspend fun isQueued(packetId: Uuid): Boolean
     suspend fun earliestPendingRetryAt(): Instant?
 
     /** Earliest retry time strictly after [after], ignoring entries already due. */
@@ -118,30 +124,52 @@ internal data class DueOutboxRow(
  * What an outbox packet is for, so its outcome (ACK, terminal NACK, expiry) reaches whoever
  * waits on it. Untagged packets (ACKs, pings, relay copies, packets relayed for others) have
  * nobody waiting.
+ *
+ * A variant carries its owner's correlation id, typed, and is stored with the packet in one row
+ * ([kind] and [columnId] / [fromColumns]), so the link between a packet and what it is for never breaks.
+ * Owners that correlate by the packet id itself carry no id.
  */
-internal data class OutboxTag(val kind: Kind, val id: Uuid) {
+internal sealed interface OutboxTag {
+    val kind: Kind
+
+    /** A direct push of a DAG message to one of its recipients. */
+    data class Message(val messageId: MessageId) : OutboxTag {
+        override val kind: Kind get() = Kind.MESSAGE
+    }
+
+    /** A bootstrap-family packet; its ACK is reported per target device. */
+    data object Bootstrap : OutboxTag {
+        override val kind: Kind get() = Kind.BOOTSTRAP
+    }
+
+    /** One attempt of a sync request. */
+    data class Sync(val syncId: SyncId) : OutboxTag {
+        override val kind: Kind get() = Kind.SYNC
+    }
+
+    /**
+     * One attempt of a file REQUEST. The file pull processor correlates it to the file through
+     * the request's packet id on its attempts row.
+     */
+    data object FileRequest : OutboxTag {
+        override val kind: Kind get() = Kind.FILE_REQUEST
+    }
+
+    /**
+     * One packet of an outgoing file transfer (OFFER or chunk). A transfer is one hop, ours or a
+     * relay forward alike. Chunks retry at a flat delay ([RetryClass.FLAT]); OFFERs use the
+     * message schedule.
+     */
+    data class FileTransfer(val transferId: TransferId) : OutboxTag {
+        override val kind: Kind get() = Kind.FILE_TRANSFER
+    }
+
+    /** The stored discriminator; codes are persisted, never renumbered. */
     enum class Kind(val code: Long) {
-        /** A direct push of a DAG message to one of its recipients; [id] is the message id. */
         MESSAGE(0),
-
-        /** A bootstrap-family packet; [id] is the packet id [org.yapyap.routing.router.BootstrapCarrier.sendBootstrap] returned. */
         BOOTSTRAP(1),
-
-        /** One attempt of a sync request; [id] is the sync id. */
         SYNC(2),
-
-        /**
-         * One attempt of a file REQUEST; [id] is the attempt id. The outcome
-         * routes to the file pull processor, which correlates it to the
-         * file through its attempts row.
-         */
         FILE_REQUEST(4),
-
-        /**
-         * One packet of an outgoing file transfer (OFFER or chunk); [id] is the transfer id. A
-         * transfer is one hop, ours or a relay forward alike. Chunks retry at a flat delay
-         * ([RetryClass.FLAT]); OFFERs use the message schedule.
-         */
         FILE_TRANSFER(5),
         ;
 
@@ -150,6 +178,29 @@ internal data class OutboxTag(val kind: Kind, val id: Uuid) {
 
             /** File transfer traffic vs everything else in the due query. */
             val FILE_KINDS: Set<Kind> = setOf(FILE_TRANSFER)
+        }
+    }
+
+    /** The stored correlation id; null for tags that correlate by packet id. */
+    val columnId: Uuid?
+        get() = when (this) {
+            is Message -> messageId.value
+            is Sync -> syncId.value
+            is FileTransfer -> transferId.value
+            Bootstrap, FileRequest -> null
+        }
+
+    companion object {
+        /** The tag stored as [kindCode] and [id]; null for an untagged row or an unknown kind. */
+        fun fromColumns(kindCode: Long?, id: Uuid?): OutboxTag? {
+            val kind = kindCode?.let { Kind.fromCode(it) } ?: return null
+            return when (kind) {
+                Kind.MESSAGE -> Message(MessageId(checkNotNull(id) { "MESSAGE tag without an id" }))
+                Kind.BOOTSTRAP -> Bootstrap
+                Kind.SYNC -> Sync(SyncId(checkNotNull(id) { "SYNC tag without an id" }))
+                Kind.FILE_REQUEST -> FileRequest
+                Kind.FILE_TRANSFER -> FileTransfer(TransferId(checkNotNull(id) { "FILE_TRANSFER tag without an id" }))
+            }
         }
     }
 }

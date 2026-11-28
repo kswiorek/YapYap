@@ -1,9 +1,14 @@
 package org.yapyap.orchestrator.fold.global
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.LocalIdentity
@@ -22,14 +27,25 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.StoredMessage
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
-import org.yapyap.protocol.identity.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.MessageCarrier
-import kotlin.uuid.Uuid
 
 /**
  * Committed fold diff of the global control room. Consumers: the onboarding provider
@@ -399,7 +415,7 @@ internal class DefaultGlobalEventProjector(
             val genesis = resolveGenesis(byId, children)
             val reachable = reachableFrom(byId, children, genesis)
             val genesisKey = genesisSelfIntroKey(order, byId, genesis)
-            val nodes = HashMap<Uuid, FoldNode>(byId.size)
+            val nodes = HashMap<MessageId, FoldNode>(byId.size)
             for ((id, row) in byId) nodes[id] = foldNodeOf(row)
             val crypto = object : FoldCrypto {
                 override suspend fun verifyAuthor(key: ByteArray, msg: ByteArray, sig: ByteArray): Boolean =
@@ -479,7 +495,10 @@ internal class DefaultGlobalEventProjector(
      * Genesis resolution (§3): the empty-`prevIds` `AddAccount` with the most transitive
      * descendants. Forged roots have (almost) none; the pre-forgery margin is permanent.
      */
-    private fun resolveGenesis(byId: Map<Uuid, StoredMessage>, children: Map<Uuid, List<Uuid>>): GenesisInfo? {
+    private fun resolveGenesis(
+        byId: Map<MessageId, StoredMessage>,
+        children: Map<MessageId, List<MessageId>>
+    ): GenesisInfo? {
         val candidates = byId.values.mapNotNull { row ->
             val event = runCatching { (row.payload as? DagPayload.GlobalEvent)?.decodeEvent() }.getOrNull()
             if (row.payload.prevIds.isEmpty() && event is GlobalEventPayload.AddAccount) {
@@ -487,9 +506,9 @@ internal class DefaultGlobalEventProjector(
             } else null
         }
         if (candidates.isEmpty()) return null
-        fun descendantsOf(root: Uuid): Int {
-            val seen = HashSet<Uuid>()
-            val stack = ArrayDeque<Uuid>()
+        fun descendantsOf(root: MessageId): Int {
+            val seen = HashSet<MessageId>()
+            val stack = ArrayDeque<MessageId>()
             seen.add(root)
             stack.add(root)
             while (stack.isNotEmpty()) {
@@ -502,7 +521,7 @@ internal class DefaultGlobalEventProjector(
         return candidates
             .map { (nodeId, accountId) -> Triple(nodeId, accountId, descendantsOf(nodeId)) }
             .sortedWith(
-                compareByDescending<Triple<Uuid, AccountId, Int>> { it.third }
+                compareByDescending<Triple<MessageId, AccountId, Int>> { it.third }
                     .thenBy { byId.getValue(it.first).payload.createdAt }
                     .thenBy { it.first },
             )
@@ -512,14 +531,14 @@ internal class DefaultGlobalEventProjector(
 
     /** Nodes reachable from the winning root over present edges. */
     private fun reachableFrom(
-        byId: Map<Uuid, StoredMessage>,
-        children: Map<Uuid, List<Uuid>>,
+        byId: Map<MessageId, StoredMessage>,
+        children: Map<MessageId, List<MessageId>>,
         genesis: GenesisInfo?,
-    ): Set<Uuid> {
+    ): Set<MessageId> {
         if (genesis == null) return emptySet()
         if (!byId.containsKey(genesis.nodeId)) return emptySet()
-        val reachable = HashSet<Uuid>()
-        val stack = ArrayDeque<Uuid>()
+        val reachable = HashSet<MessageId>()
+        val stack = ArrayDeque<MessageId>()
         reachable.add(genesis.nodeId)
         stack.add(genesis.nodeId)
         while (stack.isNotEmpty()) {
@@ -532,8 +551,8 @@ internal class DefaultGlobalEventProjector(
 
     /** First self-authored `AddDevice` for the genesis account. */
     private fun genesisSelfIntroKey(
-        order: List<Uuid>,
-        byId: Map<Uuid, StoredMessage>,
+        order: List<MessageId>,
+        byId: Map<MessageId, StoredMessage>,
         genesis: GenesisInfo?,
     ): GenesisKey? {
         if (genesis == null) return null
@@ -555,7 +574,7 @@ internal class DefaultGlobalEventProjector(
      */
     private suspend fun commit(
         result: ReplayResult,
-        nodes: Map<Uuid, FoldNode>,
+        nodes: Map<MessageId, FoldNode>,
         trigger: String,
     ) {
         val output = result.output

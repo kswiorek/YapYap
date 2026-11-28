@@ -6,6 +6,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.AccountIdentity
@@ -48,7 +49,7 @@ class BootstrapEnvelopeCodecTest {
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsorrelay.onion", 443),
-            dagHeadTipIds = listOf(Uuid.random()),
+            dagHeadTipIds = listOf(MessageId(Uuid.random())),
         )
     }
 

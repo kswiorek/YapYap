@@ -14,12 +14,11 @@ import org.yapyap.routing.router.BootstrapAck
 import org.yapyap.routing.router.BootstrapCarrier
 import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.OutcomeConsumer
 import org.yapyap.routing.router.OutcomeMailbox
 import org.yapyap.routing.router.RouterLifecycle
-import org.yapyap.routing.router.RouterService
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.OutboxTag
-import kotlin.uuid.Uuid
 
 /**
  * The onboarding bootstrap family: intros and recovery requests. Owns its flows, its inbound
@@ -29,7 +28,7 @@ internal class BootstrapService(
     private val ctx: RoutingContext,
     private val lifecycle: RouterLifecycle,
     outboxProcessor: OutboxProcessor,
-) : BootstrapCarrier, RouterService {
+) : BootstrapCarrier, OutcomeConsumer {
 
     override val outcomeTags: Set<OutboxTag.Kind> = setOf(OutboxTag.Kind.BOOTSTRAP)
 
@@ -49,21 +48,19 @@ internal class BootstrapService(
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ): Uuid {
+    ) {
         lifecycle.requireStarted("sending a bootstrap packet")
-        return sender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
+        sender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
     }
 
     override fun offerOutcome(outcome: OutboxOutcome) = outcomes.offer(outcome)
 
     override fun runIn(scope: CoroutineScope): List<Job> = listOf(
         outcomes.runIn(scope, LogComponent.ROUTER) { outcome ->
-            if (outcome.tag.kind != OutboxTag.Kind.BOOTSTRAP) {
-                error("Not a bootstrap outcome: ${outcome.tag.kind}")
-            }
+            check(outcome.tag == OutboxTag.Bootstrap) { "Not a bootstrap outcome: ${outcome.tag.kind}" }
             if (outcome is OutboxOutcome.Acked) {
                 val account = ctx.devices.getAccountIdForDevice(outcome.target)
-                deliveryFlow.emit(BootstrapAck(outcome.tag.id, account))
+                deliveryFlow.emit(BootstrapAck(outcome.target, account))
             }
         },
     )

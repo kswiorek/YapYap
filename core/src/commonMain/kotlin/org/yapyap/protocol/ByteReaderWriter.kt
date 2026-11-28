@@ -32,6 +32,8 @@ internal class ByteReader(private val bytes: ByteArray) {
         return Uuid.fromByteArray(readBytes(Uuid.SIZE_BYTES))
     }
 
+    fun readMessageId(): MessageId = MessageId(readUuid())
+
     fun readInt(): Int {
         var value = 0
         repeat(4) {
@@ -168,6 +170,8 @@ internal class ByteWriter(initialCapacity: Int) {
     fun writeUuid(value: Uuid) {
         writeBytes(value.toByteArray())   // raw 16 bytes, no length prefix
     }
+
+    fun writeMessageId(value: MessageId) = writeUuid(value.value)
 
     fun writeInt(value: Int) {
         var shift = 24

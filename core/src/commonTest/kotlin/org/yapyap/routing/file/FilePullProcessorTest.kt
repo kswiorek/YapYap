@@ -23,7 +23,7 @@ import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
@@ -100,7 +100,7 @@ class FilePullProcessorTest {
         webRtc: Boolean = false,
     ) = LinkKeeper(
         name = if (webRtc) "test-webrtc" else "test-tor",
-        sessions = if (webRtc) ctx.webRtcTransport else ctx.peerLinks.tor,
+        sessions = if (webRtc) ctx.webRtcTransport else ctx.torPeers,
         targets = { emptyList() },
         ready = flowOf(false),
         config = MutableStateFlow(
@@ -152,7 +152,7 @@ class FilePullProcessorTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            peerLinks = PeerLinks(identity, webRtc, tor),
+            torPeers = TorPeerSessions(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService(),
@@ -161,7 +161,7 @@ class FilePullProcessorTest {
         )
         devices.forEach { device ->
             val endpoint = TorEndpoint("${device.id}.onion", 80)
-            ctx.peerLinks.bindTorEndpoint(device, endpoint)
+            ctx.torPeers.bind(device, endpoint)
         }
         val outbox = TrackingPacketOutbox()
         val outboxProcessor = outboxProcessorUnderTest(
@@ -196,14 +196,14 @@ class FilePullProcessorTest {
         processor.start(fileId, immediate = true)
         runFor()
         val row = attempts.findById(fileId)
-        return assertNotNull(row?.attemptId, "attempt must record its REQUEST attempt")
+        return assertNotNull(row?.requestPacketId, "attempt must record its REQUEST's packet id")
     }
 
     private fun Harness.queuedRequest(): Pair<BinaryEnvelope, OutboxTag> {
         val queued = outbox.enqueued.single()
         val tag = outbox.tagOf(queued.packetId)
         assertNotNull(tag)
-        assertEquals(OutboxTag.Kind.FILE_REQUEST, tag.kind)
+        assertEquals(OutboxTag.FileRequest, tag)
         assertEquals(holderDevice, queued.target)
         assertEquals(PacketType.FILE, queued.packetType)
         assertTrue(queued.dispositionRequested)
@@ -213,9 +213,9 @@ class FilePullProcessorTest {
     @Test
     fun dueRequest_enqueuesSealedTaggedRequest() = kotlinx.coroutines.runBlocking {
         val h = harness()
-        val attemptId = h.request()
-        val (envelope, tag) = h.queuedRequest()
-        assertEquals(attemptId, tag.id)
+        val requestPacketId = h.request()
+        val (envelope, _) = h.queuedRequest()
+        assertEquals(requestPacketId, envelope.packetId)
         val request = FileRequest.decode(envelope.content)
         assertEquals(fileId, request.fileId)
         assertEquals(0L, request.contiguousBytes)
@@ -304,7 +304,7 @@ class FilePullProcessorTest {
     fun unknownOutcome_isIgnored() = kotlinx.coroutines.runBlocking {
         val h = harness()
         h.processor.onAttemptOutcome(
-            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_REQUEST, Uuid.random()), holderDevice, Uuid.random())
+            OutboxOutcome.Expired(OutboxTag.FileRequest, holderDevice, Uuid.random())
         )
         assertNull(h.attempts.findById(fileId))
     }

@@ -1,6 +1,12 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.MessageId
+import org.yapyap.protocol.MessagePayloadFamily
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
+import org.yapyap.protocol.SyncPayloadType
 import kotlin.uuid.Uuid
 
 /**
@@ -36,9 +42,9 @@ internal sealed interface SyncPayload : MessagePayload {
      */
     data class Request(
         val roomId: RoomId,
-        val syncId: Uuid,
-        val missingIds: List<Uuid>,
-        val knownIds: List<Uuid>,
+        val syncId: SyncId,
+        val missingIds: List<MessageId>,
+        val knownIds: List<MessageId>,
     ) : SyncPayload {
         override val contentId: Uuid = Uuid.random()
         override val syncType: SyncPayloadType = SyncPayloadType.REQUEST
@@ -48,11 +54,11 @@ internal sealed interface SyncPayload : MessagePayload {
             writer.writeByte(family.wireValue.toInt())
             writer.writeByte(syncType.wireValue.toInt())
             writer.writeUuid(roomId.value)
-            writer.writeUuid(syncId)
+            writer.writeUuid(syncId.value)
             writer.writeInt(missingIds.size)
-            missingIds.forEach { writer.writeUuid(it) }
+            missingIds.forEach { writer.writeMessageId(it) }
             writer.writeInt(knownIds.size)
-            knownIds.forEach { writer.writeUuid(it) }
+            knownIds.forEach { writer.writeMessageId(it) }
             return writer.toByteArray()
         }
 
@@ -66,9 +72,9 @@ internal sealed interface SyncPayload : MessagePayload {
                     "Expected SYNC_REQUEST payload type"
                 }
                 val roomId = RoomId(reader.readUuid())
-                val syncId = reader.readUuid()
-                val missingIds = List(reader.readInt()) { reader.readUuid() }
-                val knownIds = List(reader.readInt()) { reader.readUuid() }
+                val syncId = SyncId(reader.readUuid())
+                val missingIds = List(reader.readInt()) { reader.readMessageId() }
+                val knownIds = List(reader.readInt()) { reader.readMessageId() }
                 reader.requireFullyRead()
                 return Request(
                     roomId = roomId,

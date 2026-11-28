@@ -1,10 +1,10 @@
 import kotlin.time.Instant;
-import kotlin.uuid.Uuid;
 import org.yapyap.protocol.FileId;
 import org.yapyap.orchestrator.file.FileStorage;
 import org.yapyap.orchestrator.file.FilePathKind;
 import org.yapyap.orchestrator.file.FileDescriptorStatus;
 import org.yapyap.orchestrator.file.FileReceiveStatus;
+import org.yapyap.protocol.MessageId;
 
 -- Orchestrator-owned permanent store index (design §13): what we hold.
 -- Keys are per transfer and never stored here.
@@ -71,7 +71,7 @@ CREATE TABLE file_receives (
     hash_mismatches INTEGER NOT NULL,
     -- Discovered when a message referencing the file shows up; a receive still
     -- without one after the unreferenced retention is deleted with its file.
-    origin_message_id TEXT AS Uuid,
+    origin_message_id TEXT AS MessageId,
     created_at INTEGER AS Instant NOT NULL,
     updated_at INTEGER AS Instant NOT NULL
 );

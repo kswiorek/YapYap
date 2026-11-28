@@ -22,9 +22,11 @@ import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -111,10 +113,10 @@ class SyncIntegrationTest {
 
     private fun textMsg(
         messageId: Uuid = Uuid.random(),
-        prevIds: List<Uuid>,
+        prevIds: List<MessageId>,
     ): DagPayload.Text =
         DagPayload.Text(
-            messageId = messageId,
+            messageId = MessageId(messageId),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDevice,
@@ -460,7 +462,7 @@ private class RecordingRouter {
     val sent = mutableListOf<DagPayload>()
 
     /** Where [MessageCarrier.startSync] goes: the test's local sync retry processor. */
-    var onStartSync: suspend (Uuid, Instant) -> Unit = { _, _ -> }
+    var onStartSync: suspend (SyncId, Instant) -> Unit = { _, _ -> }
 
     val messages: MessageCarrier = object : NoopMessageCarrier() {
         override val incomingMessages: Flow<DagPayload> = _incomingMessages.asSharedFlow()
@@ -473,7 +475,7 @@ private class RecordingRouter {
             return super.sendMessage(target, payload)
         }
 
-        override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = onStartSync(syncId, firstAttemptAt)
+        override suspend fun startSync(syncId: SyncId, firstAttemptAt: Instant) = onStartSync(syncId, firstAttemptAt)
     }
 
     suspend fun emitIncoming(payload: DagPayload) {

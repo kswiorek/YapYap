@@ -7,7 +7,6 @@ import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.OutboxTag
-import kotlin.uuid.Uuid
 
 /**
  * Sends a bootstrap-family packet: protect inside routing (plaintext in, ciphertext in the
@@ -30,7 +29,7 @@ internal class BootstrapSender(
         target: PeerId,
         targetEndpoint: TorEndpoint? = null,
         sharedSecret: ByteArray? = null,
-    ): Uuid {
+    ) {
         val protected = ctx.envelopeProtections.bootstrap.protect(
             payload,
             source = ctx.localDeviceId,
@@ -51,10 +50,7 @@ internal class BootstrapSender(
             nextRetryAt = now,
             relayMessage = false,
             targetEndpoint = targetEndpoint,
-            // TODO [Router cleanup]: consider keying bootstrap outcomes by a domain id (like FILE_REQUEST's
-            // transferId) instead of the packet id, so callers stop tracking packet ids.
-            tag = OutboxTag(OutboxTag.Kind.BOOTSTRAP, envelope.packetId),
+            tag = OutboxTag.Bootstrap,
         )
-        return envelope.packetId
     }
 }

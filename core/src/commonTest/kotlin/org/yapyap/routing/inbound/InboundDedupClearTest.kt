@@ -12,7 +12,7 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.LinkPreferencePolicy
@@ -73,7 +73,7 @@ class InboundDedupClearTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            peerLinks = PeerLinks(identity, webRtc, tor),
+            torPeers = TorPeerSessions(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
@@ -81,7 +81,7 @@ class InboundDedupClearTest {
             routerConfig = config,
         )
         val dedup = InMemoryPacketDeduplicator()
-        val dispatcher = EnvelopeDispatcher(ctx, identity)
+        val dispatcher = EnvelopeDispatcher(ctx)
         val policy = LinkPreferencePolicy(config)
         val outboxProcessor = outboxProcessorUnderTest(
             tor = tor,

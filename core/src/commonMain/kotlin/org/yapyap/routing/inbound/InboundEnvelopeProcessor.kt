@@ -418,7 +418,7 @@ internal class InboundEnvelopeProcessor(
             )
             return
         }
-        ctx.peerLinks.bindTorEndpoint(source, provenEndpoint)
+        ctx.torPeers.bind(source, provenEndpoint)
         if (provenEndpoint != knownEndpoint) {
             AppLog.info(
                 component = LogComponent.ROUTER,
@@ -453,7 +453,7 @@ internal class InboundEnvelopeProcessor(
         val heartbeatFromSource =
             result.sideEffects.any { it is InboundSideEffect.PeerHeartbeat && it.peerId == source }
         if (!heartbeatFromSource) return
-        if (ctx.peerLinks.adoptTorLink(source, link, endpoint)) {
+        if (ctx.torPeers.adopt(source, link, endpoint)) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = LogEvent.SESSION_STATE_CHANGED,

@@ -22,6 +22,7 @@ import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
@@ -45,9 +46,9 @@ import kotlin.uuid.Uuid
  */
 
 internal class FakeMessageRepository : MessageRepository {
-    val byId = mutableMapOf<Uuid, StoredMessage>()
-    private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
-    private val attachments = mutableMapOf<Uuid, MutableSet<FileId>>()
+    val byId = mutableMapOf<MessageId, StoredMessage>()
+    private val parentIds = mutableMapOf<MessageId, MutableList<MessageId>>()
+    private val attachments = mutableMapOf<MessageId, MutableSet<FileId>>()
 
     /** Wired by tests exercising the removal-boundary render queries. */
     var roomRepository: FakeRoomRepository? = null
@@ -69,10 +70,10 @@ internal class FakeMessageRepository : MessageRepository {
         return true
     }
 
-    override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> =
+    override suspend fun findMessageIdsByFileId(fileId: FileId): List<MessageId> =
         attachments.filter { fileId in it.value }.map { it.key }
 
-    override suspend fun findById(messageId: Uuid): StoredMessage? = byId[messageId]
+    override suspend fun findById(messageId: MessageId): StoredMessage? = byId[messageId]
 
     override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> {
         // Mirror selectRoomFrontier: VERIFIED-chainable messages no VERIFIED-chainable
@@ -86,13 +87,13 @@ internal class FakeMessageRepository : MessageRepository {
         return chainable.filter { it.payload.messageId !in referenced }
     }
 
-    override suspend fun findParents(messageId: Uuid): List<Uuid> =
+    override suspend fun findParents(messageId: MessageId): List<MessageId> =
         parentIds[messageId].orEmpty().toList()
 
-    override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+    override suspend fun isAncestorOrSelf(messageId: MessageId, of: MessageId): Boolean {
         if (messageId == of) return true
-        val visited = HashSet<Uuid>()
-        val queue = ArrayDeque<Uuid>()
+        val visited = HashSet<MessageId>()
+        val queue = ArrayDeque<MessageId>()
         visited.add(of)
         queue.add(of)
         while (queue.isNotEmpty()) {
@@ -109,11 +110,11 @@ internal class FakeMessageRepository : MessageRepository {
         return false
     }
 
-    override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
+    override suspend fun insertParent(messageId: MessageId, parentId: MessageId) {
         parentIds.getOrPut(messageId) { mutableListOf() }.add(parentId)
     }
 
-    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> =
+    override suspend fun findChildrenInRoom(parentId: MessageId, roomId: RoomId): List<StoredMessage> =
         byId.values.filter { row ->
             row.payload.roomId == roomId && parentId in parentIds[row.payload.messageId].orEmpty()
         }
@@ -178,14 +179,14 @@ internal class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean {
+    override suspend fun isRenderable(roomId: RoomId, messageId: MessageId): Boolean {
         val row = byId[messageId] ?: return false
         if (row.payload.roomId != roomId) return false
         if (row.verificationState == VerificationState.REJECTED) return false
         return isVisible(roomId, row.payload.senderAccountId, messageId)
     }
 
-    private suspend fun isVisible(roomId: RoomId, sender: AccountId, messageId: Uuid): Boolean {
+    private suspend fun isVisible(roomId: RoomId, sender: AccountId, messageId: MessageId): Boolean {
         // Mirror the SQL visibility predicate: an ACTIVE row renders; a REMOVED
         // row renders only inside its removal node's ancestor closure (the member
         // era); no row never renders. The closure walks stored parent edges from
@@ -196,8 +197,8 @@ internal class FakeMessageRepository : MessageRepository {
         val member = rooms.memberRowOf(roomId, sender) ?: return false
         if (member.status == RoomMemberStatus.ACTIVE) return true
         val removalNode = member.removalNodeId ?: return false
-        val seen = HashSet<Uuid>()
-        val queue = ArrayDeque<Uuid>()
+        val seen = HashSet<MessageId>()
+        val queue = ArrayDeque<MessageId>()
         seen.add(removalNode)
         queue.add(removalNode)
         while (queue.isNotEmpty()) {
@@ -219,17 +220,17 @@ internal class FakeMessageRepository : MessageRepository {
                     it.verificationState == VerificationState.VERIFIED
         }
 
-    override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
+    override suspend fun updateOrphanedFlag(messageId: MessageId, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) {
+    override suspend fun updateAncestryComplete(messageId: MessageId, complete: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(ancestryComplete = complete)
     }
 
-    override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
+    override suspend fun updateVerificationState(messageId: MessageId, state: VerificationState) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(verificationState = state)
     }
@@ -256,7 +257,7 @@ internal class FakeRoomRepository(
     private data class Cell(
         var role: RoomMemberRole,
         var status: RoomMemberStatus,
-        var removalNodeId: Uuid? = null,
+        var removalNodeId: MessageId? = null,
     )
 
     private val cells: MutableMap<Pair<RoomId, AccountId>, Cell> =
@@ -308,7 +309,7 @@ internal class FakeRoomRepository(
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
-        removalNodeId: Uuid?,
+        removalNodeId: MessageId?,
     ) {
         // Mirror INSERT OR REPLACE (upsert, no duplicates).
         cells[roomId to accountId] = Cell(role, status, removalNodeId)
@@ -339,11 +340,16 @@ internal class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<Gap>()
 
-    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
+    override suspend fun insert(
+        gapId: Uuid,
+        missingPrevId: MessageId,
+        orphanedMessageId: MessageId,
+        detectedTimestamp: Instant
+    ) {
         rows.add(Gap(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
+    override suspend fun findByMissingPrevId(missingPrevId: MessageId): List<Gap> =
         rows.filter { it.missingPrevId == missingPrevId }
 
     override suspend fun findByRoom(roomId: RoomId): List<Gap> =
@@ -355,14 +361,14 @@ internal class FakeCausalHoldRepository(
 
     override suspend fun findAll(): List<Gap> = rows.toList()
 
-    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+    override suspend fun countByOrphan(orphanedMessageId: MessageId): Long =
         rows.count { it.orphanedMessageId == orphanedMessageId }.toLong()
 
-    override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
+    override suspend fun deleteByMissingPrevId(missingPrevId: MessageId) {
         rows.removeAll { it.missingPrevId == missingPrevId }
     }
 
-    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
+    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: MessageId) {
         rows.removeAll { it.orphanedMessageId == orphanedMessageId }
     }
 }
@@ -461,19 +467,19 @@ internal class FakeUnknownAuthorSignatureProvider : SignatureProvider {
 internal class InMemoryMessageDeliveryRepository(
     private val messages: MessageRepository,
 ) : MessageDeliveryRepository {
-    private val delivered = mutableMapOf<Uuid, MutableSet<AccountId>>()
+    private val delivered = mutableMapOf<MessageId, MutableSet<AccountId>>()
 
-    override suspend fun markDelivered(messageId: Uuid, accountId: AccountId, at: Instant): Boolean =
+    override suspend fun markDelivered(messageId: MessageId, accountId: AccountId, at: Instant): Boolean =
         delivered.getOrPut(messageId) { mutableSetOf() }.add(accountId)
 
-    override suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = delivered[messageId].orEmpty().toSet()
+    override suspend fun deliveredTo(messageId: MessageId): Set<AccountId> = delivered[messageId].orEmpty().toSet()
 
     override suspend fun undelivered(
         roomId: RoomId,
         authorAccountId: AccountId,
         accountId: AccountId,
         limit: Int,
-    ): List<Uuid> =
+    ): List<MessageId> =
         messages.findAllInRoom(roomId)
             .map { it.payload }
             .filter { it.senderAccountId == authorAccountId && accountId !in delivered[it.messageId].orEmpty() }

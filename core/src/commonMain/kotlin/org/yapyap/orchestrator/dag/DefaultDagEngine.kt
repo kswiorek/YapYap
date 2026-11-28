@@ -12,7 +12,12 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.store.*
+import org.yapyap.orchestrator.store.CausalHoldRepository
+import org.yapyap.orchestrator.store.Gap
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -69,7 +74,7 @@ internal class DefaultDagEngine(
         val authorDeviceId = localIdentity.getLocalDeviceId()
         val createdAt = clock.now()
         val frontier = messageRepository.findRoomFrontier(roomId)
-        val prevIds: List<Uuid> = if (frontier.isNotEmpty()) {
+        val prevIds: List<MessageId> = if (frontier.isNotEmpty()) {
             frontier.map { it.payload.messageId }
         } else if (messageRepository.hasMessages(roomId)) {
             AppLog.warn(
@@ -92,7 +97,7 @@ internal class DefaultDagEngine(
                 it.ancestryComplete && it.verificationState == VerificationState.VERIFIED
             }
         }
-        val messageId = Uuid.random()
+        val messageId = MessageId(Uuid.random())
 
         // Create an unsigned payload (signature is null)
         val unsignedPayload = when (draft) {
@@ -171,7 +176,7 @@ internal class DefaultDagEngine(
         val senderAccountId = localIdentity.getLocalAccountId()
         val authorDeviceId = localIdentity.getLocalDeviceId()
         val createdAt = clock.now()
-        val messageId = Uuid.random()
+        val messageId = MessageId(Uuid.random())
         // Deterministic member order for canonical encoding.
         val event = RoomEventPayload.RoomCreated(
             initialMemberIds = draft.memberAccountIds.sortedBy { it.id },
@@ -421,8 +426,8 @@ internal class DefaultDagEngine(
      * Cross-room holds stay open.
      */
     private suspend fun closeGapsFor(
-        arrivedMessageId: Uuid,
-    ): List<Uuid> {
+        arrivedMessageId: MessageId,
+    ): List<MessageId> {
         val holds = causalHoldRepository.findByMissingPrevId(arrivedMessageId)
         if (holds.isEmpty()) return emptyList()
         val arrivedRow = messageRepository.findById(arrivedMessageId) ?: return emptyList()
@@ -449,7 +454,7 @@ internal class DefaultDagEngine(
             )
         }
 
-        val refreshed = mutableSetOf<Uuid>()
+        val refreshed = mutableSetOf<MessageId>()
         for (hold in matching) {
             refreshAncestryDown(hold.orphanedMessageId, refreshed)
         }
@@ -469,8 +474,8 @@ internal class DefaultDagEngine(
 
     /** Clears orphan flags; in rooms also promotes the flag false->true and cascades. */
     private suspend fun refreshAncestryDown(
-        messageId: Uuid,
-        refreshed: MutableSet<Uuid>,
+        messageId: MessageId,
+        refreshed: MutableSet<MessageId>,
     ) {
         if (!refreshed.add(messageId)) return
         val row = messageRepository.findById(messageId) ?: return

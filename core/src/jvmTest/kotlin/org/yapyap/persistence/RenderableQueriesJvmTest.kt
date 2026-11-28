@@ -9,6 +9,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
@@ -45,10 +46,10 @@ class RenderableQueriesJvmTest {
         roomId: RoomId,
         sender: AccountId,
         tick: Long,
-        parents: List<Uuid> = emptyList(),
+        parents: List<MessageId> = emptyList(),
     ): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = sender,
             authorDeviceId = FixtureDevicePeerId,
@@ -73,8 +74,8 @@ class RenderableQueriesJvmTest {
         rooms: DefaultRoomRepository,
         room: RoomId,
         removed: AccountId,
-        eraParents: List<Uuid>,
-    ): Uuid {
+        eraParents: List<MessageId>,
+    ): MessageId {
         seedLocalAccountAndDevice(connection!!.database, FixtureAccountId, FixtureDevicePeerId)
         DefaultIdentityStore(connection!!.database, DeviceType.DESKTOP).upsertChainAccount(
             removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
@@ -220,7 +221,7 @@ class RenderableQueriesJvmTest {
         assertFalse(messages.isRenderable(room, post.messageId))
         assertFalse(messages.isRenderable(room, stranger.messageId))
         // Missing id and wrong room fail closed.
-        assertFalse(messages.isRenderable(room, Uuid.random()))
+        assertFalse(messages.isRenderable(room, MessageId(Uuid.random())))
         assertFalse(messages.isRenderable(RoomId(Uuid.random()), era.messageId))
     }
 }

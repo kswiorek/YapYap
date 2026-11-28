@@ -61,7 +61,7 @@ import org.yapyap.protection.envelope.RatchetWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedHopProtection
 import org.yapyap.protection.service.EnvelopeProtections
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.DefaultDeviceRouteStore
@@ -219,14 +219,14 @@ internal class NodeGraph(
     // The router's ambient world: wiring supplies the facts routing does not build (identity,
     // the device directory, transports, live links, sealing, time and rules), and the router
     // assembles its own kernel and services.
-    private val peerLinks = PeerLinks(deviceRoutes, webRtcTransport, torTransport)
+    private val torPeers = TorPeerSessions(deviceRoutes, torTransport)
     private val routingContext = RoutingContext(
         localIdentity = localIdentity,
         localDeviceId = localDeviceId,
         devices = identityStore,
         torTransport = torTransport,
         webRtcTransport = webRtcTransport,
-        peerLinks = peerLinks,
+        torPeers = torPeers,
         transportLimits = config.transportLimits,
         fileLimits = config.fileLimits,
         envelopeProtections = envelopeProtections,

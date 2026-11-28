@@ -12,7 +12,7 @@ import org.yapyap.routing.router.RoutingContext
  * surfaces. Used when there is no direct WebRTC session.
  */
 internal interface RelaySelectionPolicy {
-    /** Relays to deposit with, best first, or empty if none qualify. */
+    /** Relays to deposit with, best first, or empty if none qualify; never [targetDevice] or us. */
     suspend fun selectRelays(targetDevice: PeerId): List<PeerId>
 }
 

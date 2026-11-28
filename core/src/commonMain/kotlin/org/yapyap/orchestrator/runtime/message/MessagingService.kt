@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.runtime.message
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import kotlin.uuid.Uuid
 
@@ -29,7 +30,7 @@ public interface MessagingService {
     public val deliveryUpdates: Flow<MessageDelivery>
 
     /** Member accounts known to hold [messageId] so far (the local account is never included). */
-    public suspend fun deliveredTo(messageId: Uuid): Set<AccountId>
+    public suspend fun deliveredTo(messageId: MessageId): Set<AccountId>
 
     /** Outbound: append to local DAG (refused up front on policy violations),
      *  then fan out to room members. The message is durable once [SendMessageResult.Sent] returns.
@@ -48,7 +49,7 @@ public interface MessagingService {
     public suspend fun cancelPreparingSend(sendId: Uuid)
 
     /** Lookup of a single message by id, mapped to its GUI display item (null when unknown or not displayable). */
-    public suspend fun getMessage(messageId: Uuid): MessageDisplayItem?
+    public suspend fun getMessage(messageId: MessageId): MessageDisplayItem?
 
     /**
      * Open a room for viewing. Returns a paginated window.

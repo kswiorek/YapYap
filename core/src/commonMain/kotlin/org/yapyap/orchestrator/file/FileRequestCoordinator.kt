@@ -15,6 +15,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.routing.file.port.FileCarrier
@@ -26,7 +27,6 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
-import kotlin.uuid.Uuid
 
 /**
  * File request trigger (design §9): decides whether this device wants a file, keeps the user-facing
@@ -253,7 +253,7 @@ internal class DefaultFileRequestCoordinator(
         fileCarrier.startFilePull(fileId, immediate = false)
     }
 
-    private suspend fun markDeclined(fileId: FileId, originMessageId: Uuid) {
+    private suspend fun markDeclined(fileId: FileId, originMessageId: MessageId) {
         val attachment = messages.findFileAttachment(fileId) ?: return
         control.declineUnseen(attachment, originMessageId, clock.now())
     }

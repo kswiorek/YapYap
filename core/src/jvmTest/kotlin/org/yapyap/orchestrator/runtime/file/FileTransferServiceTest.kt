@@ -29,6 +29,7 @@ import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -63,7 +64,7 @@ class FileTransferServiceTest {
         val messages: DefaultMessageRepository,
         val rooms: DefaultRoomRepository,
         val router: RecordingFacadeRouter,
-        val messageId: Uuid,
+        val messageId: MessageId,
     )
 
     private class RecordingFacadeRouter : NoopFileCarrier() {
@@ -93,7 +94,7 @@ class FileTransferServiceTest {
         val rooms = DefaultRoomRepository(db)
         val router = RecordingFacadeRouter()
         val files = JvmFileAccess()
-        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-facade-${Uuid.random()}")
+        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-facade-${MessageId(Uuid.random())}")
         val config = MutableStateFlow(OrchestratorConfig())
         val crypto = DefaultCryptoProvider()
         val storeDir = Path(work.toString(), "store")
@@ -127,7 +128,7 @@ class FileTransferServiceTest {
             requests = coordinator,
             store = fileStore,
         )
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         return Harness(service, receives, pending, messages, rooms, router, mid)
     }
 

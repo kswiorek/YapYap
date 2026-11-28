@@ -10,10 +10,10 @@ import org.yapyap.routing.store.OutboxTag
 import kotlin.time.Instant
 
 /**
- * One due row of a candidate-asking loop, keyed by the loop's own id
+ * One due entry of a candidate-asking loop's [CandidateLedger], keyed by the loop's own id
  * (a sync id, a file id — the core never interprets it).
  */
-internal data class CandidateRow<K>(
+internal data class CandidateEntry<K>(
     val id: K,
     val attempts: Int,
     val declined: Set<PeerId>,
@@ -25,15 +25,12 @@ internal data class CandidateRow<K>(
 internal data class CandidateWaiting(val device: PeerId, val until: Instant)
 
 /**
- * The asking loop's row-state port — not a plain CRUD table store. It persists exactly what the
- * loop needs to resume: the next-attempt time, the attempt count, the declined children, and the
- * WAITING state, written through the same port as the scheduling calls. A store that owns the
- * candidate tables composes the parent row and its declined children into a view of this
- * interface; consumers never assemble the join themselves.
- *
- * TODO [Router cleanup]: reconsider the name; it should say "the asking loop's row state", not "database rows".
+ * An asking loop's running record, which it resumes from: the next-attempt time, the attempt
+ * count, the declined devices, and the WAITING state, written through the same port as the
+ * scheduling calls. The store that owns the candidate tables composes its parent row and
+ * declined children into this view; the loop never assembles the join itself.
  */
-internal interface CandidateAttemptStore<K> {
+internal interface CandidateLedger<K> {
     /** Starts tracking [id] (idempotent: a known id keeps its state). */
     suspend fun start(id: K, firstAttemptAt: Instant)
 
@@ -41,7 +38,7 @@ internal interface CandidateAttemptStore<K> {
     suspend fun drop(id: K)
 
     suspend fun earliestDueAt(): Instant?
-    suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<K>>
+    suspend fun findDue(now: Instant, limit: Int): List<CandidateEntry<K>>
 
     /** Counts an attempt and schedules the next one. */
     suspend fun recordAttempt(id: K, nextAttemptAt: Instant)
@@ -58,7 +55,7 @@ internal interface CandidateAttemptStore<K> {
 
     /**
      * Enters WAITING for the OFFER from [device] until [until]. Persisted, and returned in
-     * [CandidateRow.waiting]: the stored row is the only record of WAITING, across restarts too.
+     * [CandidateEntry.waiting]: the stored row is the only record of WAITING, across restarts too.
      */
     suspend fun setWaiting(id: K, device: PeerId, until: Instant)
 
@@ -108,7 +105,7 @@ internal sealed interface SuccessAction {
  * — an [OutboxAttemptStrategy] for packets, a call for large-file pulls.
  */
 internal interface CandidateStrategy<K> {
-    val attempts: CandidateAttemptStore<K>
+    val ledger: CandidateLedger<K>
 
     /** Accounts that may hold [id]'s target; mapped to devices (link-filtered) by the core. */
     suspend fun candidateAccounts(id: K): List<AccountId>
@@ -141,7 +138,7 @@ internal interface OutboxAttemptStrategy<K> {
 
     /**
      * Whether the last attempt for [id] is still queued in the outbox. WAITING is not this
-     * method's concern: the core reads it from [CandidateRow.waiting].
+     * method's concern: the core reads it from [CandidateEntry.waiting].
      */
     suspend fun attemptState(id: K): AttemptState
 

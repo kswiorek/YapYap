@@ -12,6 +12,7 @@ import org.yapyap.persistence.FixtureTorEndpoint
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.persistence.seedLocalAndRemoteDevices
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -182,7 +183,7 @@ class DefaultRouterOutboxIntegrationTest {
 
 private fun sampleTextPayload(): DagPayload.Text =
     DagPayload.Text(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-sender"),
         prevIds = emptyList(),

@@ -35,6 +35,7 @@ import org.yapyap.orchestrator.file.FileStore
 import org.yapyap.orchestrator.file.StagedRange
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.FileRequest
@@ -49,7 +50,6 @@ import org.yapyap.routing.file.port.FileRefusalReason
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /** What a verb decided to announce. Sent after the file lock is released. */
 private class Announcements {
@@ -243,7 +243,7 @@ internal class ReceiveEngine(
         true
     }
 
-    override suspend fun declineUnseen(attachment: DagPayload.Attachment, originMessageId: Uuid, now: Instant) {
+    override suspend fun declineUnseen(attachment: DagPayload.Attachment, originMessageId: MessageId, now: Instant) {
         withFile(attachment.fileId) { _ ->
             if (receives.find(attachment.fileId) == null) {
                 receives.upsert(declinedRow(attachment, originMessageId, now))
@@ -303,7 +303,7 @@ internal class ReceiveEngine(
         }
     }
 
-    override suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant) {
+    override suspend fun updateOrigin(fileId: FileId, messageId: MessageId, now: Instant) {
         withFile(fileId) { _ ->
             val row = receives.find(fileId) ?: return@withFile
             if (row.originMessageId == null) {
@@ -890,7 +890,7 @@ internal class ReceiveEngine(
         updatedAt = now,
     )
 
-    private fun declinedRow(attachment: DagPayload.Attachment, originMessageId: Uuid?, now: Instant) =
+    private fun declinedRow(attachment: DagPayload.Attachment, originMessageId: MessageId?, now: Instant) =
         FileReceiveRow(
             fileId = attachment.fileId,
             status = FileReceiveStatus.DECLINED,

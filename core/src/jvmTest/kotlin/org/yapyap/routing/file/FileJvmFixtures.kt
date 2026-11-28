@@ -23,9 +23,11 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SealKey
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
@@ -52,7 +54,7 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.file.port.PlaintextStream
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
@@ -299,15 +301,15 @@ internal class MapPacketDeduplicator : PacketDeduplicator {
 
 /** Sync providers with nothing to say (these tests never sync). */
 internal class EmptySyncPayload : SyncPayloadProvider {
-    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? = null
-    override suspend fun syncCandidates(syncId: Uuid): List<AccountId> = emptyList()
-    override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> = emptyList()
+    override suspend fun syncRequest(syncId: SyncId): SyncPayload.Request? = null
+    override suspend fun syncCandidates(syncId: SyncId): List<AccountId> = emptyList()
+    override suspend fun syncsWithCandidate(account: AccountId): List<SyncId> = emptyList()
     override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> =
         emptyList()
 }
 
 internal class EmptyFrontiers : FrontierSnapshotProvider {
-    override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<Uuid>>> =
+    override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<MessageId>>> =
         emptyList()
 }
 
@@ -321,14 +323,14 @@ internal fun jvmRoutingContext(
     chunkSize: Int = 220 * 1024,
     transportLimits: org.yapyap.routing.router.TransportLimits = org.yapyap.crypto.e2ee.testTransportLimits(),
 ): RoutingContext {
-    val peerLinks = PeerLinks(identity, webRtc, tor)
+    val torPeers = TorPeerSessions(identity, tor)
     return RoutingContext(
         localIdentity = identity,
         localDeviceId = identity.localDeviceId,
         devices = identity,
         torTransport = tor,
         webRtcTransport = webRtc,
-        peerLinks = peerLinks,
+        torPeers = torPeers,
         transportLimits = MutableStateFlow(transportLimits),
         fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize, maxSealBytes = 64 * 1024)),
         envelopeProtections = protections,
@@ -485,6 +487,8 @@ internal class InMemoryPacketOutbox : PacketOutbox {
     override suspend fun hasTagged(tag: OutboxTag): Boolean = lock.withLock {
         rows.values.any { it.tag == tag }
     }
+
+    override suspend fun isQueued(packetId: Uuid): Boolean = lock.withLock { packetId in rows }
 
     override suspend fun earliestPendingRetryAt(): Instant? = lock.withLock {
         rows.values.mapNotNull { it.nextRetryAt }.minOrNull()

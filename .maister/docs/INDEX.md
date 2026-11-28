@@ -279,7 +279,7 @@ on missing), keys live in the OS keyring never in the data directory.
 
 Schema changes ship with a migration (FKs off + foreign_key_check), persistence is infrastructure not a layer (stores
 live with their owner), the log is the source of truth (no FKs from messages to identity tables), stores hand out
-composed views of their child tables (named candidateStore views, no consumer-side docks, one LEFT JOIN statement not
+composed views of their child tables (named candidateLedger views, no consumer-side docks, one LEFT JOIN statement not
 one query per row; intra-layer).
 
 #### Events (`standards/backend/events.md`)

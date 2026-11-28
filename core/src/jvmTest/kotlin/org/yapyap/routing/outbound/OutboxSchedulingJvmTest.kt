@@ -5,6 +5,7 @@ import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.routing.store.OutboxTag
@@ -75,7 +76,7 @@ class OutboxSchedulingJvmTest {
             outbox.enqueue(
                 envelope(id, peer, 10_000L, PacketType.FILE),
                 nextRetryAt = now,
-                tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()),
+                tag = OutboxTag.FileTransfer(TransferId(Uuid.random())),
                 retryClass = RetryClass.FLAT,
             )
         }
@@ -113,14 +114,14 @@ class OutboxSchedulingJvmTest {
         outbox.enqueue(
             envelope(markerId, peer, 10_000L, PacketType.FILE),
             nextRetryAt = now,
-            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()),
+            tag = OutboxTag.FileTransfer(TransferId(Uuid.random())),
             retryClass = RetryClass.STANDARD,
         )
         val chunkId = Uuid.random()
         outbox.enqueue(
             envelope(chunkId, peer, 10_000L, PacketType.FILE),
             nextRetryAt = now,
-            tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random()),
+            tag = OutboxTag.FileTransfer(TransferId(Uuid.random())),
             retryClass = RetryClass.FLAT,
         )
         // First attempt to record baseline, then retry to observe the delay branch.

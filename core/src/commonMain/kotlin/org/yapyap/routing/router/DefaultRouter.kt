@@ -7,9 +7,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -101,7 +101,13 @@ internal class DefaultRouter(
 
     // --- kernel -------------------------------------------------------------------------
 
-    private val envelopeDispatcher = EnvelopeDispatcher(ctx, routes)
+    /**
+     * Whether links can be opened at all, for both keepers: Tor carries Tor links and the
+     * signaling of every WebRTC open, so without a ready Tor a WebRTC open can only fail.
+     */
+    private val torReady: Flow<Boolean> = ctx.torTransport.health.map { it == TorHealth.Ready }
+
+    private val envelopeDispatcher = EnvelopeDispatcher(ctx)
     private val systemSender = SystemSender(ctx, transportPolicy, envelopeDispatcher, packetDeduplicator)
 
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry(
@@ -125,9 +131,9 @@ internal class DefaultRouter(
      */
     private val torLinkKeeper: LinkKeeper = LinkKeeper(
         name = "Tor",
-        sessions = ctx.peerLinks.tor,
+        sessions = ctx.torPeers,
         targets = { ctx.devices.getAllActiveDeviceIds().filter { it != ctx.localDeviceId } },
-        ready = ctx.torTransport.health.map { it == TorHealth.Ready },
+        ready = torReady,
         config = ctx.routerConfig
             .map { it.torLinkKeeperConfig }
             .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.torLinkKeeperConfig),
@@ -168,7 +174,9 @@ internal class DefaultRouter(
                         peerAvailabilityRegistry.lastSeen(peer)?.let { now - it < freshness } == true
             }
         },
-        ready = flowOf(true), //TODO [Router cleanup]: webrtc health
+        // TODO [Finishing touches]: real WebRTC health from the backend (STUN/TURN and ICE
+        //  reachability), feeding this keeper's ready and exposed in LocalLinkStatus.
+        ready = torReady,
         config = ctx.routerConfig
             .map { it.webrtcLinkKeeperConfig }
             .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.webrtcLinkKeeperConfig),
@@ -212,15 +220,13 @@ internal class DefaultRouter(
         outboxProcessor = outboxProcessor,
     )
 
-    //TODO [Router cleanup]: consider webrtc link keeper in presence service
     private val presenceService = PresenceService(
         ctx = ctx,
         lifecycle = lifecycle,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         peerAvailabilityStore = peerAvailabilityStore,
-        linkKeeper = torLinkKeeper,
+        linkKeepers = listOf(torLinkKeeper, webRtcLinkKeeper),
         pingProvider = pingProvider,
-        scope = scope,
     )
 
     private val fileService = FileService(
@@ -244,12 +250,18 @@ internal class DefaultRouter(
 
     private val webRtcSignaler = WebRtcSignaler(ctx, envelopeDispatcher)
 
-    /** The router's services, started uniformly and fed outcomes by the tag kinds they declare. */
+    /**
+     * The services started once the transports are up, uniformly; those owning outbox traffic
+     * are fed outcomes by the tag kinds they declare. Presence is not here: it starts before the
+     * transports (see [start]).
+     */
     private val services: List<RouterService> = listOf(messageService, bootstrapService, fileService)
 
-    private val outcomeServices: Map<OutboxTag.Kind, RouterService> =
-        services.flatMap { service -> service.outcomeTags.map { it to service } }.toMap()
-            .also { require(it.size == services.sumOf { service -> service.outcomeTags.size }) { "Two services claim one outcome tag" } }
+    private val outcomeServices: Map<OutboxTag.Kind, OutcomeConsumer> =
+        services.filterIsInstance<OutcomeConsumer>().let { consumers ->
+            consumers.flatMap { service -> service.outcomeTags.map { it to service } }.toMap()
+                .also { require(it.size == consumers.sumOf { service -> service.outcomeTags.size }) { "Two services claim one outcome tag" } }
+        }
 
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = ctx,
@@ -278,6 +290,7 @@ internal class DefaultRouter(
     private var outboxRetryJob: Job? = null
     private var outboxOutcomeJob: Job? = null
     private var serviceJobs: List<Job> = emptyList()
+    private var presenceJobs: List<Job> = emptyList()
 
     // --- services -----------------------------------------------------------------------
 
@@ -290,11 +303,16 @@ internal class DefaultRouter(
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
+        // Presence first: Tor's start runs through its bootstrap, and localLinkStatus must
+        // mirror that progress while it does.
+        presenceJobs = presenceService.runIn(scope)
         val torEndpoint = try {
             val endpoint = ctx.torTransport.start()
             ctx.webRtcTransport.start(ctx.localDeviceId)
             endpoint
         } catch (e: Exception) {
+            presenceJobs.forEach { it.cancel() }
+            presenceJobs = emptyList()
             ctx.webRtcTransport.stop()
             ctx.torTransport.stop()
             throw e
@@ -426,7 +444,7 @@ internal class DefaultRouter(
             webRtcLinkKeeperJob,
             outboxRetryJob,
             outboxOutcomeJob,
-        ).plus(serviceJobs).forEach { it.cancelAndJoin() }
+        ).plus(serviceJobs).plus(presenceJobs).forEach { it.cancelAndJoin() }
 
         torIncomingJob = null
         webRtcIncomingEnvelopeJob = null
@@ -436,6 +454,7 @@ internal class DefaultRouter(
         outboxRetryJob = null
         outboxOutcomeJob = null
         serviceJobs = emptyList()
+        presenceJobs = emptyList()
         scope.cancel()
 
         AppLog.info(

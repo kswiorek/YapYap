@@ -19,6 +19,7 @@ import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.orchestrator.identity.ProvisionalIdentitySeeder
 import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.BootstrapCarrier
@@ -26,7 +27,6 @@ import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * Newcomer onboarding handshake: consumes authenticated [Intro]s, seeds the sponsor's
@@ -55,9 +55,12 @@ internal class DefaultOnboardingProvider(
     private var collectJob: Job? = null
     private var deliveryJob: Job? = null
 
-    /** Our recovery request's packet id, while waiting for its delivery confirmation. */
+    /** The device our recovery request went to, while waiting for its delivery confirmation. */
+    // TODO [Finishing touches]: persist the awaited target and the request phase (sent/delivered)
+    //  with the onboarding session, so a restart resumes REQUEST_SENT/REQUEST_DELIVERED (and keeps
+    //  matching the still-retrying request's ACK) instead of falling back to AWAITING_INTRO.
     @Volatile
-    private var awaitedRequest: Uuid? = null
+    private var awaitedRequest: PeerId? = null
     private var identityChangesJob: Job? = null
     private var timeoutJob: Job? = null
     private var scope: CoroutineScope? = null
@@ -123,20 +126,20 @@ internal class DefaultOnboardingProvider(
         armTimeout(deadline)
     }
 
-    override suspend fun awaitRequestDelivery(packetId: Uuid) {
+    override suspend fun awaitRequestDelivery(target: PeerId) {
         val owner = scope ?: return
-        awaitedRequest = packetId
+        awaitedRequest = target
         if (_state.value == OnboardingState.AWAITING_INTRO) {
             transitionTo(
                 OnboardingState.REQUEST_SENT,
                 "Recovery request sent; waiting for delivery",
-                fields = mapOf("packetId" to packetId),
+                fields = mapOf("target" to target),
             )
         }
         if (deliveryJob?.isActive == true) return
         deliveryJob = owner.launch {
             bootstrapCarrier.deliveries.collect { delivery ->
-                val delivered = delivery.packetId
+                val delivered = delivery.target
                 if (delivered != awaitedRequest) return@collect
                 awaitedRequest = null
                 val current = _state.value
@@ -144,7 +147,7 @@ internal class DefaultOnboardingProvider(
                 transitionTo(
                     OnboardingState.REQUEST_DELIVERED,
                     "Recovery request delivered; waiting for the intro",
-                    fields = mapOf("packetId" to delivered),
+                    fields = mapOf("target" to delivered),
                 )
             }
         }

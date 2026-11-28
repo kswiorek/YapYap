@@ -17,6 +17,7 @@ import org.yapyap.orchestrator.identity.IdentityStore
 import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -35,7 +36,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.minutes
-import kotlin.uuid.Uuid
 
 private class FakeOnboardingRouter(
     packets: Flow<BootstrapPacketEvent>,
@@ -50,7 +50,7 @@ private class FakeOnboardingRouter(
 private class NoopSyncCoordinator : SyncCoordinator {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
-    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>, senderAccount: AccountId?) = Unit
+    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<MessageId>, senderAccount: AccountId?) = Unit
     override suspend fun refreshCandidatesFor(roomId: RoomId) = Unit
 }
 
@@ -181,24 +181,24 @@ class DefaultOnboardingProviderTest {
     }
 
     @Test
-    fun recoveryRequest_sentThenDelivered_onlyForItsOwnPacket() = runTest {
+    fun recoveryRequest_sentThenDelivered_onlyByItsTarget() = runTest {
         val clock = FakeClock(start)
         val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
         val deliveries = MutableSharedFlow<BootstrapAck>(extraBufferCapacity = 16)
         val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
-        val request = Uuid.random()
+        val target = PeerId("recovery-responder")
 
-        provider.awaitRequestDelivery(request)
+        provider.awaitRequestDelivery(target)
         runCurrent()
         assertEquals(OnboardingState.REQUEST_SENT, provider.state.value)
 
-        deliveries.emit(BootstrapAck(Uuid.random(), account = null))
+        deliveries.emit(BootstrapAck(PeerId("someone-else"), account = null))
         runCurrent()
-        assertEquals(OnboardingState.REQUEST_SENT, provider.state.value, "someone else's packet changes nothing")
+        assertEquals(OnboardingState.REQUEST_SENT, provider.state.value, "another device's ACK changes nothing")
 
-        deliveries.emit(BootstrapAck(request, account = null))
+        deliveries.emit(BootstrapAck(target, account = null))
         runCurrent()
         assertEquals(OnboardingState.REQUEST_DELIVERED, provider.state.value)
         provider.stop()
@@ -212,7 +212,7 @@ class DefaultOnboardingProviderTest {
         val provider = providerUnderTest(clock, sessionStore, config = config)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
-        provider.awaitRequestDelivery(Uuid.random())
+        provider.awaitRequestDelivery(PeerId("recovery-responder"))
         runCurrent()
 
         clock.advanceBy(config.onboardingSessionLifetime + 1.minutes)
@@ -230,12 +230,12 @@ class DefaultOnboardingProviderTest {
         val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
-        val request = Uuid.random()
-        provider.awaitRequestDelivery(request)
+        val target = PeerId("recovery-responder")
+        provider.awaitRequestDelivery(target)
         runCurrent()
 
         provider.cancelOnboarding()
-        deliveries.emit(BootstrapAck(request, account = null))
+        deliveries.emit(BootstrapAck(target, account = null))
         runCurrent()
         assertEquals(OnboardingState.IDLE, provider.state.value)
         provider.stop()

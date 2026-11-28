@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.DagPayload
@@ -67,11 +68,11 @@ class MessageAttachmentsIndexTest {
         val repo = FakeMessageRepository()
         val dag = engine(repo)
         val orphan = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = testAccount,
             authorDeviceId = testDeviceId,
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = epochSeconds(1_000_000L),
             text = "orphan",
             attachments = listOf(attachment(0)),

@@ -168,7 +168,7 @@ internal fun fileInboundHarness(
         protections = passthroughProtections(),
         fileChunkSize = chunkSize,
     )
-    ctx.peerLinks.bindTorEndpoint(remoteId, TorEndpoint("${remoteId.id}.onion", 80))
+    ctx.torPeers.bind(remoteId, TorEndpoint("${remoteId.id}.onion", 80))
     val outbox = TrackingPacketOutbox()
     val outboxProcessor = outboxProcessorUnderTest(
         tor = tor,
@@ -253,7 +253,7 @@ private fun idleLinkKeeper(
     webRtc: Boolean,
 ): LinkKeeper = LinkKeeper(
     name = if (webRtc) "test-webrtc" else "test-tor",
-    sessions = if (webRtc) ctx.webRtcTransport else ctx.peerLinks.tor,
+    sessions = if (webRtc) ctx.webRtcTransport else ctx.torPeers,
     targets = { emptyList() },
     ready = flowOf(false),
     config = MutableStateFlow(if (webRtc) config.webrtcLinkKeeperConfig else config.torLinkKeeperConfig),

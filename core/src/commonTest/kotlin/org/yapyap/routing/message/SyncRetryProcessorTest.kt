@@ -7,9 +7,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
@@ -67,7 +69,7 @@ class SyncRetryProcessorTest {
         )
         devices.forEach { device ->
             val endpoint = TorEndpoint("${device.id}.onion", 80)
-            stack.ctx.peerLinks.bindTorEndpoint(device, endpoint)
+            stack.ctx.torPeers.bind(device, endpoint)
             if (device in unlinked) stack.tor.unlinkedEndpoints += endpoint
         }
         val pending = FakePendingSyncRepository()
@@ -85,9 +87,14 @@ class SyncRetryProcessorTest {
         return Harness(stack, pending, attempts, processor)
     }
 
-    private suspend fun Harness.pendingSync(): Uuid {
-        val syncId = Uuid.random()
-        pending.insertSync(syncId, roomId, targetMessageId = Uuid.random(), candidateAccounts = listOf(remoteAccount))
+    private suspend fun Harness.pendingSync(): SyncId {
+        val syncId = SyncId(Uuid.random())
+        pending.insertSync(
+            syncId,
+            roomId,
+            targetMessageId = MessageId(Uuid.random()),
+            candidateAccounts = listOf(remoteAccount)
+        )
         processor.start(syncId, firstAttemptAt = now)
         return syncId
     }
@@ -103,7 +110,7 @@ class SyncRetryProcessorTest {
         assertEquals(remoteDevice, queued.target)
         assertEquals(PacketType.MESSAGE, queued.packetType)
         assertTrue(queued.dispositionRequested, "the answer (ACK or NACK) is what moves the sync on")
-        assertEquals(OutboxTag(OutboxTag.Kind.SYNC, syncId), h.stack.outbox.tagOf(queued.packetId))
+        assertEquals(OutboxTag.Sync(syncId), h.stack.outbox.tagOf(queued.packetId))
         assertEquals(1, h.attempts.attemptsOf(syncId))
     }
 
@@ -157,7 +164,7 @@ class SyncRetryProcessorTest {
         h.stack.outboxProcessor.onDisposition(first.packetId, PacketNackReason.DECLINED)
         h.processor.onAttemptOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.SYNC, syncId),
+                OutboxTag.Sync(syncId),
                 remoteDevice,
                 first.packetId,
                 PacketNackReason.DECLINED,
@@ -200,7 +207,7 @@ class SyncRetryProcessorTest {
         val h = harness(devices = listOf(remoteDevice, otherDevice))
         val syncId = h.pendingSync()
         h.runFor()
-        val tag = OutboxTag(OutboxTag.Kind.SYNC, syncId)
+        val tag = OutboxTag.Sync(syncId)
         val gone = h.stack.outbox.enqueued.single()
         h.stack.outboxProcessor.onDisposition(gone.packetId)  // gone, like an expiry
         h.processor.onAttemptOutcome(
@@ -221,7 +228,7 @@ class SyncRetryProcessorTest {
     fun nonDeclineNack_isTreatedLikeExpiry() = runBlocking {
         val h = harness(devices = listOf(remoteDevice, otherDevice))
         val syncId = h.pendingSync()
-        val tag = OutboxTag(OutboxTag.Kind.SYNC, syncId)
+        val tag = OutboxTag.Sync(syncId)
 
         h.processor.onAttemptOutcome(
             OutboxOutcome.Nacked(
@@ -254,7 +261,7 @@ class SyncRetryProcessorTest {
 
         h.processor.onAttemptOutcome(
             OutboxOutcome.Expired(
-                OutboxTag(OutboxTag.Kind.SYNC, syncId),
+                OutboxTag.Sync(syncId),
                 remoteDevice,
                 gone.packetId,
             ),

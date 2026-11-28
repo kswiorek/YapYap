@@ -27,6 +27,7 @@ import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FileSealStore
 import org.yapyap.routing.store.FileTransferStatus
 import org.yapyap.routing.store.FileTransferStore
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.OutgoingTransfer
 import org.yapyap.routing.store.PacketOutbox
 import kotlin.concurrent.Volatile
@@ -118,10 +119,10 @@ internal class TransferEngine(
         session(transferId)?.cancelled(from, reason)
     }
 
-    /** Posts one of our OFFER/chunk outcomes to its transfer's session's mailbox. */
-    suspend fun onOutcome(outcome: OutboxOutcome) {
+    /** Posts one of [transferId]'s OFFER/chunk outcomes to its session's mailbox. */
+    suspend fun onOutcome(transferId: TransferId, outcome: OutboxOutcome) {
         awaitRecovery()
-        session(TransferId(outcome.tag.id))?.outcome(outcome)
+        session(transferId)?.outcome(outcome)
     }
 
     /**
@@ -157,7 +158,7 @@ internal class TransferEngine(
     /** Rebuilds one session's window from its chunk rows still queued in the outbox. */
     private suspend fun recoverOne(transfer: OutgoingTransfer) {
         val source = sourceFor(transfer) ?: return finish(transfer.copy(status = FileTransferStatus.ENDED))
-        val stillQueued = outboxStore.packetIdsByTag(transferTag(transfer.transferId)).toSet()
+        val stillQueued = outboxStore.packetIdsByTag(OutboxTag.FileTransfer(transfer.transferId)).toSet()
         val queued = mutableSetOf<Int>()
         for ((index, packetId) in transferStore.chunks(transfer.transferId)) {
             if (packetId in stillQueued) queued += index else transferStore.deleteChunk(packetId)
@@ -226,7 +227,7 @@ internal class TransferEngine(
     private suspend fun finish(ended: OutgoingTransfer) {
         registryLock.withLock { sessions.remove(ended.transferId) }
         transferStore.setStatus(ended.transferId, ended.status)
-        outboxStore.deleteByTag(transferTag(ended.transferId))
+        outboxStore.deleteByTag(OutboxTag.FileTransfer(ended.transferId))
         transferStore.deleteChunks(ended.transferId)
         AppLog.info(
             component = LogComponent.FILE,

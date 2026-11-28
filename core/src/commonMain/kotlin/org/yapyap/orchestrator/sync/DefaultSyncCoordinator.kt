@@ -20,9 +20,11 @@ import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.SyncId
 import org.yapyap.routing.router.MessageCarrier
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -128,7 +130,7 @@ internal class DefaultSyncCoordinator(
     // Ping-triggered frontier sync
     // ------------------------------------------------------------------
 
-    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>, senderAccount: AccountId?) {
+    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<MessageId>, senderAccount: AccountId?) {
         syncMutex.withLock {
             for (tip in tips) {
                 if (messageRepository.findById(tip) == null) {
@@ -258,7 +260,7 @@ internal class DefaultSyncCoordinator(
      */
     private suspend fun insertSyncForTarget(
         roomId: RoomId,
-        targetMessageId: Uuid,
+        targetMessageId: MessageId,
         senderAccount: AccountId?,
     ) {
         val existing = pendingSyncRepository.findSyncByTarget(roomId, targetMessageId)
@@ -295,7 +297,7 @@ internal class DefaultSyncCoordinator(
         // Known room with no candidates (all members removed): still mint the
         // row as a placeholder — the membership refresh revives it if
         // candidacy returns, and nothing else would ever chase this gap.
-        val syncId = Uuid.random()
+        val syncId = SyncId(Uuid.random())
         pendingSyncRepository.insertSync(
             syncId = syncId,
             roomId = roomId,

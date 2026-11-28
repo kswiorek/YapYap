@@ -61,6 +61,7 @@ import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.LargeFileFrame
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -71,7 +72,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.E2eeIdentityResolverForRouter
@@ -240,7 +241,7 @@ class FileLargePullTwoRouterTest {
             localIdentity = identity,
             coverage = engine,
         )
-        val peerLinks = PeerLinks(identity, localWebRtc, localTor)
+        val torPeers = TorPeerSessions(identity, localTor)
         val fileLimits = MutableStateFlow(FileLimits(chunkSize.value, chunkSize.value, maxSealBytes = 64 * 1024))
         val ctx = RoutingContext(
             localIdentity = identity,
@@ -248,7 +249,7 @@ class FileLargePullTwoRouterTest {
             devices = identity,
             torTransport = localTor,
             webRtcTransport = localWebRtc,
-            peerLinks = peerLinks,
+            torPeers = torPeers,
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = fileLimits,
             envelopeProtections = protection,
@@ -474,7 +475,7 @@ class FileLargePullTwoRouterTest {
         )
         val mid = Uuid.random()
         val payload = DagPayload.Text(
-            messageId = mid,
+            messageId = MessageId(mid),
             roomId = roomId,
             senderAccountId = aliceAccount,
             authorDeviceId = alicePeer.device.deviceId,
@@ -731,7 +732,7 @@ class FileLargePullTwoRouterTest {
             )
             val mid = Uuid.random()
             val payload = DagPayload.Text(
-                messageId = mid,
+                messageId = MessageId(mid),
                 roomId = roomId,
                 senderAccountId = aliceAccount,
                 authorDeviceId = defaultMesh.alicePeer.device.deviceId,
@@ -831,7 +832,7 @@ class FileLargePullTwoRouterTest {
                 FileImportSource.PathSource(srcB), "b.bin", mimeType, keepCopy = true,
             )
             val payloadB = DagPayload.Text(
-                messageId = Uuid.random(),
+                messageId = MessageId(Uuid.random()),
                 roomId = roomId,
                 senderAccountId = aliceAccount,
                 authorDeviceId = mesh.alicePeer.device.deviceId,

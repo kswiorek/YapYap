@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -19,7 +20,7 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -86,7 +87,7 @@ class UnknownDevicePolicyTest {
 
     private fun plaintextMessagePayload(): ByteArray =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId(Uuid.random()),
             senderAccountId = account,
             prevIds = emptyList(),
@@ -142,7 +143,7 @@ class UnknownDevicePolicyTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            peerLinks = PeerLinks(identity, webRtc, tor),
+            torPeers = TorPeerSessions(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
@@ -369,7 +370,7 @@ class UnknownDevicePolicyTest {
         // so endpoint healing applies to relayed traffic as well (envelope-redesign §3.1):
         // the sender's mapping moves to the arrival onion.
         val innerText = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId(Uuid.random()),
             senderAccountId = account,
             prevIds = emptyList(),

@@ -445,7 +445,7 @@ fetch (§6.6).
 
 ### 6.1 The transfer: OFFER, then chunks
 
-- **The OFFER is an ordinary outbox entry**, tagged `OutboxTag.Kind.FILE_TRANSFER` with id = `transferId`, and
+- **The OFFER is an ordinary outbox entry**, tagged `OutboxTag.FileTransfer(transferId)`, and
   with standard semantics: the delivery contract's "ACK = processed" is untouched. Its `expiresAt` is the seal's,
   at every hop. The outbox honours it natively through its expiry prune.
 - **On the OFFER's ACK the transfer streams** (`OFFERED → STREAMING`). The receiver's ACK may already carry
@@ -1043,7 +1043,7 @@ original the user edited (§10), would be encrypted faithfully and fail only at 
 - large-file pulls run as bounded concurrent calls (`maxConcurrentLargeFiles` at a time).
 
 Each request class has its own core instance over its own due query (`SMALL` vs `LARGE` rows). Each is fed by a
-**store-owned candidate view**: the attempt store hands each core a `CandidateAttemptStore`, the parent row plus its
+**store-owned candidate view**: the attempt store hands each core a `CandidateLedger`, the parent row plus its
 declined children read in one statement, composed by the store that owns the tables. No consumer assembles the join.
 
 - A satisfied id is dropped before any candidate is picked.
@@ -1243,7 +1243,7 @@ file_relay_chunks (transfer_id, chunk_index PK, stored_at, ciphertext BLOB)     
 
 -- routing: asking
 file_pull_attempts (file_id PK, attempts, next_attempt_at, waiting_device NULL, waiting_until NULL,
-                    request_attempt_id NULL, pull_class)                           -- SMALL | LARGE
+                    request_packet_id NULL, pull_class)                           -- SMALL | LARGE
 file_pull_declined_devices (file_id, device_id PK)                                 -- read with its parent in one join
 ```
 

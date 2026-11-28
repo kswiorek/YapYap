@@ -23,7 +23,7 @@ Evidence:
   reachable through the runtime, that is a missing runtime API — ask, don't bypass.** `GuiApiBoundaryTest` fails the
   build on any other `org.yapyap.*` import."
 - GuiApiBoundaryTest.kt: `allowedSubtrees = ["org.yapyap.orchestrator.runtime."]` plus `allowedExactImports` (~35 types:
-  Orchestrator, OrchestratorState, NodeMode, SetupIntent/Result, PeerId, RoomId, TorEndpoint,
+  Orchestrator, OrchestratorState, NodeMode, SetupIntent/Result, PeerId, RoomId, MessageId, TorEndpoint,
   Setting/ConfigValue/UpdateResult …); a separate test bans star imports of core packages.
 - settings.gradle.kts: exactly two modules, `:core` and `:composeApp`; composeApp declares
   `implementation(project(":core"))`; core's dependency lists contain no Compose or GUI dependencies.

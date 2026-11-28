@@ -31,6 +31,7 @@ import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.LargeFileAbortReason
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
@@ -100,7 +101,7 @@ class FileRequestCoordinatorTest {
         val router = RecordingFileRouter()
         val pipeline = FakePipeline()
         val files = JvmFileAccess()
-        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-coordtest-${Uuid.random()}")
+        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-coordtest-${MessageId(Uuid.random())}")
         files.createDirectories(work)
         val crypto = DefaultCryptoProvider()
         val config = MutableStateFlow(orchestratorConfig)
@@ -145,7 +146,7 @@ class FileRequestCoordinatorTest {
     }
 
     private fun textMessage(
-        messageId: Uuid,
+        messageId: MessageId,
         sender: AccountId,
         room: RoomId = roomId,
         attachments: List<DagPayload.Attachment> = listOf(
@@ -165,7 +166,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun messageIngest_withAttachment_opensPendingAndStartsRequest() = runTest {
         val h = harness()
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
@@ -189,7 +190,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun readyFile_doesNotTrigger() = runTest {
         val h = harness()
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.receives.upsert(
@@ -215,7 +216,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun largeAttachment_belowAutoDownload_triggersRequest() = runTest {
         val h = harness()
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         val big = DagPayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(big))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
@@ -238,7 +239,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun largeAttachment_aboveAutoDownload_landsDeclinedWithoutRequest() = runTest {
         val h = harness()
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         val huge = DagPayload.Attachment(fileId, "huge.bin", "application/octet-stream", 300L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(huge))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
@@ -259,7 +260,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun smallAttachment_aboveAutoDownload_waitsForUserAccept() = runTest {
         val h = harness(orchestratorConfig = OrchestratorConfig(autoDownloadMaxBytes = 0L))
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.coordinator.start(this)
@@ -278,7 +279,7 @@ class FileRequestCoordinatorTest {
     fun requestTotalBytes_prefersAttachmentFallsBackToRow() = runTest {
         val h = harness()
         assertNull(h.source.requestTotalBytes(fileId))
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         val big = DagPayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(big))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
@@ -319,7 +320,7 @@ class FileRequestCoordinatorTest {
         assertEquals(PendingFileRequestStatus.UNAVAILABLE, h.pending.find(fileId)?.status)
 
         // A new message referencing the file re-arms the trigger.
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.pipeline.emit(IngestResult.Inserted(textMessage(mid, senderAccount)))
@@ -597,7 +598,7 @@ class FileRequestCoordinatorTest {
     @Test
     fun noSpace_isDeclinedAndNotReRequested() = runTest {
         val h = harness()
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
@@ -626,7 +627,7 @@ class FileRequestCoordinatorTest {
     fun serveGate_allowsActiveRefusesStranger() = runTest {
         val h = harness()
         upsertHeld(h, totalBytes = 1_000L)
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
@@ -639,9 +640,9 @@ class FileRequestCoordinatorTest {
     fun serveGate_removedMemberSeesOnlyEra() = runTest {
         val h = harness()
         upsertHeld(h, totalBytes = 1_000L)
-        val removal = Uuid.random()
-        val eraMessage = Uuid.random()
-        val afterMessage = Uuid.random()
+        val removal = MessageId(Uuid.random())
+        val eraMessage = MessageId(Uuid.random())
+        val afterMessage = MessageId(Uuid.random())
         h.messages.rows[eraMessage] = StoredMessage(textMessage(eraMessage, senderAccount), isOrphaned = false)
         h.messages.rows[afterMessage] = StoredMessage(textMessage(afterMessage, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(eraMessage, afterMessage)
@@ -665,7 +666,7 @@ class FileRequestCoordinatorTest {
     fun serveGate_allowsLargeFetch_refusesMissing() = runTest {
         val h = harness()
         upsertHeld(h, totalBytes = 100L * 1024 * 1024)
-        val mid = Uuid.random()
+        val mid = MessageId(Uuid.random())
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
@@ -684,8 +685,8 @@ class FileRequestCoordinatorTest {
     fun requestCandidates_sendersFirstOwnLast() = runTest {
         val h = harness()
         val other = AccountId("coordinator-other")
-        val m1 = Uuid.random()
-        val m2 = Uuid.random()
+        val m1 = MessageId(Uuid.random())
+        val m2 = MessageId(Uuid.random())
         h.messages.rows[m1] = StoredMessage(textMessage(m1, senderAccount), isOrphaned = false)
         h.messages.rows[m2] = StoredMessage(textMessage(m2, other), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(m1, m2)
@@ -763,9 +764,9 @@ class FileRequestCoordinatorTest {
     }
 
     private class FakeMessageRepository : MessageRepository {
-        val rows = mutableMapOf<Uuid, StoredMessage>()
-        val attachments = mutableMapOf<FileId, List<Uuid>>()
-        val parents = mutableMapOf<Uuid, List<Uuid>>()
+        val rows = mutableMapOf<MessageId, StoredMessage>()
+        val attachments = mutableMapOf<FileId, List<MessageId>>()
+        val parents = mutableMapOf<MessageId, List<MessageId>>()
 
         override suspend fun insert(
             payload: DagPayload,
@@ -773,14 +774,14 @@ class FileRequestCoordinatorTest {
             ancestryComplete: Boolean,
             verificationState: VerificationState
         ): Boolean = error("not used")
-        override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> = attachments[fileId].orEmpty()
-        override suspend fun findById(messageId: Uuid): StoredMessage? = rows[messageId]
+        override suspend fun findMessageIdsByFileId(fileId: FileId): List<MessageId> = attachments[fileId].orEmpty()
+        override suspend fun findById(messageId: MessageId): StoredMessage? = rows[messageId]
         override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> = error("not used")
-        override suspend fun findParents(messageId: Uuid): List<Uuid> = parents[messageId].orEmpty()
-        override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+        override suspend fun findParents(messageId: MessageId): List<MessageId> = parents[messageId].orEmpty()
+        override suspend fun isAncestorOrSelf(messageId: MessageId, of: MessageId): Boolean {
             if (messageId == of) return true
-            val visited = HashSet<Uuid>()
-            val queue = ArrayDeque<Uuid>()
+            val visited = HashSet<MessageId>()
+            val queue = ArrayDeque<MessageId>()
             visited.add(of)
             queue.add(of)
             while (queue.isNotEmpty()) {
@@ -794,8 +795,10 @@ class FileRequestCoordinatorTest {
             }
             return false
         }
-        override suspend fun insertParent(messageId: Uuid, parentId: Uuid) = error("not used")
-        override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> = error("not used")
+
+        override suspend fun insertParent(messageId: MessageId, parentId: MessageId) = error("not used")
+        override suspend fun findChildrenInRoom(parentId: MessageId, roomId: RoomId): List<StoredMessage> =
+            error("not used")
         override suspend fun findMessagesInRoomPageDesc(
             roomId: RoomId,
             limit: Int,
@@ -808,14 +811,14 @@ class FileRequestCoordinatorTest {
             cursor: MessageCursor?
         ): List<StoredMessage> = error("not used")
 
-        override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean = error("not used")
+        override suspend fun isRenderable(roomId: RoomId, messageId: MessageId): Boolean = error("not used")
         override suspend fun findAllInRoom(roomId: RoomId): List<StoredMessage> = error("not used")
         override suspend fun findFoldableInRoom(roomId: RoomId): List<StoredMessage> = error("not used")
         override suspend fun hasMessages(roomId: RoomId): Boolean = error("not used")
-        override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) = error("not used")
-        override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) = error("not used")
+        override suspend fun updateOrphanedFlag(messageId: MessageId, isOrphaned: Boolean) = error("not used")
+        override suspend fun updateAncestryComplete(messageId: MessageId, complete: Boolean) = error("not used")
         override suspend fun updateVerificationState(
-            messageId: Uuid,
+            messageId: MessageId,
             state: VerificationState
         ) = error("not used")
 
@@ -827,7 +830,8 @@ class FileRequestCoordinatorTest {
         memberships: Map<Pair<RoomId, AccountId>, Member> = emptyMap(),
     ) : RoomRepository {
         val members: MutableMap<Pair<RoomId, AccountId>, Member> = memberships.toMutableMap()
-        data class Member(val status: RoomMemberStatus, val removalNodeId: Uuid?)
+
+        data class Member(val status: RoomMemberStatus, val removalNodeId: MessageId?)
 
         override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> = error("not used")
         override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMember> = error("not used")
@@ -844,7 +848,7 @@ class FileRequestCoordinatorTest {
             accountId: AccountId,
             role: RoomMemberRole,
             status: RoomMemberStatus,
-            removalNodeId: Uuid?
+            removalNodeId: MessageId?
         ) = error("not used")
 
         override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = error("not used")

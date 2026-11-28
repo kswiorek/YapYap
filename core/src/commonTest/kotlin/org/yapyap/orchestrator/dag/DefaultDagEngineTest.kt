@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.store.MessageCursor
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -104,12 +105,12 @@ class DefaultDagEngineTest {
     @Test
     fun append_parkedFrontier_throwsFrontierUnavailable_andWritesNothing() = runTest {
         val orphan = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = clock.now(),
             text = "waiting for prev",
         )
@@ -127,7 +128,7 @@ class DefaultDagEngineTest {
     fun append_rejectedOnlyRoom_throwsFrontierUnavailable() = runTest {
         messageRepo.insert(
             payload = DagPayload.Text(
-                messageId = Uuid.random(),
+                messageId = MessageId(Uuid.random()),
                 roomId = roomId,
                 senderAccountId = remoteAccount,
                 authorDeviceId = remoteDeviceId,
@@ -152,7 +153,7 @@ class DefaultDagEngineTest {
         // Bootstrap from nothing: the missing parent must be a valid genesis —
         // a remote Text root is REJECTED and quarantines its children.
         val crypto = DefaultCryptoProvider()
-        val genesisId = Uuid.random()
+        val genesisId = MessageId(Uuid.random())
         // createGenesis returns unsigned; the fake provider accepts any signature.
         val genesis = RoomIds.createGenesis(
             crypto = crypto,
@@ -169,7 +170,7 @@ class DefaultDagEngineTest {
         ).withSignature(byteArrayOf(0x01, 0x02, 0x03))
         val genesisRoom = genesis.roomId
         val orphan = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = genesisRoom,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
@@ -194,7 +195,7 @@ class DefaultDagEngineTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
 
         val remotePayload = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
@@ -226,8 +227,8 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_missingPrev_returnsBecameOrphan_andCreatesGap() = runTest {
-        val prevUuid = Uuid.random()
-        val msgUuid = Uuid.random()
+        val prevUuid = MessageId(Uuid.random())
+        val msgUuid = MessageId(Uuid.random())
         val remotePayload = DagPayload.Text(
             messageId = msgUuid,
             roomId = roomId,
@@ -254,8 +255,8 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_closesGapWhenMissingMessageArrives() = runTest {
-        val prevUuid = Uuid.random()
-        val msgUuid = Uuid.random()
+        val prevUuid = MessageId(Uuid.random())
+        val msgUuid = MessageId(Uuid.random())
         // 1. Ingest an orphan that references a missing prev.
         val orphan = DagPayload.Text(
             messageId = msgUuid,
@@ -296,9 +297,9 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_closesMultipleGapsWaitingOnSameMessage() = runTest {
-        val prevUuid = Uuid.random()
-        val msg1Uuid = Uuid.random()
-        val msg2Uuid = Uuid.random()
+        val prevUuid = MessageId(Uuid.random())
+        val msg1Uuid = MessageId(Uuid.random())
+        val msg2Uuid = MessageId(Uuid.random())
         // Two orphans, both waiting for "missing-prev-id".
         val orphan1 = DagPayload.Text(
             messageId = msg1Uuid,
@@ -379,10 +380,10 @@ class DefaultDagEngineTest {
 
     @Test
     fun openGaps_byRoom_filtersToRoom() = runTest {
-        val prev1Uuid = Uuid.random()
-        val prev2Uuid = Uuid.random()
-        val msg1Uuid = Uuid.random()
-        val msg2Uuid = Uuid.random()
+        val prev1Uuid = MessageId(Uuid.random())
+        val prev2Uuid = MessageId(Uuid.random())
+        val msg1Uuid = MessageId(Uuid.random())
+        val msg2Uuid = MessageId(Uuid.random())
         // Orphan in roomId.
         val orphan1 = DagPayload.Text(
             messageId = msg1Uuid,
@@ -435,14 +436,14 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_invalidSignature_storesMessageAsRejected() = runTest {
-        val msgUuid = Uuid.random()
+        val msgUuid = MessageId(Uuid.random())
         val remotePayload = DagPayload.Text(
             messageId = msgUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = clock.now(),
             text = "should be rejected",
         )
@@ -479,12 +480,12 @@ class DefaultDagEngineTest {
     }
 
     private fun textPayload(text: String = "pending") = DagPayload.Text(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = roomId,
         senderAccountId = remoteAccount,
         authorDeviceId = remoteDeviceId,
         authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-        prevIds = listOf(Uuid.random()),
+        prevIds = listOf(MessageId(Uuid.random())),
         createdAt = clock.now(),
         text = text,
     )
@@ -539,11 +540,11 @@ class DefaultDagEngineTest {
         // RoomEvent uniformly with Text — unchanged behavior, and the room
         // projector writes no verdicts (no reverify ping-pong).
         val payload = DagPayload.RoomEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = clock.now(),
             eventBytes = RoomEventPayload.MemberAdd(remoteAccount).encode(),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -572,7 +573,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_textWithEmptyPrevIdsInChatRoom_storesAsRejected() = runTest {
         val payload = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
@@ -592,7 +593,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_roomEventNonGenesisWithEmptyPrevIds_storesAsRejected() = runTest {
         val payload = DagPayload.RoomEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
@@ -612,7 +613,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_roomEventUndecodableBytes_storesAsRejected() = runTest {
         val payload = DagPayload.RoomEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
@@ -643,7 +644,7 @@ class DefaultDagEngineTest {
         )
         val genesis = RoomIds.createGenesis(
             crypto = crypto,
-            genesisMessageId = Uuid.random(),
+            genesisMessageId = MessageId(Uuid.random()),
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             createdAt = clock.now(),
@@ -667,7 +668,7 @@ class DefaultDagEngineTest {
         val crypto = DefaultCryptoProvider()
         val genesis = RoomIds.createGenesis(
             crypto = crypto,
-            genesisMessageId = Uuid.random(),
+            genesisMessageId = MessageId(Uuid.random()),
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             createdAt = clock.now(),
@@ -691,7 +692,7 @@ class DefaultDagEngineTest {
         val crypto = DefaultCryptoProvider()
         val genesis = RoomIds.createGenesis(
             crypto = crypto,
-            genesisMessageId = Uuid.random(),
+            genesisMessageId = MessageId(Uuid.random()),
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             createdAt = clock.now(),
@@ -701,7 +702,7 @@ class DefaultDagEngineTest {
                 roomType = RoomType.TEXT_CHANNEL,
                 spaceId = null,
             ),
-        ).copy(prevIds = listOf(Uuid.random()))
+        ).copy(prevIds = listOf(MessageId(Uuid.random())))
 
         val result = dagEngine.ingest(genesis)
 
@@ -714,12 +715,12 @@ class DefaultDagEngineTest {
     fun ingest_unknownRoom_seedsRoomRow() = runTest {
         val freshRoom = RoomId(Uuid.random())
         val orphan = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = freshRoom,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = clock.now(),
             text = "pre-genesis",
         )
@@ -731,12 +732,12 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_globalRoom_doesNotSeedRoomRow() = runTest {
         val payload = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId.GLOBAL,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = listOf(Uuid.random()),
+            prevIds = listOf(MessageId(Uuid.random())),
             createdAt = clock.now(),
             text = "global",
         )

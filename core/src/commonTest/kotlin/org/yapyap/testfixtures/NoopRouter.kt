@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.DagPayload
@@ -26,7 +27,6 @@ import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.time.Duration
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /** [MessageCarrier] that does nothing; tests override what they observe or drive. */
 internal open class NoopMessageCarrier : MessageCarrier {
@@ -40,9 +40,9 @@ internal open class NoopMessageCarrier : MessageCarrier {
 
     override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) = Unit
 
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
+    override suspend fun startSync(syncId: SyncId, firstAttemptAt: Instant) = Unit
 
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
+    override suspend fun reopenSync(syncId: SyncId, account: AccountId) = Unit
 }
 
 /** [BootstrapCarrier] that does nothing. */
@@ -55,7 +55,7 @@ internal open class NoopBootstrapCarrier : BootstrapCarrier {
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ): Uuid = Uuid.random()
+    ) = Unit
 }
 
 /** [Presence] with nobody online. */

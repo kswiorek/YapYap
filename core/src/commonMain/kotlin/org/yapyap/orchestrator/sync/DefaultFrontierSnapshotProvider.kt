@@ -3,17 +3,17 @@ package org.yapyap.orchestrator.sync
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
-import kotlin.uuid.Uuid
 
 internal class DefaultFrontierSnapshotProvider(
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
     private val localDeviceId: PeerId,
 ) : FrontierSnapshotProvider {
-    override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<Uuid>>> {
+    override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<MessageId>>> {
         // Shared rooms only: advertise a room iff both sides are ACTIVE members.
         // A converged removed member stops advertising the room — which is what
         // self-extinguishes the ping-contradiction re-push loop (docs/room

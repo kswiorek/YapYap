@@ -1,7 +1,7 @@
 package org.yapyap.orchestrator.fold.graph
 
 import org.yapyap.orchestrator.store.StoredMessage
-import kotlin.uuid.Uuid
+import org.yapyap.protocol.MessageId
 
 /**
  * Pure graph helpers over stored rows, shared by the sibling fold tiers
@@ -14,8 +14,8 @@ import kotlin.uuid.Uuid
  */
 
 /** Stored-graph child adjacency, for the topo sort and genesis descent. */
-internal fun childAdjacency(byId: Map<Uuid, StoredMessage>): Map<Uuid, List<Uuid>> {
-    val children = HashMap<Uuid, MutableList<Uuid>>()
+internal fun childAdjacency(byId: Map<MessageId, StoredMessage>): Map<MessageId, List<MessageId>> {
+    val children = HashMap<MessageId, MutableList<MessageId>>()
     for ((id, row) in byId) {
         for (parent in row.payload.prevIds) {
             if (byId.containsKey(parent)) {
@@ -30,24 +30,27 @@ internal fun childAdjacency(byId: Map<Uuid, StoredMessage>): Map<Uuid, List<Uuid
  * Canonical order: topological over stored `prevIds` (`createdAt, messageId`
  * tiebreak). Unorderable cycles replay last, deterministically.
  */
-internal fun canonicalOrder(byId: Map<Uuid, StoredMessage>, children: Map<Uuid, List<Uuid>>): List<Uuid> {
-    val orderOf = Comparator<Uuid> { a, b ->
+internal fun canonicalOrder(
+    byId: Map<MessageId, StoredMessage>,
+    children: Map<MessageId, List<MessageId>>
+): List<MessageId> {
+    val orderOf = Comparator<MessageId> { a, b ->
         val ra = byId.getValue(a).payload
         val rb = byId.getValue(b).payload
         val c = ra.createdAt.compareTo(rb.createdAt)
         if (c != 0) c else a.compareTo(b)
     }
-    val indegree = HashMap<Uuid, Int>()
+    val indegree = HashMap<MessageId, Int>()
     for ((id, row) in byId) {
         indegree[id] = row.payload.prevIds.count { byId.containsKey(it) }
     }
     // Plain-list priority scan (common-safe; the global log is tiny — swap in a real
     // priority structure only if the room ever outgrows the 10–20-user profile).
-    val ready = ArrayList<Uuid>()
+    val ready = ArrayList<MessageId>()
     for ((id, degree) in indegree) {
         if (degree == 0) ready.add(id)
     }
-    val order = ArrayList<Uuid>(byId.size)
+    val order = ArrayList<MessageId>(byId.size)
     while (ready.isNotEmpty()) {
         val id = ready.minWith(orderOf)
         ready.remove(id)
@@ -66,11 +69,11 @@ internal fun canonicalOrder(byId: Map<Uuid, StoredMessage>, children: Map<Uuid, 
 }
 
 /** Memoized transitive `prevIds` closures (the seals' vouching sets). */
-internal fun ancestorClosures(byId: Map<Uuid, StoredMessage>): Map<Uuid, Set<Uuid>> {
-    val memo = HashMap<Uuid, Set<Uuid>>()
-    fun ancestorsOf(node: Uuid): Set<Uuid> = memo.getOrPut(node) {
-        val seen = HashSet<Uuid>()
-        val stack = ArrayDeque<Uuid>()
+internal fun ancestorClosures(byId: Map<MessageId, StoredMessage>): Map<MessageId, Set<MessageId>> {
+    val memo = HashMap<MessageId, Set<MessageId>>()
+    fun ancestorsOf(node: MessageId): Set<MessageId> = memo.getOrPut(node) {
+        val seen = HashSet<MessageId>()
+        val stack = ArrayDeque<MessageId>()
         for (parent in byId.getValue(node).payload.prevIds) {
             if (seen.add(parent)) stack.add(parent)
         }

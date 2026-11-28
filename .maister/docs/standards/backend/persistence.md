@@ -51,8 +51,8 @@ Evidence:
 
 When a consumer needs a parent row composed with its child table (the candidate-asking loop needs a pull-attempt row
 plus its declined devices), the store that owns those tables exposes it as a named view, written once in the store's
-file: `FilePullAttemptStore.candidateStore(pullClass): CandidateAttemptStore<FileId>`, `SyncAttemptStore`'s
-`candidateStore(): CandidateAttemptStore<Uuid>`. No consumer-side adapter wrappers ("docks") — we control all the
+file: `FilePullAttemptStore.candidateLedger(pullClass): CandidateLedger<FileId>`, `SyncAttemptStore`'s
+`candidateLedger(): CandidateLedger<SyncId>`. No consumer-side adapter wrappers ("docks") — we control all the
 interfaces, so there is no need for wrappers. The read is one statement (a LEFT JOIN, the page limit applied to parents
 in a subquery), never one query per row. This is intra-layer; "the reading layer declares the view" applies only to
 cross-layer reads (`DeviceDirectory`, `PeerKeyDirectory`).
@@ -66,5 +66,5 @@ Evidence:
   and "a store accessor is the right shape for that".
 - cleanup.md §7: "The pull and sync stores read a row with its declined devices in one statement (a LEFT JOIN, the page
   limit applied to parents in a subquery) instead of one query per row."
-- routing/store/FilePullAttemptStore.kt and routing/store/SyncAttemptStore.kt declare `candidateStore(…)`; sqldelight
+- routing/store/FilePullAttemptStore.kt and routing/store/SyncAttemptStore.kt declare `candidateLedger(…)`; sqldelight
   FilePullAttempt.sq / SyncAttempt.sq select with `LEFT JOIN … declined_devices`.

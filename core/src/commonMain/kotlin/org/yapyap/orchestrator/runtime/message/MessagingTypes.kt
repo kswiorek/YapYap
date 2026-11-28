@@ -2,25 +2,26 @@ package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 public sealed interface MessageDisplayItem {
     /** Stable identity used as a Compose list key and for targeted removal (e.g. on rejection). */
-    public val messageId: Uuid
+    public val messageId: MessageId
     public val accountId: AccountId
     public val timestamp: Instant
 
     public data class Text(
-        override val messageId: Uuid,
+        override val messageId: MessageId,
         override val accountId: AccountId,
         override val timestamp: Instant,
         val text: String,
     ) : MessageDisplayItem
 
     public data class File(
-        override val messageId: Uuid,
+        override val messageId: MessageId,
         override val accountId: AccountId,
         override val timestamp: Instant,
         val fileId: String,
@@ -29,10 +30,10 @@ public sealed interface MessageDisplayItem {
     ) : MessageDisplayItem
 
     public data class Gap(
-        override val messageId: Uuid,
+        override val messageId: MessageId,
         override val accountId: AccountId,
         override val timestamp: Instant,
-        val missingPrevIds: List<Uuid>,
+        val missingPrevIds: List<MessageId>,
     ) : MessageDisplayItem
 }
 
@@ -115,7 +116,7 @@ public data class IncomingMessageEvent(
  * other presentation decisions are GUI concerns.
  */
 public data class RoomPreview(
-    val messageId: Uuid,
+    val messageId: MessageId,
     val senderAccountId: AccountId,
     val timestamp: Instant,
     val item: MessageDisplayItem,
@@ -188,7 +189,7 @@ public sealed interface SendRefusal {
  */
 public data class MessageDelivery(
     val roomId: RoomId,
-    val messageId: Uuid,
+    val messageId: MessageId,
     val accountId: AccountId,
 )
 

@@ -10,6 +10,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
@@ -42,7 +43,7 @@ class RoomFoldQueriesJvmTest {
 
     private fun textIn(roomId: RoomId, tick: Long): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = FixtureAccountId,
             authorDeviceId = FixtureDevicePeerId,

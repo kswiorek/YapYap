@@ -18,7 +18,7 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.FileLimits
@@ -49,7 +49,7 @@ class CandidateCoreTest {
     private val holderAccount = AccountId("candidate-holder-account")
     private val now = epochSeconds(10_000L)
 
-    private class InMemoryAttempts : CandidateAttemptStore<Uuid> {
+    private class InMemoryAttempts : CandidateLedger<Uuid> {
         private data class Row(
             var attempts: Int = 0,
             var nextAttemptAt: Instant = epochSeconds(0L),
@@ -71,9 +71,9 @@ class CandidateCoreTest {
 
         override suspend fun earliestDueAt(): Instant? = rows.values.minOfOrNull { it.nextAttemptAt }
 
-        override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<Uuid>> =
+        override suspend fun findDue(now: Instant, limit: Int): List<CandidateEntry<Uuid>> =
             also { findDueCalls++ }.rows.entries.filter { it.value.nextAttemptAt <= now }.take(limit)
-                .map { (id, row) -> CandidateRow(id, row.attempts, row.declined.toSet()) }
+                .map { (id, row) -> CandidateEntry(id, row.attempts, row.declined.toSet()) }
 
         override suspend fun recordAttempt(id: Uuid, nextAttemptAt: Instant) {
             rows[id]?.let { it.attempts += 1; it.nextAttemptAt = nextAttemptAt }
@@ -110,7 +110,7 @@ class CandidateCoreTest {
 
     private class FakeStrategy(
         val holder: AccountId,
-        override val attempts: InMemoryAttempts,
+        override val ledger: InMemoryAttempts,
         var wanted: Set<Uuid> = emptySet(),
     ) : CandidateStrategy<Uuid> {
         override suspend fun candidateAccounts(id: Uuid): List<AccountId> = listOf(holder)
@@ -168,7 +168,7 @@ class CandidateCoreTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            peerLinks = PeerLinks(identity, webRtc, tor),
+            torPeers = TorPeerSessions(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
@@ -177,7 +177,7 @@ class CandidateCoreTest {
         )
         val linkKeeper = LinkKeeper(
             name = "candidate-test",
-            sessions = ctx.peerLinks.tor,
+            sessions = ctx.torPeers,
             targets = { emptyList() },
             ready = flowOf(false),
             config = MutableStateFlow(routerConfig.torLinkKeeperConfig),

@@ -2,8 +2,8 @@ package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.CoroutineScope
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
-import kotlin.uuid.Uuid
 
 internal interface SyncCoordinator {
     fun start(scope: CoroutineScope)
@@ -22,7 +22,7 @@ internal interface SyncCoordinator {
      * gets the room's declined syncs reopened for it, and the removal node re-pushed when
      * our fold says it was removed from the room (docs/room events.md §6).
      */
-    suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>, senderAccount: AccountId? = null)
+    suspend fun requestFrontierSync(roomId: RoomId, tips: List<MessageId>, senderAccount: AccountId? = null)
 
     /**
      * Membership refresh for [roomId]: appends the room's current ACTIVE

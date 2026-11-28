@@ -18,7 +18,7 @@ class DefaultSyncPeerPolicyTest {
 
     private fun stack(torLinked: List<PeerId> = emptyList()): SyncRoutingStack {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        torLinked.forEach { stack.ctx.peerLinks.bindTorEndpoint(it, TorEndpoint("${it.id}.onion", 80)) }
+        torLinked.forEach { stack.ctx.torPeers.bind(it, TorEndpoint("${it.id}.onion", 80)) }
         return stack
     }
 

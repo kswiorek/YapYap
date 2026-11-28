@@ -87,6 +87,7 @@ class PublicApiSurfaceTest {
         // --- GUI API: shared vocabulary ----------------------------------------------
         "org.yapyap.protocol.PeerId",
         "org.yapyap.protocol.RoomId",
+        "org.yapyap.protocol.MessageId",
         "org.yapyap.protocol.TorEndpoint",
         "org.yapyap.protocol.AccountId",
         "org.yapyap.protocol.DeviceType",
@@ -113,6 +114,7 @@ class PublicApiSurfaceTest {
         "org.yapyap.orchestrator.dag.VerificationState",
         "org.yapyap.protocol.FileId",
         "org.yapyap.protocol.TransferId",
+        "org.yapyap.protocol.SyncId",
         "org.yapyap.protocol.SealKey",
         "org.yapyap.protocol.ContentId",
         "org.yapyap.orchestrator.file.FileStorage",

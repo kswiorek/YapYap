@@ -11,6 +11,7 @@ import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.runtime.message.DeliveryTracker
 import org.yapyap.orchestrator.runtime.message.MessageDelivery
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.DagPayload
@@ -53,9 +54,9 @@ class DeliveryTrackerTest {
     )
     private var tick = 0L
 
-    private suspend fun message(sender: AccountId, prevIds: List<Uuid> = emptyList()): DagPayload.Text {
+    private suspend fun message(sender: AccountId, prevIds: List<MessageId> = emptyList()): DagPayload.Text {
         val msg = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = sender,
             authorDeviceId = localDevice,

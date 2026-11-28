@@ -3,9 +3,9 @@ package org.yapyap.orchestrator.sync
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
-import kotlin.uuid.Uuid
 
 /**
  * What one account may see of one room (docs/room events.md §5): the whole room, its
@@ -16,7 +16,7 @@ internal sealed interface VisibilityScope {
     data object All : VisibilityScope
 
     /** REMOVED member: [removalNode] and its ancestors, nothing after. */
-    data class UpTo(val removalNode: Uuid) : VisibilityScope
+    data class UpTo(val removalNode: MessageId) : VisibilityScope
 
     /** Never a member, or removed without a removal node: nothing. */
     data object None : VisibilityScope
@@ -32,7 +32,7 @@ internal interface RoomVisibility {
     suspend fun scope(roomId: RoomId, account: AccountId): VisibilityScope
 
     /** True when [account] may see [messageId]; false for unknown messages and non-members. */
-    suspend fun isVisible(messageId: Uuid, account: AccountId): Boolean
+    suspend fun isVisible(messageId: MessageId, account: AccountId): Boolean
 }
 
 internal class DefaultRoomVisibility(
@@ -47,7 +47,7 @@ internal class DefaultRoomVisibility(
         }
     }
 
-    override suspend fun isVisible(messageId: Uuid, account: AccountId): Boolean {
+    override suspend fun isVisible(messageId: MessageId, account: AccountId): Boolean {
         val stored = messages.findById(messageId) ?: return false
         return when (val scope = scope(stored.payload.roomId, account)) {
             VisibilityScope.All -> true

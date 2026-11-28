@@ -576,7 +576,7 @@ with the `ConfigInvariants` assert; `isAcceptable`/`FileSeal` require narrowed; 
 §2.9 (`pushFile` always, `onIngest` flattened with its confirmed behavior change,
 `startFilePull(fileId, immediate)` with the trigger flag, `pending_file_requests` descheduled,
 `filePullDelay` moved, `copyIntoStoreMaxBytes` removed (the GUI owns the checkbox default)); store-owned candidate views
-per §2.7 (with the `CandidateAttemptStore` KDoc stating its nature, plus the TODO to reconsider its
+per §2.7 (with the `CandidateLedger` KDoc stating its nature, plus the TODO to reconsider its
 name); sweep/tick cadence fields per §2.8.6; the `MIN_FILE_CHUNK_SIZE_BYTES` KDoc.
 Gate: `FileStoreSemanticsJvmTest`; all file suites.
 

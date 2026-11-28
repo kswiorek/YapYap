@@ -135,7 +135,7 @@ CREATE TABLE file_pull_attempts (
     next_attempt_at INTEGER NOT NULL,
     waiting_device TEXT,
     waiting_until INTEGER,
-    request_attempt_id TEXT,
+    request_packet_id TEXT,
     pull_class TEXT NOT NULL
 );
 

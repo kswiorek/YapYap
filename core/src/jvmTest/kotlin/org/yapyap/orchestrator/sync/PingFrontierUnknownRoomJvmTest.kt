@@ -10,6 +10,7 @@ import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.persistence.DatabaseConnection
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
 import org.yapyap.routing.message.FakeInboundMessagePipeline
@@ -64,7 +65,7 @@ class PingFrontierUnknownRoomJvmTest {
         val (coordinator, repos) = coordinator()
         val (rooms, syncs) = repos
         val room = RoomId(Uuid.random())
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
 
         coordinator.requestFrontierSync(room, listOf(tip), senderAccount = ownAccount)
 
@@ -78,7 +79,7 @@ class PingFrontierUnknownRoomJvmTest {
         val (rooms, _) = repos
         val room = RoomId(Uuid.random())
 
-        coordinator.requestFrontierSync(room, listOf(Uuid.random()), senderAccount = null)
+        coordinator.requestFrontierSync(room, listOf(MessageId(Uuid.random())), senderAccount = null)
 
         assertNull(rooms.roomOf(room), "a row that could never be sent leaves no placeholder either")
     }

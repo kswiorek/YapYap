@@ -1,7 +1,12 @@
 package org.yapyap.orchestrator.fold.global
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.MessageId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import kotlin.random.Random
 import kotlin.test.Test
@@ -21,9 +26,9 @@ private sealed interface FuzzKind {
 }
 
 private data class FuzzWorld(
-    val order: List<Uuid>,
-    val nodes: Map<Uuid, FoldNode>,
-    val ancestors: Map<Uuid, Set<Uuid>>,
+    val order: List<MessageId>,
+    val nodes: Map<MessageId, FoldNode>,
+    val ancestors: Map<MessageId, Set<MessageId>>,
     val genesis: GenesisInfo,
     val genesisKey: GenesisKey,
     val attacker: PeerId,
@@ -52,11 +57,11 @@ private fun genWorld(seed: Int): FuzzWorld {
     val admins = mutableSetOf(0)
     if (r.nextBoolean()) admins.add(1 + r.nextInt(nAccounts - 1))
 
-    val order = ArrayList<Uuid>()
-    val nodes = HashMap<Uuid, FoldNode>()
-    val ancestors = HashMap<Uuid, Set<Uuid>>()
-    fun emit(author: Int, event: GlobalEventPayload?, anc: Set<Uuid>): Uuid {
-        val id = Uuid.random()
+    val order = ArrayList<MessageId>()
+    val nodes = HashMap<MessageId, FoldNode>()
+    val ancestors = HashMap<MessageId, Set<MessageId>>()
+    fun emit(author: Int, event: GlobalEventPayload?, anc: Set<MessageId>): MessageId {
+        val id = MessageId(Uuid.random())
         order.add(id)
         nodes[id] = FoldNode(
             id = id,
@@ -72,7 +77,7 @@ private fun genWorld(seed: Int): FuzzWorld {
         return id
     }
 
-    fun frontier(): Set<Uuid> = order.toSet()
+    fun frontier(): Set<MessageId> = order.toSet()
 
     // Genesis + registration: every account added, every device key-added
     // (branch 3 shape; the stub oracle accepts all bindings).

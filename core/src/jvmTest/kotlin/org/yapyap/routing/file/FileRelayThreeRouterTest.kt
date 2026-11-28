@@ -55,7 +55,7 @@ import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.routing.file.port.FileIngestPort
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileReceiveEnd
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.E2eeIdentityResolverForRouter
@@ -291,14 +291,14 @@ class FileRelayThreeRouterTest {
             availability: FakePeerAvailabilityStore = FakePeerAvailabilityStore(),
             outbox: TrackingPacketOutbox = TrackingPacketOutbox(),
         ): DefaultRouter {
-            val peerLinks = PeerLinks(identity, webRtc, tor)
+            val torPeers = TorPeerSessions(identity, tor)
             val ctx = RoutingContext(
                 localIdentity = identity,
                 localDeviceId = identity.localDeviceId,
                 devices = identity,
                 torTransport = tor,
                 webRtcTransport = webRtc,
-                peerLinks = peerLinks,
+                torPeers = torPeers,
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 fileLimits = MutableStateFlow(FileLimits(chunkSize, chunkSize, maxSealBytes = 64 * 1024)),
                 envelopeProtections = protection,

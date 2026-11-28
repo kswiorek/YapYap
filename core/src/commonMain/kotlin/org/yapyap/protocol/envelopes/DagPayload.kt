@@ -9,6 +9,7 @@ import org.yapyap.protocol.MAX_FILE_NAME_BYTES
 import org.yapyap.protocol.MAX_FILE_NAME_CHARS
 import org.yapyap.protocol.MAX_MIME_TYPE_BYTES
 import org.yapyap.protocol.MAX_MIME_TYPE_CHARS
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.MessagePayloadFamily
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -25,9 +26,9 @@ import kotlin.uuid.Uuid
  */
 internal sealed interface DagPayload : MessagePayload {
     override val family: MessagePayloadFamily get() = MessagePayloadFamily.DAG
-    override val contentId: Uuid get() = messageId
+    override val contentId: Uuid get() = messageId.value
 
-    val messageId: Uuid
+    val messageId: MessageId
     val roomId: RoomId
     val senderAccountId: AccountId
     val authorDeviceId: PeerId
@@ -36,7 +37,7 @@ internal sealed interface DagPayload : MessagePayload {
      * Causal parents of this message. Empty for the DAG root (genesis) only; every other
      * message references the room's chainable frontier at append time.
      */
-    val prevIds: List<Uuid>
+    val prevIds: List<MessageId>
 
     /**
      * Sender's wall-clock composition time, set once by
@@ -68,11 +69,11 @@ internal sealed interface DagPayload : MessagePayload {
     }
 
     data class Text(
-        override val messageId: Uuid,
+        override val messageId: MessageId,
         override val roomId: RoomId,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevIds: List<Uuid>,
+        override val prevIds: List<MessageId>,
         override val createdAt: Instant,
         val text: String,
         val attachments: List<Attachment> = emptyList(),
@@ -244,10 +245,10 @@ internal sealed interface DagPayload : MessagePayload {
     }
 
     data class GlobalEvent(
-        override val messageId: Uuid,
+        override val messageId: MessageId,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevIds: List<Uuid>,
+        override val prevIds: List<MessageId>,
         override val createdAt: Instant,
         val eventBytes: ByteArray,
         override val authorSignature: ByteArray? = null,
@@ -309,11 +310,11 @@ internal sealed interface DagPayload : MessagePayload {
      * the same header and authorship layer.
      */
     data class RoomEvent(
-        override val messageId: Uuid,
+        override val messageId: MessageId,
         override val roomId: RoomId,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevIds: List<Uuid>,
+        override val prevIds: List<MessageId>,
         override val createdAt: Instant,
         val eventBytes: ByteArray,
         override val authorSignature: ByteArray? = null,
@@ -404,7 +405,7 @@ internal sealed interface DagPayload : MessagePayload {
              * rule and needs no encoding.
              */
             fun derivationBytes(
-                genesisMessageId: Uuid,
+                genesisMessageId: MessageId,
                 senderAccountId: AccountId,
                 authorDeviceId: PeerId,
                 createdAt: Instant,
@@ -417,7 +418,7 @@ internal sealed interface DagPayload : MessagePayload {
                             authorDeviceId.id.length + 8 + 4 + eventBytes.size,
                 )
                 writer.writeBytes(ROOM_ID_DOMAIN)
-                writer.writeUuid(genesisMessageId)
+                writer.writeMessageId(genesisMessageId)
                 writer.writeString(senderAccountId.id)
                 writer.writePeerId(authorDeviceId)
                 writer.writeLong(createdAt.epochSeconds)
@@ -447,23 +448,23 @@ internal sealed interface DagPayload : MessagePayload {
 }
 
 private data class MessagePayloadHeader(
-    val messageId: Uuid,
+    val messageId: MessageId,
     val roomId: RoomId,
     val senderAccountId: AccountId,
     val authorDeviceId: PeerId,
-    val prevIds: List<Uuid>,
+    val prevIds: List<MessageId>,
     val createdAt: Instant,
 )
 
 private fun DagPayload.writeCommonHeader(writer: ByteWriter) {
     writer.writeByte(family.wireValue.toInt())
     writer.writeByte(payloadType.wireValue.toInt())
-    writer.writeUuid(messageId)
+    writer.writeMessageId(messageId)
     writer.writeUuid(roomId.value)
     writer.writeString(senderAccountId.id)
     writer.writePeerId(authorDeviceId)
     writer.writeInt(prevIds.size)
-    prevIds.forEach { writer.writeUuid(it) }
+    prevIds.forEach { writer.writeMessageId(it) }
     writer.writeLong(createdAt.epochSeconds)
 }
 
@@ -475,11 +476,11 @@ private fun readCommonHeader(reader: ByteReader, expected: DagPayloadType): Mess
         "Expected ${expected.name} payload type"
     }
     return MessagePayloadHeader(
-        messageId = reader.readUuid(),
+        messageId = reader.readMessageId(),
         roomId = RoomId(reader.readUuid()),
         senderAccountId = AccountId(reader.readString()),
         authorDeviceId = reader.readPeerId(),
-        prevIds = List(reader.readInt()) { reader.readUuid() },
+        prevIds = List(reader.readInt()) { reader.readMessageId() },
         createdAt = Instant.fromEpochSeconds(reader.readLong()),
     )
 }

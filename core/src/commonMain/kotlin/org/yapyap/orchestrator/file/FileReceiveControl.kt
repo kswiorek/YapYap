@@ -1,9 +1,9 @@
 package org.yapyap.orchestrator.file
 
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.envelopes.DagPayload
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * The changes to a receive anyone but the receive engine may ask for. The engine is the only writer of
@@ -20,7 +20,7 @@ internal interface FileReceiveControl {
     suspend fun markStalled(fileId: FileId, now: Instant): Boolean
 
     /** Above the auto-download limit: [attachment]'s file is DECLINED locally unless a receive already exists. */
-    suspend fun declineUnseen(attachment: DagPayload.Attachment, originMessageId: Uuid, now: Instant)
+    suspend fun declineUnseen(attachment: DagPayload.Attachment, originMessageId: MessageId, now: Instant)
 
     /**
      * The user declined [fileId]: a receive not yet READY goes DECLINED; with no receive yet, one is
@@ -49,5 +49,5 @@ internal interface FileReceiveControl {
      * A message now references [fileId]: record [messageId] as its origin (retention backstop).
      * No-op when the receive already has an origin or is gone.
      */
-    suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
+    suspend fun updateOrigin(fileId: FileId, messageId: MessageId, now: Instant)
 }

@@ -113,7 +113,7 @@ picks the backends), and from the `org.yapyap.orchestrator` root package `Orches
 `ResetReason` and the transport-status types. Then the `runtime.*` service
 interfaces (`MessagingService` with `Message`/`PickedFile`/`PickedFileSource`/`PreparingSend`/`SendMessageResult`/
 `SendRefusal`, `FileTransferService` with `FileReceiveSnapshot`, …), and the shared identifiers/enums: `PeerId`,
-`RoomId`, `TorEndpoint`,
+`RoomId`, `MessageId`, `TorEndpoint`,
 `AccountId`, `FileId`, `DeviceType`, `RoomType`, `RoomMemberRole`, `RoomMemberStatus`,
 `AccountRole`, `IdentityStatus`, plus the settings types (`Setting`, `ConfigValue`,
 `UpdateResult`, `Number/Text/Toggle/PeriodSetting`). This list mirrors the

@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -42,7 +43,7 @@ class PingProviderTest {
         ctx = stack.ctx,
         config = MutableStateFlow(RouterConfig()),
         frontierSnapshotProvider = object : FrontierSnapshotProvider {
-            override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<Uuid>>> {
+            override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<MessageId>>> {
                 frontiersAskedFor += account
                 return emptyList()
             }
@@ -55,7 +56,7 @@ class PingProviderTest {
         ),
     )
 
-    private fun replyPing(vararg rooms: Pair<RoomId, List<Uuid>>): SystemPayload.Ping =
+    private fun replyPing(vararg rooms: Pair<RoomId, List<MessageId>>): SystemPayload.Ping =
         SystemPayload.Ping(
             pingId = Uuid.random(),
             isReply = true,
@@ -77,7 +78,7 @@ class PingProviderTest {
         val provider = buildProvider(stack)
         val received = mutableListOf<PingFrontiers>()
         val collectJob = launch { provider.frontiers.collect { received.add(it) } }
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
 
         provider.handlePing(remoteDevice, replyPing(roomId to listOf(tip)))
         testScheduler.advanceUntilIdle()
@@ -96,7 +97,7 @@ class PingProviderTest {
         val received = mutableListOf<PingFrontiers>()
         val collectJob = launch { provider.frontiers.collect { received.add(it) } }
         val unknownDevice = PeerId("ping-unknown-device")
-        val tip = Uuid.random()
+        val tip = MessageId(Uuid.random())
 
         provider.handlePing(unknownDevice, replyPing(roomId to listOf(tip)))
         testScheduler.advanceUntilIdle()

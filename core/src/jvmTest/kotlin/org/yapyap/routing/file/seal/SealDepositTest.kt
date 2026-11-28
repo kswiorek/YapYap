@@ -11,6 +11,7 @@ import org.yapyap.routing.file.awaitOffers
 import org.yapyap.routing.file.chunkIndices
 import org.yapyap.routing.file.fixtureAccount
 import org.yapyap.routing.file.fixtureFileId
+import org.yapyap.routing.file.onOutcome
 import org.yapyap.routing.file.peerA
 import org.yapyap.routing.file.peerB
 import org.yapyap.routing.file.relay1

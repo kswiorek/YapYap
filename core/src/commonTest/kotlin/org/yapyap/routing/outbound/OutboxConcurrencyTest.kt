@@ -19,7 +19,7 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
@@ -114,7 +114,7 @@ class OutboxConcurrencyTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            peerLinks = PeerLinks(identity, webRtc, tor),
+            torPeers = TorPeerSessions(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),
@@ -127,14 +127,14 @@ class OutboxConcurrencyTest {
         }
         val processor = OutboxProcessor(
             ctx = ctx,
-            dispatcher = EnvelopeDispatcher(ctx, identity),
+            dispatcher = EnvelopeDispatcher(ctx),
             transportPolicy = LinkPreferencePolicy(configFlow),
             packetOutbox = outbox,
             maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
             peerAvailabilityRegistry = registry,
             linkKeeper = LinkKeeper(
                 name = "concurrency-test",
-                sessions = ctx.peerLinks.tor,
+                sessions = ctx.torPeers,
                 targets = { emptyList() },
                 ready = flowOf(false),
                 config = MutableStateFlow(routerConfig.torLinkKeeperConfig),

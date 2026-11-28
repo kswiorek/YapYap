@@ -23,6 +23,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
@@ -66,7 +67,7 @@ private fun roomCreated(name: String = "room", members: List<AccountId> = emptyL
 private data class MemberCell(
     var role: RoomMemberRole,
     var status: RoomMemberStatus,
-    var removalNodeId: Uuid? = null,
+    var removalNodeId: MessageId? = null,
 )
 
 /** Precise in-memory [RoomRepository]: rooms + full member rows for assertions. */
@@ -102,7 +103,7 @@ private class RecordingRoomRepository : RoomRepository {
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
-        removalNodeId: Uuid?,
+        removalNodeId: MessageId?,
     ) {
         members[roomId to accountId] = MemberCell(role, status, removalNodeId)
     }
@@ -215,10 +216,10 @@ private class Harness {
     fun roomEvent(
         roomId: RoomId,
         author: AccountId,
-        prevIds: List<Uuid>,
+        prevIds: List<MessageId>,
         event: RoomEventPayload,
     ): DagPayload.RoomEvent = DagPayload.RoomEvent(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = roomId,
         senderAccountId = author,
         authorDeviceId = RDevice,
@@ -228,9 +229,9 @@ private class Harness {
         authorSignature = byteArrayOf(0x01),
     )
 
-    fun text(roomId: RoomId, author: AccountId, prevIds: List<Uuid>): DagPayload.Text =
+    fun text(roomId: RoomId, author: AccountId, prevIds: List<MessageId>): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = author,
             authorDeviceId = RDevice,
@@ -261,7 +262,7 @@ private class Harness {
         pipeline.emit(IngestResult.Inserted(payload))
     }
 
-    fun triggerReverify(messageId: Uuid, roomId: RoomId) {
+    fun triggerReverify(messageId: MessageId, roomId: RoomId) {
         dagEngine.emit(
             VerificationStateChange(messageId, roomId, VerificationState.PENDING, VerificationState.VERIFIED),
         )
@@ -272,7 +273,7 @@ private class Harness {
     }
 
     /** Stored verdict/flag snapshot: the projector must never write either column. */
-    fun flagSnapshot(): Map<Uuid, Pair<VerificationState, Boolean>> =
+    fun flagSnapshot(): Map<MessageId, Pair<VerificationState, Boolean>> =
         messageRepo.byId.mapValues { (_, row) -> row.verificationState to row.ancestryComplete }
 }
 

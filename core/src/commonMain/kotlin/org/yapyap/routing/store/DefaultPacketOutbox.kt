@@ -45,7 +45,7 @@ internal class DefaultPacketOutbox(
                 blob_size = envelopeBlob.size.toLong(),
                 next_retry_at = nextRetryAt,
                 tag_kind = tag?.kind?.code,
-                tag_id = tag?.id,
+                tag_id = tag?.columnId,
                 retry_class = retryClass.code,
             )
             AppLog.debug(
@@ -144,14 +144,12 @@ internal class DefaultPacketOutbox(
             val busy = if (excludeTargets.isEmpty()) listOf("") else excludeTargets.map { it.id }
             val nonFile = queries.getDueIdsNonFile(now, fileKinds, busy, nonFileLimit.toLong()).executeAsList()
             val file = queries.getDueIdsFile(now, fileKinds, busy, fileLimit.toLong()).executeAsList()
-            fun tagOf(kind: Long?, id: Uuid?): OutboxTag? =
-                kind?.let { OutboxTag.Kind.fromCode(it) }?.let { k -> id?.let { OutboxTag(k, it) } }
             nonFile.map { row ->
                 DueOutboxRow(
                     row.packet_id,
                     PeerId(row.target_device_id),
                     row.retry_count,
-                    tagOf(row.tag_kind, row.tag_id),
+                    OutboxTag.fromColumns(row.tag_kind, row.tag_id),
                     RetryClass.fromCode(row.retry_class),
                 )
             } + file.map { row ->
@@ -159,7 +157,7 @@ internal class DefaultPacketOutbox(
                     row.packet_id,
                     PeerId(row.target_device_id),
                     row.retry_count,
-                    tagOf(row.tag_kind, row.tag_id),
+                    OutboxTag.fromColumns(row.tag_kind, row.tag_id),
                     RetryClass.fromCode(row.retry_class),
                 )
             }
@@ -170,13 +168,17 @@ internal class DefaultPacketOutbox(
     }
 
     override suspend fun deleteByTag(tag: OutboxTag) {
+        val id = tag.requireColumnId()
         withContext(dbDispatcher) {
-            queries.deleteByTag(tag.kind.code, tag.id)
+            queries.deleteByTag(tag.kind.code, id)
         }
     }
 
-    override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> = withContext(dbDispatcher) {
-        queries.selectPacketIdsByTag(tag.kind.code, tag.id).executeAsList()
+    override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> {
+        val id = tag.requireColumnId()
+        return withContext(dbDispatcher) {
+            queries.selectPacketIdsByTag(tag.kind.code, id).executeAsList()
+        }
     }
 
     override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =
@@ -199,10 +201,21 @@ internal class DefaultPacketOutbox(
             expired.mapNotNull { mapRowOrDrop(it) }
         }
 
-    override suspend fun hasTagged(tag: OutboxTag): Boolean =
-        withContext(dbDispatcher) {
-            queries.hasTagged(tag.kind.code, tag.id).executeAsOne()
+    override suspend fun hasTagged(tag: OutboxTag): Boolean {
+        val id = tag.requireColumnId()
+        return withContext(dbDispatcher) {
+            queries.hasTagged(tag.kind.code, id).executeAsOne()
         }
+    }
+
+    override suspend fun isQueued(packetId: Uuid): Boolean =
+        withContext(dbDispatcher) {
+            queries.isQueued(packetId).executeAsOne()
+        }
+
+    /** Tag queries match on the id; a tag without one correlates by packet id instead. */
+    private fun OutboxTag.requireColumnId(): Uuid =
+        requireNotNull(columnId) { "$kind tags carry no id; query their packets by packet id" }
 
     override suspend fun earliestPendingRetryAt(): Instant? =
         withContext(dbDispatcher) {
@@ -290,8 +303,7 @@ internal class DefaultPacketOutbox(
             targetEndpoint = row.target_onion_address?.let { address ->
                 row.target_onion_port?.let { port -> TorEndpoint(address, port.toInt()) }
             },
-            tag = row.tag_kind?.let { OutboxTag.Kind.fromCode(it) }
-                ?.let { kind -> row.tag_id?.let { OutboxTag(kind, it) } },
+            tag = OutboxTag.fromColumns(row.tag_kind, row.tag_id),
             retryClass = RetryClass.fromCode(row.retry_class),
             relayBackup = RelayBackup.entries.first { it.code == row.relay_backup },
         )

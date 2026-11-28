@@ -14,6 +14,7 @@ import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.logging.AppLog
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -21,7 +22,7 @@ import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -70,7 +71,7 @@ class DefaultRouterLiveIntegrationTest {
 
     private fun sampleText(): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = RoomId(Uuid.random()),
             senderAccountId = AccountId("alice-acct"),
             prevIds = emptyList(),
@@ -131,14 +132,14 @@ class DefaultRouterLiveIntegrationTest {
             tor: org.yapyap.transport.tor.transport.TorTransport,
             webRtc: org.yapyap.transport.webrtc.transport.WebRtcTransport,
         ): DefaultRouter {
-            val peerLinks = PeerLinks(identity, webRtc, tor)
+            val torPeers = TorPeerSessions(identity, tor)
             val ctx = RoutingContext(
                 localIdentity = identity,
                 localDeviceId = identity.localDeviceId,
                 devices = identity,
                 torTransport = tor,
                 webRtcTransport = webRtc,
-                peerLinks = peerLinks,
+                torPeers = torPeers,
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
                 envelopeProtections = PassthroughFakeEnvelopeProtectionService(),

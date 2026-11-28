@@ -7,9 +7,10 @@ import org.yapyap.protocol.DagPayloadType;
 import org.yapyap.orchestrator.dag.VerificationState;
 import org.yapyap.protocol.PeerId;
 import org.yapyap.protocol.FileId;
+import org.yapyap.protocol.MessageId;
 
 CREATE TABLE message_attachments (
-    message_id TEXT AS Uuid NOT NULL,
+    message_id TEXT AS MessageId NOT NULL,
     file_id TEXT AS FileId NOT NULL,
     PRIMARY KEY (message_id, file_id),
     FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
@@ -18,7 +19,7 @@ CREATE TABLE message_attachments (
 CREATE INDEX message_attachments_file_idx ON message_attachments(file_id);
 
 CREATE TABLE messages (
-    message_id TEXT AS Uuid NOT NULL PRIMARY KEY,
+    message_id TEXT AS MessageId NOT NULL PRIMARY KEY,
     room_id TEXT AS RoomId NOT NULL,
     sender_account_id TEXT AS AccountId NOT NULL,
     author_device_id TEXT AS PeerId NOT NULL,
@@ -38,16 +39,16 @@ CREATE TABLE messages (
 
 -- DAG parent edges. A message with no rows here is the room's DAG root (genesis).
 CREATE TABLE message_parents (
-    message_id TEXT AS Uuid NOT NULL,
-    parent_id TEXT AS Uuid NOT NULL,
+    message_id TEXT AS MessageId NOT NULL,
+    parent_id TEXT AS MessageId NOT NULL,
     PRIMARY KEY (message_id, parent_id),
     FOREIGN KEY (message_id) REFERENCES messages(message_id)
 );
 
 CREATE TABLE causal_hold (
     gap_id TEXT AS Uuid NOT NULL PRIMARY KEY,
-    missing_prev_id TEXT AS Uuid NOT NULL,
-    orphaned_message_id TEXT AS Uuid NOT NULL,
+    missing_prev_id TEXT AS MessageId NOT NULL,
+    orphaned_message_id TEXT AS MessageId NOT NULL,
     detected_timestamp INTEGER AS Instant NOT NULL,
     FOREIGN KEY (orphaned_message_id) REFERENCES messages(message_id)
 );

@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.testfixtures.epochSeconds
@@ -21,7 +22,7 @@ class MessageAttachmentsTest {
         attachments: List<DagPayload.Attachment> = emptyList(),
         text: String = "hello",
     ) = DagPayload.Text(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = RoomId(Uuid.random()),
         senderAccountId = authorAccountId,
         authorDeviceId = authorDeviceId,

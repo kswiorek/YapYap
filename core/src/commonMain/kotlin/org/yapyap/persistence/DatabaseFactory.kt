@@ -12,9 +12,11 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SealKey
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.OneTimePreKeyId
@@ -98,7 +100,7 @@ internal class DatabaseFactory(
                     statusAdapter = EnumColumnAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
-                    removal_node_idAdapter = UuidAdapter(),
+                    removal_node_idAdapter = MessageIdAdapter,
                     joined_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 roomsAdapter = Rooms.Adapter(
@@ -107,7 +109,7 @@ internal class DatabaseFactory(
                 ),
                 messagesAdapter = Messages.Adapter(
                     payload_typeAdapter = EnumColumnAdapter(),
-                    message_idAdapter = UuidAdapter(),
+                    message_idAdapter = MessageIdAdapter,
                     room_idAdapter = RoomIdAdapter(),
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                     verification_stateAdapter = EnumColumnAdapter(),
@@ -115,18 +117,18 @@ internal class DatabaseFactory(
                     sender_account_idAdapter = AccountIdAdapter(),
                 ),
                 message_attachmentsAdapter = Message_attachments.Adapter(
-                    message_idAdapter = UuidAdapter(),
+                    message_idAdapter = MessageIdAdapter,
                     file_idAdapter = FileIdAdapter(),
                 ),
                 causal_holdAdapter = Causal_hold.Adapter(
                     gap_idAdapter = UuidAdapter(),
-                    missing_prev_idAdapter = UuidAdapter(),
-                    orphaned_message_idAdapter = UuidAdapter(),
+                    missing_prev_idAdapter = MessageIdAdapter,
+                    orphaned_message_idAdapter = MessageIdAdapter,
                     detected_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 message_parentsAdapter = Message_parents.Adapter(
-                    message_idAdapter = UuidAdapter(),
-                    parent_idAdapter = UuidAdapter(),
+                    message_idAdapter = MessageIdAdapter,
+                    parent_idAdapter = MessageIdAdapter,
                 ),
                 outboxAdapter = Outbox.Adapter(
                     packet_idAdapter = UuidAdapter(),
@@ -136,21 +138,21 @@ internal class DatabaseFactory(
                     tag_idAdapter = UuidAdapter(),
                 ),
                 pending_syncsAdapter = Pending_syncs.Adapter(
-                    sync_idAdapter = UuidAdapter(),
+                    sync_idAdapter = SyncIdAdapter,
                     room_idAdapter = RoomIdAdapter(),
-                    target_message_idAdapter = UuidAdapter(),
+                    target_message_idAdapter = MessageIdAdapter,
                 ),
                 message_deliveriesAdapter = Message_deliveries.Adapter(
-                    message_idAdapter = UuidAdapter(),
+                    message_idAdapter = MessageIdAdapter,
                     account_idAdapter = AccountIdAdapter(),
                     delivered_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 sync_attemptsAdapter = Sync_attempts.Adapter(
-                    sync_idAdapter = UuidAdapter(),
+                    sync_idAdapter = SyncIdAdapter,
                     next_attempt_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 sync_declined_devicesAdapter = Sync_declined_devices.Adapter(
-                    sync_idAdapter = UuidAdapter(),
+                    sync_idAdapter = SyncIdAdapter,
                     device_idAdapter = PeerIdAdapter(),
                 ),
                 signed_prekeysAdapter = Signed_prekeys.Adapter(
@@ -160,7 +162,7 @@ internal class DatabaseFactory(
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_sync_candidate_accountsAdapter = Pending_sync_candidate_accounts.Adapter(
-                    sync_idAdapter = UuidAdapter(),
+                    sync_idAdapter = SyncIdAdapter,
                     account_idAdapter = AccountIdAdapter()
                 ),
                 file_descriptorsAdapter = File_descriptors.Adapter(
@@ -174,7 +176,7 @@ internal class DatabaseFactory(
                 file_receivesAdapter = File_receives.Adapter(
                     file_idAdapter = FileIdAdapter(),
                     statusAdapter = EnumColumnAdapter(),
-                    origin_message_idAdapter = UuidAdapter(),
+                    origin_message_idAdapter = MessageIdAdapter,
                     created_atAdapter = InstantEpochSecondsAdapter,
                     updated_atAdapter = InstantEpochSecondsAdapter,
                 ),
@@ -226,7 +228,7 @@ internal class DatabaseFactory(
                     next_attempt_atAdapter = InstantEpochSecondsAdapter,
                     waiting_deviceAdapter = PeerIdAdapter(),
                     waiting_untilAdapter = InstantEpochSecondsAdapter,
-                    request_attempt_idAdapter = UuidAdapter(),
+                    request_packet_idAdapter = UuidAdapter(),
                 ),
                 file_pull_declined_devicesAdapter = File_pull_declined_devices.Adapter(
                     file_idAdapter = FileIdAdapter(),
@@ -287,6 +289,16 @@ internal object SignedPreKeyIdAdapter : ColumnAdapter<SignedPreKeyId, String> {
 internal object OneTimePreKeyIdAdapter : ColumnAdapter<OneTimePreKeyId, String> {
     override fun decode(databaseValue: String) = OneTimePreKeyId(databaseValue)
     override fun encode(value: OneTimePreKeyId) = value.value
+}
+
+internal object MessageIdAdapter : ColumnAdapter<MessageId, String> {
+    override fun decode(databaseValue: String) = MessageId(Uuid.parseHex(databaseValue))
+    override fun encode(value: MessageId) = value.value.toHexString()
+}
+
+internal object SyncIdAdapter : ColumnAdapter<SyncId, String> {
+    override fun decode(databaseValue: String) = SyncId(Uuid.parseHex(databaseValue))
+    override fun encode(value: SyncId) = value.value.toHexString()
 }
 
 internal class RoomIdAdapter : ColumnAdapter<RoomId, String> {

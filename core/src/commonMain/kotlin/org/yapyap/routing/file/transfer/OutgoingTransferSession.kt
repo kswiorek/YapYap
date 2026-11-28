@@ -306,7 +306,7 @@ internal class OutgoingTransferSession(
         onEnded(transfer)
     }
 
-    private fun tag() = transferTag(transfer.transferId)
+    private fun tag() = OutboxTag.FileTransfer(transfer.transferId)
 
     private inline fun guarded(what: String, block: () -> Unit) {
         fileGuarded("File transfer $what failed", mapOf("transferId" to transferId), block = block)
@@ -317,6 +317,3 @@ internal class OutgoingTransferSession(
         const val TICKS_PER_SWEEP = 3
     }
 }
-
-/** The outbox tag every OFFER and chunk of [transferId] carries. */
-internal fun transferTag(transferId: TransferId) = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferId.value)

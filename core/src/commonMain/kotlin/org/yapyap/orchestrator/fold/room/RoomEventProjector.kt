@@ -1,9 +1,15 @@
 package org.yapyap.orchestrator.fold.room
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
@@ -21,11 +27,15 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.StoredMessage
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.MessageCarrier
-import kotlin.uuid.Uuid
 
 /**
  * Committed fold diff of one chat room. Consumers: the GUI (member list + the §3
@@ -298,7 +308,7 @@ internal class DefaultRoomEventProjector(
             val ancestors = ancestorClosures(byId)
             // No genesis in store → skip commit (pre-genesis orphans fold once it lands).
             val genesis = resolveGenesis(order, byId) ?: return
-            val nodes = HashMap<Uuid, RoomFoldNode>(byId.size)
+            val nodes = HashMap<MessageId, RoomFoldNode>(byId.size)
             for ((id, row) in byId) nodes[id] = foldNodeOf(row)
 
             val current = roomFoldToFixpoint(
@@ -339,7 +349,7 @@ internal class DefaultRoomEventProjector(
      * `roomId`s admit exactly one per room (the engine REJECTs forged shapes), so this
      * is a lookup, not a competition — first in canonical order wins defensively.
      */
-    private fun resolveGenesis(order: List<Uuid>, byId: Map<Uuid, StoredMessage>): RoomGenesisInfo? {
+    private fun resolveGenesis(order: List<MessageId>, byId: Map<MessageId, StoredMessage>): RoomGenesisInfo? {
         for (id in order) {
             val row = byId.getValue(id)
             if (row.payload.prevIds.isNotEmpty()) continue
@@ -361,7 +371,7 @@ internal class DefaultRoomEventProjector(
     private suspend fun commit(
         roomId: RoomId,
         result: RoomReplayResult,
-        nodes: Map<Uuid, RoomFoldNode>,
+        nodes: Map<MessageId, RoomFoldNode>,
         genesis: RoomGenesisInfo,
         trigger: String,
     ) {

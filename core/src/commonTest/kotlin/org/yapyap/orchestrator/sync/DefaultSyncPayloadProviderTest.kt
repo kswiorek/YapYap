@@ -5,10 +5,12 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.envelopes.SyncPayload
@@ -40,11 +42,11 @@ class DefaultSyncPayloadProviderTest {
     private var tick = 0L
 
     private fun textMsg(
-        prevIds: List<Uuid>,
+        prevIds: List<MessageId>,
         createdAt: Instant = epochSeconds(tick++),
     ): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDevice,
@@ -63,10 +65,10 @@ class DefaultSyncPayloadProviderTest {
         )
     }
 
-    private fun syncRequest(missingIds: List<Uuid>, knownIds: List<Uuid>): SyncPayload.Request =
+    private fun syncRequest(missingIds: List<MessageId>, knownIds: List<MessageId>): SyncPayload.Request =
         SyncPayload.Request(
             roomId = roomId,
-            syncId = Uuid.random(),
+            syncId = SyncId(Uuid.random()),
             missingIds = missingIds,
             knownIds = knownIds,
         )
@@ -140,7 +142,7 @@ class DefaultSyncPayloadProviderTest {
     fun unknownTarget_returnsEmptyList() = runTest {
         val result =
             provider.serveSync(
-                syncRequest(missingIds = listOf(Uuid.random()), knownIds = emptyList()),
+                syncRequest(missingIds = listOf(MessageId(Uuid.random())), knownIds = emptyList()),
                 remoteAccount
             )
 
@@ -166,7 +168,7 @@ class DefaultSyncPayloadProviderTest {
         // The responder is missing m1 itself: m2 is still served (its absent parent
         // simply yields nothing), and the requester re-chases m1 elsewhere.
         val m0 = textMsg(prevIds = emptyList())
-        val m2 = textMsg(prevIds = listOf(Uuid.random()))
+        val m2 = textMsg(prevIds = listOf(MessageId(Uuid.random())))
         seed(m0); seed(m2)
 
         val result =
@@ -249,9 +251,9 @@ class DefaultSyncPayloadProviderTest {
         )
     }
 
-    private fun removalMsg(prevIds: List<Uuid>): DagPayload.RoomEvent =
+    private fun removalMsg(prevIds: List<MessageId>): DagPayload.RoomEvent =
         DagPayload.RoomEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDevice,

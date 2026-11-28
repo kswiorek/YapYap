@@ -9,7 +9,8 @@ Public keys (`SigningPublicKey`, `EncryptionPublicKey` under `PublicKey` in prot
 (`SigningPrivateKey`, `EncryptionPrivateKey` under `PrivateKey` in crypto/keys) are separate hierarchies so a private
 key can never stand where a wire key is expected. Key types wrap the bytes, compare by content, and never print a
 private key. Identifiers are never raw strings or UUIDs in signatures: `PeerId`/`AccountId` are dedicated data classes
-enforcing invariants with `require()` in init; `RoomId` is a `@JvmInline` value class over `Uuid`; prekey ids
+enforcing invariants with `require()` in init; `RoomId`, `MessageId` and `SyncId` are `@JvmInline` value classes over
+`Uuid`; prekey ids
 (`SignedPreKeyId`, `OneTimePreKeyId`) and file ids (`FileId`, `TransferId`, `SealKey` — exactly 32 bytes, never printed)
 follow the same pattern. Validation is fail-fast at construction/decode points, never deferred. Raw `ByteArray` keys
 appear only at the wire (codecs, payload classes) and inside the ratchet — convert at that boundary.

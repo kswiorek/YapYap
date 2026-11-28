@@ -48,6 +48,7 @@ import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
@@ -286,10 +287,10 @@ class DefaultMessagingServiceTest {
     fun sendMessage_failedAppend_releasesOrphanCopy() = runTest(UnconfinedTestDispatcher()) {
         dagEngine.ingest(
             DagPayload.Text(
-                messageId = Uuid.random(),
+                messageId = MessageId(Uuid.random()),
                 roomId = roomId,
                 senderAccountId = remoteAccount,
-                prevIds = listOf(Uuid.random()),
+                prevIds = listOf(MessageId(Uuid.random())),
                 createdAt = clock.now(),
                 text = "waiting for prev",
                 authorDeviceId = PeerId("test-device"),
@@ -449,10 +450,10 @@ class DefaultMessagingServiceTest {
         runTest(UnconfinedTestDispatcher()) {
             dagEngine.ingest(
                 DagPayload.Text(
-                    messageId = Uuid.random(),
+                    messageId = MessageId(Uuid.random()),
                     roomId = roomId,
                     senderAccountId = remoteAccount,
-                    prevIds = listOf(Uuid.random()),
+                    prevIds = listOf(MessageId(Uuid.random())),
                     createdAt = clock.now(),
                     text = "waiting for prev",
                     authorDeviceId = PeerId("test-device"),
@@ -554,7 +555,7 @@ class DefaultMessagingServiceTest {
         val service = newService(pipeline)
         startStack(this, pipeline, service)
 
-        val msg1Uuid = Uuid.random()
+        val msg1Uuid = MessageId(Uuid.random())
 
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
@@ -591,8 +592,8 @@ class DefaultMessagingServiceTest {
         val service = newService(pipeline)
         startStack(this, pipeline, service)
 
-        val msg1Uuid = Uuid.random()
-        val prevUuid = Uuid.random()
+        val msg1Uuid = MessageId(Uuid.random())
+        val prevUuid = MessageId(Uuid.random())
 
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
@@ -624,8 +625,8 @@ class DefaultMessagingServiceTest {
         val service = newService(pipeline)
         startStack(this, pipeline, service)
 
-        val msg1Uuid = Uuid.random()
-        val prevUuid = Uuid.random()
+        val msg1Uuid = MessageId(Uuid.random())
+        val prevUuid = MessageId(Uuid.random())
 
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
@@ -679,8 +680,8 @@ class DefaultMessagingServiceTest {
         val service = newService(pipeline)
         startStack(this, pipeline, service)
 
-        val msg1Uuid = Uuid.random()
-        val msg2Uuid = Uuid.random()
+        val msg1Uuid = MessageId(Uuid.random())
+        val msg2Uuid = MessageId(Uuid.random())
 
         val received = mutableListOf<IncomingMessageEvent>()
         val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
@@ -748,7 +749,7 @@ class DefaultMessagingServiceTest {
         val stranger = AccountId("msg-stranger")
         router.emitIncoming(
             DagPayload.Text(
-                messageId = Uuid.random(),
+                messageId = MessageId(Uuid.random()),
                 roomId = roomId,
                 senderAccountId = stranger,
                 prevIds = listOf(base.messageId),
@@ -780,7 +781,7 @@ class DefaultMessagingServiceTest {
         advanceUntilIdle()
 
         val globalEvent = DagPayload.GlobalEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             senderAccountId = remoteAccount,
             prevIds = emptyList(),
             createdAt = clock.now(),
@@ -813,7 +814,7 @@ class DefaultMessagingServiceTest {
 
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         val roomEvent = DagPayload.RoomEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             prevIds = listOf(base.messageId),
@@ -875,7 +876,7 @@ class DefaultMessagingServiceTest {
         state: VerificationState = VerificationState.VERIFIED,
     ): DagPayload.Text {
         val msg = DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = sender,
             prevIds = emptyList(),
@@ -989,9 +990,9 @@ class DefaultMessagingServiceTest {
 
             // Orphan from the removed author with a fabricated missing parent:
             // hidden from the live window (no text, no gap indicator).
-            val fabricated = Uuid.random()
+            val fabricated = MessageId(Uuid.random())
             val orphan = DagPayload.Text(
-                messageId = Uuid.random(),
+                messageId = MessageId(Uuid.random()),
                 roomId = roomId,
                 senderAccountId = remoteAccount,
                 prevIds = listOf(fabricated),
@@ -1054,7 +1055,7 @@ class DefaultMessagingServiceTest {
         sender: AccountId,
         text: String,
         tick: Long,
-        parents: List<Uuid>,
+        parents: List<MessageId>,
     ): DagPayload.Text {
         val msg = seedText(sender, text, tick)
         for (parent in parents) messageRepo.insertParent(msg.messageId, parent)
@@ -1067,11 +1068,11 @@ class DefaultMessagingServiceTest {
      */
     private suspend fun seedRemoval(
         target: AccountId,
-        parents: List<Uuid>,
+        parents: List<MessageId>,
         tick: Long,
     ): DagPayload.RoomEvent {
         val removal = DagPayload.RoomEvent(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = localAccount,
             prevIds = parents,
@@ -1171,7 +1172,7 @@ class DefaultMessagingServiceTest {
         // A removed local account cannot append to the room — refused before any
         // write, so the sender's own messages cannot silently vanish either.
         roomMembershipRepo.statuses[roomId to localAccount] = RoomMemberStatus.REMOVED
-        roomMembershipRepo.removalNodes[roomId to localAccount] = Uuid.random()
+        roomMembershipRepo.removalNodes[roomId to localAccount] = MessageId(Uuid.random())
         val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
         val service = newService(pipeline)
         startStack(this, pipeline, service)
@@ -1198,7 +1199,7 @@ class DefaultMessagingServiceTest {
         // A removed member's typing is ignored — never registers (its idle-timeout
         // would only fire 2h after receipt, so absence here means ignored, not expired).
         roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.REMOVED
-        roomMembershipRepo.removalNodes[roomId to remoteAccount] = Uuid.random()
+        roomMembershipRepo.removalNodes[roomId to remoteAccount] = MessageId(Uuid.random())
         router.emitTyping(TypingIndicatorEvent(remoteAccount, roomId, 3600.seconds, clock.now()))
         advanceTimeBy(1.seconds)
         assertTrue(service.typingState.value[roomId].isNullOrEmpty())
@@ -1217,7 +1218,7 @@ private class FakeRoomRepository(
     /** Per-(room, account) status overrides; absent entries read as ACTIVE. */
     val statuses: MutableMap<Pair<RoomId, AccountId>, RoomMemberStatus> = mutableMapOf(),
     /** Defining removal node per (room, account); read on REMOVED rows. */
-    val removalNodes: MutableMap<Pair<RoomId, AccountId>, Uuid> = mutableMapOf(),
+    val removalNodes: MutableMap<Pair<RoomId, AccountId>, MessageId> = mutableMapOf(),
 ) : RoomRepository {
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         // Mirror the ACTIVE-only access read.
@@ -1262,7 +1263,7 @@ private class FakeRoomRepository(
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
-        removalNodeId: Uuid?,
+        removalNodeId: MessageId?,
     ) = Unit
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = Unit
@@ -1277,9 +1278,9 @@ private class FakeRoomRepository(
 }
 
 private class FakeMessageRepository : MessageRepository {
-    val byId = mutableMapOf<Uuid, StoredMessage>()
+    val byId = mutableMapOf<MessageId, StoredMessage>()
 
-    private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
+    private val parentIds = mutableMapOf<MessageId, MutableList<MessageId>>()
 
     /** Wired in setup to the room membership fake (the renderable queries join membership). */
     var roomRepository: FakeRoomRepository? = null
@@ -1299,10 +1300,10 @@ private class FakeMessageRepository : MessageRepository {
     }
 
 
-    override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> = emptyList()
+    override suspend fun findMessageIdsByFileId(fileId: FileId): List<MessageId> = emptyList()
 
 
-    override suspend fun findById(messageId: Uuid): StoredMessage? = byId[messageId]
+    override suspend fun findById(messageId: MessageId): StoredMessage? = byId[messageId]
 
     override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> {
         // Mirror selectRoomFrontier (VERIFIED-only chainability).
@@ -1315,13 +1316,13 @@ private class FakeMessageRepository : MessageRepository {
         return chainable.filter { it.payload.messageId !in referenced }
     }
 
-    override suspend fun findParents(messageId: Uuid): List<Uuid> =
+    override suspend fun findParents(messageId: MessageId): List<MessageId> =
         parentIds[messageId].orEmpty().toList()
 
-    override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+    override suspend fun isAncestorOrSelf(messageId: MessageId, of: MessageId): Boolean {
         if (messageId == of) return true
-        val visited = HashSet<Uuid>()
-        val queue = ArrayDeque<Uuid>()
+        val visited = HashSet<MessageId>()
+        val queue = ArrayDeque<MessageId>()
         visited.add(of)
         queue.add(of)
         while (queue.isNotEmpty()) {
@@ -1338,11 +1339,11 @@ private class FakeMessageRepository : MessageRepository {
         return false
     }
 
-    override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
+    override suspend fun insertParent(messageId: MessageId, parentId: MessageId) {
         parentIds.getOrPut(messageId) { mutableListOf() }.add(parentId)
     }
 
-    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> =
+    override suspend fun findChildrenInRoom(parentId: MessageId, roomId: RoomId): List<StoredMessage> =
         byId.values.filter { row ->
             row.payload.roomId == roomId && parentId in parentIds[row.payload.messageId].orEmpty()
         }
@@ -1408,14 +1409,14 @@ private class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean {
+    override suspend fun isRenderable(roomId: RoomId, messageId: MessageId): Boolean {
         val row = byId[messageId] ?: return false
         if (row.payload.roomId != roomId) return false
         if (row.verificationState == VerificationState.REJECTED) return false
         return isVisible(roomId, row.payload.senderAccountId, messageId)
     }
 
-    private suspend fun isVisible(roomId: RoomId, sender: AccountId, messageId: Uuid): Boolean {
+    private suspend fun isVisible(roomId: RoomId, sender: AccountId, messageId: MessageId): Boolean {
         // Mirror the SQL visibility predicate: an ACTIVE row renders; a REMOVED
         // row renders only inside its removal node's ancestor closure (the member
         // era); no row never renders. The closure walks stored parent edges from
@@ -1425,8 +1426,8 @@ private class FakeMessageRepository : MessageRepository {
         val member = rooms.memberRowOf(roomId, sender) ?: return false
         if (member.status == RoomMemberStatus.ACTIVE) return true
         val removalNode = member.removalNodeId ?: return false
-        val seen = HashSet<Uuid>()
-        val queue = ArrayDeque<Uuid>()
+        val seen = HashSet<MessageId>()
+        val queue = ArrayDeque<MessageId>()
         seen.add(removalNode)
         queue.add(removalNode)
         while (queue.isNotEmpty()) {
@@ -1440,17 +1441,17 @@ private class FakeMessageRepository : MessageRepository {
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
 
-    override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
+    override suspend fun updateOrphanedFlag(messageId: MessageId, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) {
+    override suspend fun updateAncestryComplete(messageId: MessageId, complete: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(ancestryComplete = complete)
     }
 
-    override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
+    override suspend fun updateVerificationState(messageId: MessageId, state: VerificationState) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(verificationState = state)
     }
@@ -1476,11 +1477,16 @@ private class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<Gap>()
 
-    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
+    override suspend fun insert(
+        gapId: Uuid,
+        missingPrevId: MessageId,
+        orphanedMessageId: MessageId,
+        detectedTimestamp: Instant
+    ) {
         rows.add(Gap(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
+    override suspend fun findByMissingPrevId(missingPrevId: MessageId): List<Gap> =
         rows.filter { it.missingPrevId == missingPrevId }
 
     override suspend fun findByRoom(roomId: RoomId): List<Gap> =
@@ -1491,14 +1497,14 @@ private class FakeCausalHoldRepository(
 
     override suspend fun findAll(): List<Gap> = rows.toList()
 
-    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+    override suspend fun countByOrphan(orphanedMessageId: MessageId): Long =
         rows.count { it.orphanedMessageId == orphanedMessageId }.toLong()
 
-    override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
+    override suspend fun deleteByMissingPrevId(missingPrevId: MessageId) {
         rows.removeAll { it.missingPrevId == missingPrevId }
     }
 
-    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
+    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: MessageId) {
         rows.removeAll { it.orphanedMessageId == orphanedMessageId }
     }
 }

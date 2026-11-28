@@ -30,9 +30,9 @@ import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.OutcomeConsumer
 import org.yapyap.routing.router.OutcomeMailbox
 import org.yapyap.routing.router.RouterLifecycle
-import org.yapyap.routing.router.RouterService
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileIncomingStore
 import org.yapyap.routing.store.FilePullAttemptStore
@@ -71,7 +71,7 @@ internal class FileService(
     webRtcLinkKeeper: LinkKeeper,
     torLinkKeeper: LinkKeeper,
     maxIdlePoll: StateFlow<Duration>,
-) : FileCarrier, RouterService {
+) : FileCarrier, OutcomeConsumer {
 
     override val outcomeTags: Set<OutboxTag.Kind> =
         setOf(OutboxTag.Kind.FILE_TRANSFER, OutboxTag.Kind.FILE_REQUEST)
@@ -178,10 +178,11 @@ internal class FileService(
         pullProcessor.runIn(scope),
         largeFiles.runIn(scope),
         outcomes.runIn(scope, LogComponent.FILE) { outcome ->
-            when (outcome.tag.kind) {
-                OutboxTag.Kind.FILE_TRANSFER -> engine.onOutcome(outcome)
-                OutboxTag.Kind.FILE_REQUEST -> pullProcessor.onAttemptOutcome(outcome)
-                else -> error("Not a file outcome: ${outcome.tag.kind}")
+            when (val tag = outcome.tag) {
+                is OutboxTag.FileTransfer -> engine.onOutcome(tag.transferId, outcome)
+                OutboxTag.FileRequest -> pullProcessor.onAttemptOutcome(outcome)
+                is OutboxTag.Message, OutboxTag.Bootstrap, is OutboxTag.Sync ->
+                    error("Not a file outcome: ${tag.kind}")
             }
         },
     )

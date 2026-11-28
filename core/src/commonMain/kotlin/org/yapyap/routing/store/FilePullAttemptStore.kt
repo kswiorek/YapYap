@@ -6,8 +6,8 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.candidate.CandidateAttemptStore
-import org.yapyap.routing.candidate.CandidateRow
+import org.yapyap.routing.candidate.CandidateEntry
+import org.yapyap.routing.candidate.CandidateLedger
 import org.yapyap.routing.candidate.CandidateWaiting
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -30,7 +30,7 @@ internal interface FilePullAttemptStore {
     suspend fun findDue(now: Instant, limit: Int, pullClass: FilePullClass): List<FilePullAttempt>
 
     suspend fun findById(fileId: FileId): FilePullAttempt?
-    suspend fun findByAttemptId(attemptId: Uuid): FilePullAttempt?
+    suspend fun findByRequestPacketId(packetId: Uuid): FilePullAttempt?
 
     /** Counts an attempt and schedules the next one. */
     suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant)
@@ -42,13 +42,13 @@ internal interface FilePullAttemptStore {
     suspend fun advanceToNow(fileIds: Collection<FileId>, now: Instant)
 
     /** Enters WAITING for the OFFER from [device] until [until]. */
-    suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, attemptId: Uuid)
+    suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestPacketId: Uuid)
 
     /** Leaves WAITING (satisfied, timed out, or declined); clears the request ref too. */
     suspend fun clearWaiting(fileId: FileId)
 
-    /** Records the in-flight REQUEST's attempt id for outcome correlation. */
-    suspend fun setAttempt(fileId: FileId, attemptId: Uuid)
+    /** Records the in-flight REQUEST's packet id for outcome correlation. */
+    suspend fun setRequestPacket(fileId: FileId, packetId: Uuid)
 
     suspend fun declinedDevices(fileId: FileId): Set<PeerId>
     suspend fun addDeclined(fileId: FileId, device: PeerId)
@@ -61,7 +61,7 @@ internal interface FilePullAttemptStore {
      * The asking loop's row-state view for [pullClass]. The store owns the parent + declined-children
      * composition; the SMALL view exposes the persisted WAITING state, the LARGE one has none.
      */
-    fun candidateStore(pullClass: FilePullClass): CandidateAttemptStore<FileId>
+    fun candidateLedger(pullClass: FilePullClass): CandidateLedger<FileId>
 }
 
 internal class DefaultFilePullAttemptStore(
@@ -93,8 +93,8 @@ internal class DefaultFilePullAttemptStore(
         queries.selectFilePullById(fileId, ::joinedRow).executeAsList().withDeclined().singleOrNull()
     }
 
-    override suspend fun findByAttemptId(attemptId: Uuid): FilePullAttempt? = withContext(dbDispatcher) {
-        queries.selectFilePullByAttemptId(attemptId, ::joinedRow).executeAsList().withDeclined().singleOrNull()
+    override suspend fun findByRequestPacketId(packetId: Uuid): FilePullAttempt? = withContext(dbDispatcher) {
+        queries.selectFilePullByRequestPacketId(packetId, ::joinedRow).executeAsList().withDeclined().singleOrNull()
     }
 
     override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant) {
@@ -110,9 +110,9 @@ internal class DefaultFilePullAttemptStore(
         withContext(dbDispatcher) { queries.advanceFilePullsToNow(now, fileIds) }
     }
 
-    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, attemptId: Uuid) {
+    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestPacketId: Uuid) {
         withContext(dbDispatcher) {
-            queries.setFilePullWaiting(device, until, attemptId, fileId)
+            queries.setFilePullWaiting(device, until, requestPacketId, fileId)
         }
     }
 
@@ -120,8 +120,8 @@ internal class DefaultFilePullAttemptStore(
         withContext(dbDispatcher) { queries.clearFilePullWaiting(fileId) }
     }
 
-    override suspend fun setAttempt(fileId: FileId, attemptId: Uuid) {
-        withContext(dbDispatcher) { queries.setFilePullAttempt(attemptId, fileId) }
+    override suspend fun setRequestPacket(fileId: FileId, packetId: Uuid) {
+        withContext(dbDispatcher) { queries.setFilePullRequestPacket(packetId, fileId) }
     }
 
     override suspend fun declinedDevices(fileId: FileId): Set<PeerId> =
@@ -140,8 +140,8 @@ internal class DefaultFilePullAttemptStore(
         queries.selectFilePullIdsByClass(pullClass.name).executeAsList()
     }
 
-    override fun candidateStore(pullClass: FilePullClass): CandidateAttemptStore<FileId> =
-        FilePullAttemptView(this, pullClass)
+    override fun candidateLedger(pullClass: FilePullClass): CandidateLedger<FileId> =
+        FilePullCandidateLedger(this, pullClass)
 
     /** One result row of a parent-with-declined-devices join: the parent, and one declined device or null. */
     private fun joinedRow(
@@ -149,7 +149,7 @@ internal class DefaultFilePullAttemptStore(
         attempts: Long,
         waitingDevice: PeerId?,
         waitingUntil: Instant?,
-        attemptId: Uuid?,
+        requestPacketId: Uuid?,
         pullClass: String,
         declinedDevice: PeerId?,
     ): Pair<FilePullAttempt, PeerId?> = FilePullAttempt(
@@ -158,7 +158,7 @@ internal class DefaultFilePullAttemptStore(
         declinedDevices = emptySet(),
         waitingDevice = waitingDevice,
         waitingUntil = waitingUntil,
-        attemptId = attemptId,
+        requestPacketId = requestPacketId,
         pullClass = FilePullClass.valueOf(pullClass),
     ) to declinedDevice
 
@@ -174,20 +174,20 @@ internal class DefaultFilePullAttemptStore(
  * by the store that owns the tables. The LARGE view has no WAITING (its answer and bytes share a
  * channel), so its WAITING methods are no-ops.
  */
-private class FilePullAttemptView(
+private class FilePullCandidateLedger(
     private val store: FilePullAttemptStore,
     private val pullClass: FilePullClass,
-) : CandidateAttemptStore<FileId> {
+) : CandidateLedger<FileId> {
     override suspend fun start(id: FileId, firstAttemptAt: Instant) =
         store.start(id, pullClass, firstAttemptAt)
 
     override suspend fun drop(id: FileId) = store.drop(id)
     override suspend fun earliestDueAt(): Instant? = store.earliestDueAt(pullClass)
 
-    override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<FileId>> =
+    override suspend fun findDue(now: Instant, limit: Int): List<CandidateEntry<FileId>> =
         store.findDue(now, limit, pullClass).map { row ->
             val waiting = if (pullClass == FilePullClass.SMALL) row.waitingState() else null
-            CandidateRow(row.fileId, row.attempts, row.declinedDevices, waiting)
+            CandidateEntry(row.fileId, row.attempts, row.declinedDevices, waiting)
         }
 
     override suspend fun recordAttempt(id: FileId, nextAttemptAt: Instant) =
@@ -202,8 +202,8 @@ private class FilePullAttemptView(
 
     override suspend fun setWaiting(id: FileId, device: PeerId, until: Instant) {
         if (pullClass != FilePullClass.SMALL) return
-        val attemptId = store.findById(id)?.attemptId ?: return
-        store.setWaiting(id, device, until, attemptId)
+        val requestPacketId = store.findById(id)?.requestPacketId ?: return
+        store.setWaiting(id, device, until, requestPacketId)
     }
 
     override suspend fun clearWaiting(id: FileId) {

@@ -10,6 +10,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SyncPayload
@@ -23,10 +24,10 @@ import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.OutcomeConsumer
 import org.yapyap.routing.router.OutcomeMailbox
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterLifecycle
-import org.yapyap.routing.router.RouterService
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.routing.store.OutboxTag
@@ -34,7 +35,6 @@ import org.yapyap.routing.store.SyncAttemptStore
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * The message concern: push (fan-out, typing, receipts) and pull (asking for and serving missing
@@ -56,7 +56,7 @@ internal class MessageService(
     torLinkKeeper: LinkKeeper,
     webRtcLinkKeeper: LinkKeeper,
     override val frontiers: Flow<PingFrontiers>,
-) : MessageCarrier, MessageInbound, RouterService {
+) : MessageCarrier, MessageInbound, OutcomeConsumer {
 
     override val outcomeTags: Set<OutboxTag.Kind> = setOf(OutboxTag.Kind.MESSAGE, OutboxTag.Kind.SYNC)
 
@@ -99,12 +99,12 @@ internal class MessageService(
         typingDispatcher.dispatch(targets, roomId, interval)
     }
 
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
+    override suspend fun startSync(syncId: SyncId, firstAttemptAt: Instant) {
         lifecycle.requireStarted("starting sync requests")
         pullProcessor.start(syncId, firstAttemptAt)
     }
 
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
+    override suspend fun reopenSync(syncId: SyncId, account: AccountId) {
         lifecycle.requireStarted("reopening sync requests")
         pullProcessor.reopen(syncId, account)
     }
@@ -149,16 +149,17 @@ internal class MessageService(
     override fun runIn(scope: CoroutineScope): List<Job> = listOf(
         pullProcessor.runIn(scope),
         outcomes.runIn(scope, LogComponent.ROUTER) { outcome ->
-            when (outcome.tag.kind) {
-                OutboxTag.Kind.MESSAGE -> if (outcome is OutboxOutcome.Acked) {
+            when (val tag = outcome.tag) {
+                is OutboxTag.Message -> if (outcome is OutboxOutcome.Acked) {
                     // A device we can't place in an account can't be shown as anyone's delivery.
                     val account = ctx.devices.getAccountIdForDevice(outcome.target) ?: return@runIn
-                    deliveryFlow.emit(MessageAck(outcome.tag.id, account))
+                    deliveryFlow.emit(MessageAck(tag.messageId, account))
                 }
 
-                OutboxTag.Kind.SYNC -> pullProcessor.onAttemptOutcome(outcome)
+                is OutboxTag.Sync -> pullProcessor.onAttemptOutcome(outcome)
 
-                else -> error("Not a message outcome: ${outcome.tag.kind}")
+                OutboxTag.Bootstrap, OutboxTag.FileRequest, is OutboxTag.FileTransfer ->
+                    error("Not a message outcome: ${tag.kind}")
             }
         },
     )

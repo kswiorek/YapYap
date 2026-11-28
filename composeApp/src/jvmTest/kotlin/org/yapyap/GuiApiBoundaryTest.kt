@@ -40,6 +40,7 @@ class GuiApiBoundaryTest {
         "org.yapyap.orchestrator.ResetReason",
         "org.yapyap.protocol.PeerId",
         "org.yapyap.protocol.RoomId",
+        "org.yapyap.protocol.MessageId",
         "org.yapyap.protocol.TorEndpoint",
         "org.yapyap.protocol.AccountId",
         "org.yapyap.protocol.DeviceType",

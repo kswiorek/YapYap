@@ -161,7 +161,7 @@ internal data class FilePullAttempt(
     /** ACK received, OFFER pending: the device asked and the wait deadline, else null. */
     val waitingDevice: PeerId?,
     val waitingUntil: Instant?,
-    /** In-flight REQUEST's attempt id for outcome correlation, else null. */
-    val attemptId: Uuid?,
+    /** In-flight REQUEST's packet id for outcome correlation, else null. */
+    val requestPacketId: Uuid?,
     val pullClass: FilePullClass,
 )

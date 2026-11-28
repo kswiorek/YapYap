@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -107,7 +108,7 @@ class OutboxRelayBackupTest {
             relayBackup = backup,
             // Relay copies are keyed by the row's tag kind: an untagged row names nobody
             // waiting on its outcome, so it never owes a backup.
-            tag = OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()),
+            tag = OutboxTag.Message(MessageId(Uuid.random())),
         )
 
     @Test
@@ -172,7 +173,7 @@ class OutboxRelayBackupTest {
             msg,
             h.clock.now(),
             relayBackup = RelayBackup.PENDING,
-            tag = OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()),
+            tag = OutboxTag.Message(MessageId(Uuid.random())),
         )
         h.outbox.recordAttempt(msg.packetId, h.clock.now(), h.clock.now())
         h.processor.wake()

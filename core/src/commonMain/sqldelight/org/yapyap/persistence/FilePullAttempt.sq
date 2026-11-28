@@ -5,14 +5,14 @@ import kotlin.uuid.Uuid;
 
 -- Router-owned: how a pending file pull is being asked for. Mirrors SyncAttempt.sq,
 -- keyed by fileId instead of syncId, plus the WAITING state (ACK received, OFFER pending)
--- and the in-flight REQUEST's attempt id for outcome correlation.
+-- and the in-flight REQUEST's packet id for outcome correlation.
 CREATE TABLE file_pull_attempts(
     file_id TEXT AS FileId NOT NULL PRIMARY KEY,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER AS Instant NOT NULL,
     waiting_device TEXT AS PeerId,
     waiting_until INTEGER AS Instant,
-    request_attempt_id TEXT AS Uuid,
+    request_packet_id TEXT AS Uuid,
     pull_class TEXT NOT NULL
 );
 
@@ -38,7 +38,7 @@ SELECT MIN(next_attempt_at) FROM file_pull_attempts WHERE pull_class = ?;
 -- a NULL device): the parent and its children are read in one statement. The page limit applies
 -- to parents, so the due rows are chosen first and joined after.
 selectDueFilePullAttempts:
-SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_attempt_id, a.pull_class,
+SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_packet_id, a.pull_class,
     d.device_id AS declined_device
 FROM (
     SELECT * FROM file_pull_attempts WHERE next_attempt_at <= :now AND pull_class = :pullClass
@@ -60,31 +60,31 @@ UPDATE file_pull_attempts SET next_attempt_at = :now
 WHERE next_attempt_at > :now AND file_id IN :fileIds;
 
 selectFilePullById:
-SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_attempt_id, a.pull_class,
+SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_packet_id, a.pull_class,
     d.device_id AS declined_device
 FROM file_pull_attempts AS a
 LEFT JOIN file_pull_declined_devices AS d ON d.file_id = a.file_id
 WHERE a.file_id = ?;
 
-selectFilePullByAttemptId:
-SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_attempt_id, a.pull_class,
+selectFilePullByRequestPacketId:
+SELECT a.file_id, a.attempts, a.waiting_device, a.waiting_until, a.request_packet_id, a.pull_class,
     d.device_id AS declined_device
 FROM file_pull_attempts AS a
 LEFT JOIN file_pull_declined_devices AS d ON d.file_id = a.file_id
-WHERE a.request_attempt_id = ?;
+WHERE a.request_packet_id = ?;
 
 setFilePullWaiting:
 UPDATE file_pull_attempts
-SET waiting_device = ?, waiting_until = ?, request_attempt_id = ?
+SET waiting_device = ?, waiting_until = ?, request_packet_id = ?
 WHERE file_id = ?;
 
 clearFilePullWaiting:
 UPDATE file_pull_attempts
-SET waiting_device = NULL, waiting_until = NULL, request_attempt_id = NULL
+SET waiting_device = NULL, waiting_until = NULL, request_packet_id = NULL
 WHERE file_id = ?;
 
-setFilePullAttempt:
-UPDATE file_pull_attempts SET request_attempt_id = ? WHERE file_id = ?;
+setFilePullRequestPacket:
+UPDATE file_pull_attempts SET request_packet_id = ? WHERE file_id = ?;
 
 selectDeclinedFilePullDevices:
 SELECT device_id FROM file_pull_declined_devices WHERE file_id = ?;

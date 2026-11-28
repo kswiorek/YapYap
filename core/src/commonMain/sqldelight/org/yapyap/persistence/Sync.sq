@@ -1,6 +1,7 @@
-import kotlin.uuid.Uuid;
 import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.RoomId;
+import org.yapyap.protocol.MessageId;
+import org.yapyap.protocol.SyncId;
 
 -- Orchestrator-owned: what is missing and who may hold it. How and when it is asked for
 -- (devices tried, retry timing) is the router's (SyncAttempt.sq), keyed by the same sync_id.
@@ -10,15 +11,15 @@ import org.yapyap.protocol.RoomId;
 -- ping-triggered syncs share this single shape; the responder serves the target
 -- plus its ancestry down to the requester's known frontier.
 CREATE TABLE pending_syncs(
-    sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
+    sync_id TEXT AS SyncId NOT NULL PRIMARY KEY,
     room_id TEXT AS RoomId NOT NULL,
-    target_message_id TEXT AS Uuid NOT NULL,
+    target_message_id TEXT AS MessageId NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
     UNIQUE (room_id, target_message_id)
 );
 
 CREATE TABLE pending_sync_candidate_accounts(
-    sync_id TEXT AS Uuid NOT NULL,
+    sync_id TEXT AS SyncId NOT NULL,
     account_id TEXT AS AccountId NOT NULL,
     PRIMARY KEY (sync_id, account_id),
     FOREIGN KEY (sync_id) REFERENCES pending_syncs(sync_id) ON DELETE CASCADE

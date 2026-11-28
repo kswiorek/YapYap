@@ -43,7 +43,7 @@
 - [ ] **Unreviewed orchestrator file code** — treat `orchestrator/file/*` as provisional; do not mine for conventions or
   quality examples (`routing/file/*` was reviewed, `docs/file/cleanup.md`)
 - [ ] **ArchitectureTest `knownDebt` list** — only-shrinks by design; keep shrinking it
-- [ ] **Dangling items** — unused `spaces` table; WebRTC health/LinkKeeper TODOs in `DefaultRouter`/`PeerLinks`
+- [ ] **Dangling items** — unused `spaces` table; real WebRTC health (`TODO [Finishing touches]` in `DefaultRouter`)
 
 ## Future Considerations
 

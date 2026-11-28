@@ -4,9 +4,9 @@ import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.GlobalEventPayload
-import kotlin.uuid.Uuid
 
 /**
  * Pure fold core of the global control room (§2–§3, see docs/fold diagram.mmd).
@@ -23,10 +23,10 @@ import kotlin.uuid.Uuid
  * wrong payload type) — REJECTED, poisoning structural descendants.
  */
 internal data class FoldNode(
-    val id: Uuid,
+    val id: MessageId,
     val authorDeviceId: PeerId,
     val senderAccountId: AccountId,
-    val prevIds: List<Uuid>,
+    val prevIds: List<MessageId>,
     val authorSignature: ByteArray?,
     val signingBytes: ByteArray,
     val event: GlobalEventPayload?,
@@ -47,7 +47,7 @@ internal data class FoldAccount(
     val role: AccountRole,
     val status: IdentityStatus,
     /** Defining `AddAccount` node — the material source for the projector's commit. */
-    val nodeId: Uuid,
+    val nodeId: MessageId,
 )
 
 /** Chain-derived device projection (tombstones tracked separately). */
@@ -60,7 +60,7 @@ internal data class FoldDevice(
     /** Branch-1 own-device adds only — the cascade-ban source set. */
     val branch1: Boolean,
     /** Defining `AddDevice` node (commit material source). */
-    val nodeId: Uuid,
+    val nodeId: MessageId,
 )
 
 internal data class FoldOutput(
@@ -71,20 +71,20 @@ internal data class FoldOutput(
 )
 
 /** Genesis root: the empty-`prevIds` `AddAccount` the DAG grew from. */
-internal data class GenesisInfo(val nodeId: Uuid, val accountId: AccountId)
+internal data class GenesisInfo(val nodeId: MessageId, val accountId: AccountId)
 
 /** Genesis device's signing key — resolves genesis authorship before any device exists. */
 internal data class GenesisKey(val deviceId: PeerId, val signingPublicKey: ByteArray)
 
 internal data class ReplayResult(
     val output: FoldOutput,
-    val verdicts: Map<Uuid, VerificationState>,
+    val verdicts: Map<MessageId, VerificationState>,
     val tombstonedAccounts: Set<AccountId>,
     val tombstonedDevices: Set<PeerId>,
     /** Explicitly banned device → defining ban node (first in canonical order). */
-    val bans: Map<PeerId, Uuid>,
+    val bans: Map<PeerId, MessageId>,
     /** Explicitly demoted account → defining demotion node (first in canonical order). */
-    val demotions: Map<AccountId, Uuid>,
+    val demotions: Map<AccountId, MessageId>,
 )
 
 /**
@@ -92,8 +92,8 @@ internal data class ReplayResult(
  * nodes included: seals need the revocation's ancestry.
  */
 internal data class RevocationState(
-    val bans: Map<PeerId, Uuid>,
-    val demotions: Map<AccountId, Uuid>,
+    val bans: Map<PeerId, MessageId>,
+    val demotions: Map<AccountId, MessageId>,
     val tombstonedAccounts: Set<AccountId>,
 )
 
@@ -111,10 +111,10 @@ private val revocationRank = compareBy<ReplayResult>(
  * walks cycle: keep the maximal-revocation fixpoint. Pure function of the inputs.
  */
 internal suspend fun foldToFixpoint(
-    order: List<Uuid>,
-    nodes: Map<Uuid, FoldNode>,
-    ancestors: Map<Uuid, Set<Uuid>>,
-    reachable: Set<Uuid>,
+    order: List<MessageId>,
+    nodes: Map<MessageId, FoldNode>,
+    ancestors: Map<MessageId, Set<MessageId>>,
+    reachable: Set<MessageId>,
     genesis: GenesisInfo?,
     genesisKey: GenesisKey?,
     crypto: FoldCrypto,
@@ -151,15 +151,15 @@ internal suspend fun foldToFixpoint(
 
 /** One replay walk into shadow state. Unreachable or not-all-ancestors-VERIFIED = PENDING. */
 internal suspend fun replayFold(
-    order: List<Uuid>,
-    nodes: Map<Uuid, FoldNode>,
-    ancestors: Map<Uuid, Set<Uuid>>,
-    reachable: Set<Uuid>,
+    order: List<MessageId>,
+    nodes: Map<MessageId, FoldNode>,
+    ancestors: Map<MessageId, Set<MessageId>>,
+    reachable: Set<MessageId>,
     genesis: GenesisInfo?,
     genesisKey: GenesisKey?,
     crypto: FoldCrypto,
-    carriedBans: Map<PeerId, Uuid>,
-    carriedDemotions: Map<AccountId, Uuid>,
+    carriedBans: Map<PeerId, MessageId>,
+    carriedDemotions: Map<AccountId, MessageId>,
     carriedTombstonedAccounts: Set<AccountId>,
 ): ReplayResult {
     val accounts = LinkedHashMap<AccountId, FoldAccount>()
@@ -169,19 +169,19 @@ internal suspend fun replayFold(
     var owner: AccountId? = null
     // Validated (signer, account) AddAccount links — the branch-2 onboarding proof.
     val sponsorKeys = HashMap<Pair<PeerId, AccountId>, ByteArray>()
-    val verdicts = HashMap<Uuid, VerificationState>()
-    val walkBans = LinkedHashMap<PeerId, Uuid>()
-    val walkDemotions = LinkedHashMap<AccountId, Uuid>()
+    val verdicts = HashMap<MessageId, VerificationState>()
+    val walkBans = LinkedHashMap<PeerId, MessageId>()
+    val walkDemotions = LinkedHashMap<AccountId, MessageId>()
     val ignoredAddDevices = HashSet<PeerId>()
     // Structural descendants of crypto-REJECTED nodes: excluded from the fold (PENDING).
-    val poisoned = HashSet<Uuid>()
+    val poisoned = HashSet<MessageId>()
     // Canonical positions, for the seal order gate below.
-    val positionOf = HashMap<Uuid, Int>(order.size)
+    val positionOf = HashMap<MessageId, Int>(order.size)
     for ((index, id) in order.withIndex()) positionOf[id] = index
 
     // Merged revocation views: this walk's discoveries shadow the carried ones (identical
     // in the common case — the replay is deterministic over a fixed canonical order).
-    fun demotionOf(account: AccountId): Uuid? = walkDemotions[account] ?: carriedDemotions[account]
+    fun demotionOf(account: AccountId): MessageId? = walkDemotions[account] ?: carriedDemotions[account]
 
     // Shared removal projection for RemoveAccount and the owner handover: the account
     // leaves ACTIVE with its role reset (admin-ness is meaningless while removed) and
@@ -270,7 +270,7 @@ internal suspend fun replayFold(
             else -> false
         }
 
-        fun mutuallyRevoked(seal: Uuid): Boolean {
+        fun mutuallyRevoked(seal: MessageId): Boolean {
             if (id in ancestors.getValue(seal) || seal in ancestors.getValue(id)) return false
             val sealNode = nodes[seal] ?: return false
             val sealEvent = sealNode.event ?: return false

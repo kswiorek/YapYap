@@ -2,14 +2,15 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import kotlin.time.Duration
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /** A push-path ACK reported by [MessageCarrier.deliveries], resolved to the acknowledging account. */
-internal data class MessageAck(val messageId: Uuid, val account: AccountId)
+internal data class MessageAck(val messageId: MessageId, val account: AccountId)
 
 /**
  * Messages in both directions: push (send and its receipts) and pull (asking for missing
@@ -74,11 +75,11 @@ internal interface MessageCarrier {
      * [org.yapyap.routing.message.port.SyncPayloadProvider]; the router asks until that
      * reports the sync satisfied or gone.
      */
-    suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant)
+    suspend fun startSync(syncId: SyncId, firstAttemptAt: Instant)
 
     /**
      * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's
      * room): if every candidate device has declined, that account's devices are asked again.
      */
-    suspend fun reopenSync(syncId: Uuid, account: AccountId)
+    suspend fun reopenSync(syncId: SyncId, account: AccountId)
 }

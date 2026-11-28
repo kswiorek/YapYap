@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.fold.room
 
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
@@ -30,16 +31,16 @@ private fun created(members: List<AccountId> = emptyList()) = RoomEventPayload.R
 
 /** Hand-built world: emission order is the canonical order; closures are transitive. */
 private class WorldBuilder {
-    val order = ArrayList<Uuid>()
-    val nodes = HashMap<Uuid, RoomFoldNode>()
-    private val prev = HashMap<Uuid, List<Uuid>>()
+    val order = ArrayList<MessageId>()
+    val nodes = HashMap<MessageId, RoomFoldNode>()
+    private val prev = HashMap<MessageId, List<MessageId>>()
 
     fun emit(
         author: AccountId,
         event: RoomEventPayload?,
-        prevIds: List<Uuid> = order.toList(),
-    ): Uuid {
-        val id = Uuid.random()
+        prevIds: List<MessageId> = order.toList(),
+    ): MessageId {
+        val id = MessageId(Uuid.random())
         order.add(id)
         nodes[id] = RoomFoldNode(id = id, authorAccountId = author, event = event)
         prev[id] = prevIds
@@ -47,12 +48,12 @@ private class WorldBuilder {
     }
 
     /** Test-only accessor for ancestry-shape sanity checks. */
-    fun prevOf(id: Uuid): List<Uuid> = prev.getValue(id)
+    fun prevOf(id: MessageId): List<MessageId> = prev.getValue(id)
 
-    private fun closures(): Map<Uuid, Set<Uuid>> {
-        val memo = HashMap<Uuid, Set<Uuid>>()
-        fun anc(id: Uuid): Set<Uuid> = memo.getOrPut(id) {
-            val seen = HashSet<Uuid>()
+    private fun closures(): Map<MessageId, Set<MessageId>> {
+        val memo = HashMap<MessageId, Set<MessageId>>()
+        fun anc(id: MessageId): Set<MessageId> = memo.getOrPut(id) {
+            val seen = HashSet<MessageId>()
             val stack = ArrayDeque(prev.getValue(id))
             while (stack.isNotEmpty()) {
                 val parent = stack.removeLast()

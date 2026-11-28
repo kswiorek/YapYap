@@ -2,12 +2,12 @@ package org.yapyap.orchestrator.dag
 
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.DagPayload.RoomEvent
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * Self-certifying room ids: a room's id is the hash of its genesis node's canonical bytes
@@ -23,7 +23,7 @@ internal object RoomIds {
     /** Append path: self-certifying id before construction. */
     suspend fun derive(
         crypto: CryptoProvider,
-        genesisMessageId: Uuid,
+        genesisMessageId: MessageId,
         senderAccountId: AccountId,
         authorDeviceId: PeerId,
         createdAt: Instant,
@@ -49,7 +49,7 @@ internal object RoomIds {
      */
     suspend fun createGenesis(
         crypto: CryptoProvider,
-        genesisMessageId: Uuid,
+        genesisMessageId: MessageId,
         senderAccountId: AccountId,
         authorDeviceId: PeerId,
         createdAt: Instant,

@@ -3,8 +3,10 @@ package org.yapyap.persistence
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.testfixtures.epochSeconds
 import java.nio.file.Files
@@ -26,9 +28,9 @@ class SyncSplitMigrationJvmTest {
     @Test
     fun versionThreeStore_splitsSyncState() = runTest {
         val path = Files.createTempDirectory("yapyap-migration").resolve("v.db").toString().replace('\\', '/')
-        val syncId = Uuid.random()
+        val syncId = SyncId(Uuid.random())
         val roomId = RoomId(Uuid.random())
-        val target = Uuid.random()
+        val target = MessageId(Uuid.random())
         val candidate = AccountId("candidate-account")
         val declined = PeerId("declined-device")
 
@@ -39,10 +41,10 @@ class SyncSplitMigrationJvmTest {
             exec("INSERT INTO rooms(room_id, type, name) VALUES ('${roomId.value.toHexString()}', 'CHAT', 'r')")
             exec(
                 "INSERT INTO pending_syncs(sync_id, room_id, target_message_id, attempts, next_attempt_at) " +
-                        "VALUES ('${syncId.toHexString()}', '${roomId.value.toHexString()}', '${target.toHexString()}', 3, 5000)",
+                        "VALUES ('${syncId.value.toHexString()}', '${roomId.value.toHexString()}', '${target.value.toHexString()}', 3, 5000)",
             )
-            exec("INSERT INTO pending_sync_candidate_accounts(sync_id, account_id) VALUES ('${syncId.toHexString()}', '${candidate.id}')")
-            exec("INSERT INTO pending_sync_attempted_peers(sync_id, device_id) VALUES ('${syncId.toHexString()}', '${declined.id}')")
+            exec("INSERT INTO pending_sync_candidate_accounts(sync_id, account_id) VALUES ('${syncId.value.toHexString()}', '${candidate.id}')")
+            exec("INSERT INTO pending_sync_attempted_peers(sync_id, device_id) VALUES ('${syncId.value.toHexString()}', '${declined.id}')")
             driver.close()
         }
 

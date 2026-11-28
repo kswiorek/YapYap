@@ -41,9 +41,11 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ContentId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SealKey
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -59,8 +61,8 @@ import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.routing.candidate.CandidateAttemptStore
-import org.yapyap.routing.candidate.CandidateRow
+import org.yapyap.routing.candidate.CandidateEntry
+import org.yapyap.routing.candidate.CandidateLedger
 import org.yapyap.routing.candidate.CandidateWaiting
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
@@ -73,7 +75,7 @@ import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.outbound.EnvelopeDispatcher
@@ -247,11 +249,11 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
 
 /** Router transport tests have no pending syncs: nothing to ask for, nothing served. */
 internal class FakeSyncPayloadProvider : SyncPayloadProvider {
-    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? = null
+    override suspend fun syncRequest(syncId: SyncId): SyncPayload.Request? = null
 
-    override suspend fun syncCandidates(syncId: Uuid): List<AccountId> = emptyList()
+    override suspend fun syncCandidates(syncId: SyncId): List<AccountId> = emptyList()
 
-    override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> = emptyList()
+    override suspend fun syncsWithCandidate(account: AccountId): List<SyncId> = emptyList()
 
     override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> =
         emptyList()
@@ -265,15 +267,15 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
         val declined: MutableSet<PeerId> = mutableSetOf()
     )
 
-    private val rows = linkedMapOf<Uuid, Row>()
+    private val rows = linkedMapOf<SyncId, Row>()
     private val mutex = Mutex()
 
-    override suspend fun start(syncId: Uuid, firstAttemptAt: Instant) = mutex.withLock {
+    override suspend fun start(syncId: SyncId, firstAttemptAt: Instant) = mutex.withLock {
         if (syncId !in rows) rows[syncId] = Row(0, firstAttemptAt)
         Unit
     }
 
-    override suspend fun drop(syncId: Uuid) {
+    override suspend fun drop(syncId: SyncId) {
         mutex.withLock { rows.remove(syncId) }
     }
 
@@ -284,70 +286,70 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
             .map { (id, row) -> SyncAttempt(id, row.attempts, row.declined.toSet()) }
     }
 
-    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) = mutex.withLock {
+    override suspend fun recordAttempt(syncId: SyncId, nextAttemptAt: Instant) = mutex.withLock {
         rows[syncId]?.let { it.attempts += 1; it.nextAttemptAt = nextAttemptAt }
         Unit
     }
 
-    override suspend fun postpone(syncId: Uuid, nextAttemptAt: Instant) = mutex.withLock {
+    override suspend fun postpone(syncId: SyncId, nextAttemptAt: Instant) = mutex.withLock {
         rows[syncId]?.nextAttemptAt = nextAttemptAt
     }
 
-    override suspend fun advanceToNow(syncIds: Collection<Uuid>, now: Instant) = mutex.withLock {
+    override suspend fun advanceToNow(syncIds: Collection<SyncId>, now: Instant) = mutex.withLock {
         syncIds.forEach { id -> rows[id]?.let { if (it.nextAttemptAt > now) it.nextAttemptAt = now } }
     }
 
-    override suspend fun declinedDevices(syncId: Uuid): Set<PeerId> =
+    override suspend fun declinedDevices(syncId: SyncId): Set<PeerId> =
         mutex.withLock { rows[syncId]?.declined?.toSet().orEmpty() }
 
-    override suspend fun addDeclined(syncId: Uuid, deviceId: PeerId) = mutex.withLock {
+    override suspend fun addDeclined(syncId: SyncId, deviceId: PeerId) = mutex.withLock {
         rows[syncId]?.declined?.add(deviceId)
         Unit
     }
 
-    override suspend fun removeDeclined(syncId: Uuid, deviceIds: Collection<PeerId>) = mutex.withLock {
+    override suspend fun removeDeclined(syncId: SyncId, deviceIds: Collection<PeerId>) = mutex.withLock {
         rows[syncId]?.declined?.removeAll(deviceIds.toSet())
         Unit
     }
 
-    override fun candidateStore(): CandidateAttemptStore<Uuid> = object : CandidateAttemptStore<Uuid> {
-        override suspend fun start(id: Uuid, firstAttemptAt: Instant) =
+    override fun candidateLedger(): CandidateLedger<SyncId> = object : CandidateLedger<SyncId> {
+        override suspend fun start(id: SyncId, firstAttemptAt: Instant) =
             this@InMemorySyncAttemptStore.start(id, firstAttemptAt)
 
-        override suspend fun drop(id: Uuid) = this@InMemorySyncAttemptStore.drop(id)
+        override suspend fun drop(id: SyncId) = this@InMemorySyncAttemptStore.drop(id)
 
         override suspend fun earliestDueAt(): Instant? = this@InMemorySyncAttemptStore.earliestDueAt()
 
-        override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<Uuid>> =
+        override suspend fun findDue(now: Instant, limit: Int): List<CandidateEntry<SyncId>> =
             this@InMemorySyncAttemptStore.findDue(now, limit)
-                .map { CandidateRow(it.syncId, it.attempts, it.declinedDevices) }
+                .map { CandidateEntry(it.syncId, it.attempts, it.declinedDevices) }
 
-        override suspend fun recordAttempt(id: Uuid, nextAttemptAt: Instant) =
+        override suspend fun recordAttempt(id: SyncId, nextAttemptAt: Instant) =
             this@InMemorySyncAttemptStore.recordAttempt(id, nextAttemptAt)
 
-        override suspend fun postpone(id: Uuid, nextAttemptAt: Instant) =
+        override suspend fun postpone(id: SyncId, nextAttemptAt: Instant) =
             this@InMemorySyncAttemptStore.postpone(id, nextAttemptAt)
 
-        override suspend fun advanceToNow(ids: Collection<Uuid>, now: Instant) =
+        override suspend fun advanceToNow(ids: Collection<SyncId>, now: Instant) =
             this@InMemorySyncAttemptStore.advanceToNow(ids, now)
 
-        override suspend fun declinedDevices(id: Uuid): Set<PeerId> =
+        override suspend fun declinedDevices(id: SyncId): Set<PeerId> =
             this@InMemorySyncAttemptStore.declinedDevices(id)
 
-        override suspend fun addDeclined(id: Uuid, device: PeerId) =
+        override suspend fun addDeclined(id: SyncId, device: PeerId) =
             this@InMemorySyncAttemptStore.addDeclined(id, device)
 
-        override suspend fun removeDeclined(id: Uuid, devices: Collection<PeerId>) =
+        override suspend fun removeDeclined(id: SyncId, devices: Collection<PeerId>) =
             this@InMemorySyncAttemptStore.removeDeclined(id, devices)
 
-        override suspend fun setWaiting(id: Uuid, device: PeerId, until: Instant) = Unit
+        override suspend fun setWaiting(id: SyncId, device: PeerId, until: Instant) = Unit
 
-        override suspend fun clearWaiting(id: Uuid) = Unit
+        override suspend fun clearWaiting(id: SyncId) = Unit
     }
 
-    fun contains(syncId: Uuid): Boolean = rows.containsKey(syncId)
-    fun attemptsOf(syncId: Uuid): Int? = rows[syncId]?.attempts
-    fun nextAttemptAt(syncId: Uuid): Instant? = rows[syncId]?.nextAttemptAt
+    fun contains(syncId: SyncId): Boolean = rows.containsKey(syncId)
+    fun attemptsOf(syncId: SyncId): Int? = rows[syncId]?.attempts
+    fun nextAttemptAt(syncId: SyncId): Instant? = rows[syncId]?.nextAttemptAt
 }
 
 /** In-memory [FileSealStore], mirroring the SQL semantics. */
@@ -503,7 +505,7 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
         var nextAttemptAt: Instant = Instant.DISTANT_PAST,
         var waitingDevice: PeerId? = null,
         var waitingUntil: Instant? = null,
-        var attemptId: Uuid? = null,
+        var requestPacketId: Uuid? = null,
         var pullClass: FilePullClass = FilePullClass.SMALL,
         val declined: MutableSet<PeerId> = mutableSetOf(),
     )
@@ -538,8 +540,8 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
         rows[fileId]?.toAttempt(fileId)
     }
 
-    override suspend fun findByAttemptId(attemptId: Uuid): FilePullAttempt? = mutex.withLock {
-        rows.entries.firstOrNull { it.value.attemptId == attemptId }?.let { (id, row) -> row.toAttempt(id) }
+    override suspend fun findByRequestPacketId(packetId: Uuid): FilePullAttempt? = mutex.withLock {
+        rows.entries.firstOrNull { it.value.requestPacketId == packetId }?.let { (id, row) -> row.toAttempt(id) }
     }
 
     override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant) = mutex.withLock {
@@ -555,12 +557,12 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
         fileIds.forEach { id -> rows[id]?.let { if (it.nextAttemptAt > now) it.nextAttemptAt = now } }
     }
 
-    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, attemptId: Uuid) =
+    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestPacketId: Uuid) =
         mutex.withLock {
             rows[fileId]?.let {
                 it.waitingDevice = device
                 it.waitingUntil = until
-                it.attemptId = attemptId
+                it.requestPacketId = requestPacketId
             }
             Unit
         }
@@ -569,13 +571,13 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
         rows[fileId]?.let {
             it.waitingDevice = null
             it.waitingUntil = null
-            it.attemptId = null
+            it.requestPacketId = null
         }
         Unit
     }
 
-    override suspend fun setAttempt(fileId: FileId, attemptId: Uuid) = mutex.withLock {
-        rows[fileId]?.attemptId = attemptId
+    override suspend fun setRequestPacket(fileId: FileId, packetId: Uuid) = mutex.withLock {
+        rows[fileId]?.requestPacketId = packetId
         Unit
     }
 
@@ -598,8 +600,8 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
 
     fun nextAttemptAt(fileId: FileId): Instant? = rows[fileId]?.nextAttemptAt
 
-    override fun candidateStore(pullClass: FilePullClass): CandidateAttemptStore<FileId> =
-        object : CandidateAttemptStore<FileId> {
+    override fun candidateLedger(pullClass: FilePullClass): CandidateLedger<FileId> =
+        object : CandidateLedger<FileId> {
             override suspend fun start(id: FileId, firstAttemptAt: Instant) =
                 this@InMemoryFilePullAttemptStore.start(id, pullClass, firstAttemptAt)
 
@@ -608,10 +610,10 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
             override suspend fun earliestDueAt(): Instant? =
                 this@InMemoryFilePullAttemptStore.earliestDueAt(pullClass)
 
-            override suspend fun findDue(now: Instant, limit: Int): List<CandidateRow<FileId>> =
+            override suspend fun findDue(now: Instant, limit: Int): List<CandidateEntry<FileId>> =
                 this@InMemoryFilePullAttemptStore.findDue(now, limit, pullClass).map { row ->
                     val waiting = if (pullClass == FilePullClass.SMALL) row.waitingState() else null
-                    CandidateRow(row.fileId, row.attempts, row.declinedDevices, waiting)
+                    CandidateEntry(row.fileId, row.attempts, row.declinedDevices, waiting)
                 }
 
             override suspend fun recordAttempt(id: FileId, nextAttemptAt: Instant) =
@@ -634,8 +636,8 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
 
             override suspend fun setWaiting(id: FileId, device: PeerId, until: Instant) {
                 if (pullClass != FilePullClass.SMALL) return
-                val attemptId = this@InMemoryFilePullAttemptStore.findById(id)?.attemptId ?: return
-                this@InMemoryFilePullAttemptStore.setWaiting(id, device, until, attemptId)
+                val requestPacketId = this@InMemoryFilePullAttemptStore.findById(id)?.requestPacketId ?: return
+                this@InMemoryFilePullAttemptStore.setWaiting(id, device, until, requestPacketId)
             }
 
             override suspend fun clearWaiting(id: FileId) {
@@ -655,7 +657,7 @@ internal class InMemoryFilePullAttemptStore : FilePullAttemptStore {
         declinedDevices = declined.toSet(),
         waitingDevice = waitingDevice,
         waitingUntil = waitingUntil,
-        attemptId = attemptId,
+        requestPacketId = requestPacketId,
         pullClass = pullClass,
     )
 }
@@ -1016,6 +1018,8 @@ internal class TrackingPacketOutbox : PacketOutbox {
     override suspend fun hasTagged(tag: OutboxTag): Boolean =
         synchronized(lock) { entries.values.any { it.tag == tag } }
 
+    override suspend fun isQueued(packetId: Uuid): Boolean = synchronized(lock) { packetId in entries }
+
     fun tagOf(packetId: Uuid): OutboxTag? = synchronized(lock) { entries[packetId]?.tag }
 
     override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant) {
@@ -1289,7 +1293,7 @@ internal fun buildE2eeRouterStack(
 }
 
 internal class FakeFrontierSnapshotProvider : FrontierSnapshotProvider {
-    override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<Uuid>>> = emptyList()
+    override suspend fun latestRoomFrontiers(account: AccountId): List<Pair<RoomId, List<MessageId>>> = emptyList()
 }
 
 internal fun testRoutingContext(
@@ -1301,14 +1305,14 @@ internal fun testRoutingContext(
     protections: EnvelopeProtections,
     fileChunkSize: Int = 220 * 1024,
 ): RoutingContext {
-    val peerLinks = PeerLinks(identity, webRtc, tor)
+    val torPeers = TorPeerSessions(identity, tor)
     return RoutingContext(
         localIdentity = identity,
         localDeviceId = identity.localDeviceId,
         devices = identity,
         torTransport = tor,
         webRtcTransport = webRtc,
-        peerLinks = peerLinks,
+        torPeers = torPeers,
         transportLimits = MutableStateFlow(testTransportLimits()),
         fileLimits = MutableStateFlow(
             FileLimits(
@@ -1332,14 +1336,14 @@ internal fun testRoutingContext(
     protections: EnvelopeProtections,
     fileChunkSize: Int = 220 * 1024,
 ): RoutingContext {
-    val peerLinks = PeerLinks(identity, webRtc, tor)
+    val torPeers = TorPeerSessions(identity, tor)
     return RoutingContext(
         localIdentity = identity,
         localDeviceId = identity.localDeviceId,
         devices = identity,
         torTransport = tor,
         webRtcTransport = webRtc,
-        peerLinks = peerLinks,
+        torPeers = torPeers,
         transportLimits = MutableStateFlow(testTransportLimits()),
         fileLimits = MutableStateFlow(
             FileLimits(
@@ -1424,7 +1428,7 @@ internal fun outboxProcessorUnderTest(
     )
     val linkKeeper = LinkKeeper(
         name = "Tor-test",
-        sessions = ctx.peerLinks.tor,
+        sessions = ctx.torPeers,
         targets = { emptyList() },
         ready = kotlinx.coroutines.flow.flowOf(false),
         config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
@@ -1432,7 +1436,7 @@ internal fun outboxProcessorUnderTest(
     )
     return OutboxProcessor(
         ctx = ctx,
-        dispatcher = EnvelopeDispatcher(ctx, identity),
+        dispatcher = EnvelopeDispatcher(ctx),
         transportPolicy = LinkPreferencePolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),

@@ -3,7 +3,7 @@ package org.yapyap.orchestrator.onboarding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.orchestrator.OnboardingState
-import kotlin.uuid.Uuid
+import org.yapyap.protocol.PeerId
 
 /**
  * Newcomer onboarding on every node (headless relays onboard as newcomers too). Sole writer
@@ -29,10 +29,10 @@ internal interface OnboardingProvider {
     suspend fun beginSession(secret: ByteArray)
 
     /**
-     * Recovery path: [packetId] is our recovery request, just queued. Enters
-     * REQUEST_SENT, then REQUEST_DELIVERED once the device it went to acknowledges it.
+     * Recovery path: our recovery request to [target] was just queued. Enters REQUEST_SENT,
+     * then REQUEST_DELIVERED once [target] acknowledges it.
      */
-    suspend fun awaitRequestDelivery(packetId: Uuid)
+    suspend fun awaitRequestDelivery(target: PeerId)
 
     /**
      * Burn the secret, back to IDLE. All-modes primitive (GUI passthrough, headless CLI);

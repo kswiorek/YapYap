@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.fold.room
 
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
@@ -30,9 +31,9 @@ import kotlin.uuid.Uuid
 private fun roomFuzzAccount(i: Int) = AccountId("room-fuzz-acct-$i")
 
 private data class RoomFuzzWorld(
-    val order: List<Uuid>,
-    val nodes: Map<Uuid, RoomFoldNode>,
-    val ancestors: Map<Uuid, Set<Uuid>>,
+    val order: List<MessageId>,
+    val nodes: Map<MessageId, RoomFoldNode>,
+    val ancestors: Map<MessageId, Set<MessageId>>,
     val genesis: RoomGenesisInfo,
     /** The planted forger: honestly removed mid-world, forges backdated counter-events. */
     val attacker: AccountId,
@@ -44,7 +45,7 @@ private data class RoomFuzzWorld(
      * third-party grant forgery — must never gain a row. */
     val ghost: AccountId,
     /** Content rows (null events) interleaved in [order]: no-ops by construction. */
-    val textIds: Set<Uuid>,
+    val textIds: Set<MessageId>,
 )
 
 private fun genRoomWorld(seed: Int): RoomFuzzWorld {
@@ -52,18 +53,18 @@ private fun genRoomWorld(seed: Int): RoomFuzzWorld {
     val nAccounts = 3 + r.nextInt(3) // 3..5; account 0 = genesis owner.
     val owner0 = roomFuzzAccount(0)
 
-    val order = ArrayList<Uuid>()
-    val nodes = HashMap<Uuid, RoomFoldNode>()
-    val ancestors = HashMap<Uuid, Set<Uuid>>()
-    fun emit(author: AccountId, event: RoomEventPayload?, anc: Set<Uuid>): Uuid {
-        val id = Uuid.random()
+    val order = ArrayList<MessageId>()
+    val nodes = HashMap<MessageId, RoomFoldNode>()
+    val ancestors = HashMap<MessageId, Set<MessageId>>()
+    fun emit(author: AccountId, event: RoomEventPayload?, anc: Set<MessageId>): MessageId {
+        val id = MessageId(Uuid.random())
         order.add(id)
         nodes[id] = RoomFoldNode(id = id, authorAccountId = author, event = event)
         ancestors[id] = anc
         return id
     }
 
-    fun frontier(): Set<Uuid> = order.toSet()
+    fun frontier(): Set<MessageId> = order.toSet()
 
     // Genesis: every account an initial member; account 0 owns by definition.
     val genesisId = emit(
@@ -117,7 +118,7 @@ private fun genRoomWorld(seed: Int): RoomFuzzWorld {
     // Content rows interleaved before the forgeries: null events ride the order as
     // no-ops (needed for closures/positions, never authority). Forgeries below may
     // chain over them — the production shape, where frontier tips are content.
-    val textIds = HashSet<Uuid>()
+    val textIds = HashSet<MessageId>()
     repeat(1 + r.nextInt(3)) {
         val author = listOf(attacker, ghost, roomFuzzAccount(r.nextInt(nAccounts))).random(r)
         val anc = if (r.nextBoolean()) frontier() else order.shuffled(r).take(r.nextInt(order.size + 1)).toSet()

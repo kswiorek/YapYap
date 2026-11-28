@@ -5,7 +5,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.candidate.CallOutcome
-import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateLedger
 import org.yapyap.routing.candidate.CandidateStrategy
 import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileEvent
@@ -33,7 +33,7 @@ internal class LargeFileStrategy(
     private val largeFiles: LargeFileService,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
-    override val attempts: CandidateAttemptStore<FileId> = pullAttempts.candidateStore(FilePullClass.LARGE)
+    override val ledger: CandidateLedger<FileId> = pullAttempts.candidateLedger(FilePullClass.LARGE)
 
     override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)
 
@@ -43,7 +43,7 @@ internal class LargeFileStrategy(
     override suspend fun isWanted(id: FileId): Boolean = requests.heldCoverage(id) != null
 
     override suspend fun onExhausted(id: FileId): Boolean {
-        attempts.drop(id)
+        ledger.drop(id)
         emitBestEffort(FileEvent.RequestUnavailable(id))
         return true
     }

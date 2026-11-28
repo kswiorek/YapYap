@@ -10,6 +10,7 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SealKey
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.TransferShape
@@ -263,7 +264,7 @@ class FileStoreSemanticsJvmTest {
     @Test
     fun packetOutbox_packetIdsByTagAndDeleteByTag() = runTest {
         val outbox = DefaultPacketOutbox(db())
-        val tag = OutboxTag(OutboxTag.Kind.FILE_TRANSFER, Uuid.random())
+        val tag = OutboxTag.FileTransfer(TransferId(Uuid.random()))
         fun envelope(): BinaryEnvelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.FILE,
@@ -332,12 +333,12 @@ class FileStoreSemanticsJvmTest {
     }
 
     @Test
-    fun pullCandidateStore_small_composesWaitingAndDeclinedChildren() = runTest {
+    fun pullCandidateLedger_small_composesWaitingAndDeclinedChildren() = runTest {
         val store = DefaultFilePullAttemptStore(db())
-        val attemptId = Uuid.random()
+        val requestPacketId = Uuid.random()
         store.start(fileId, FilePullClass.SMALL, now - 1.seconds)
-        store.setAttempt(fileId, attemptId)
-        val view = store.candidateStore(FilePullClass.SMALL)
+        store.setRequestPacket(fileId, requestPacketId)
+        val view = store.candidateLedger(FilePullClass.SMALL)
         view.addDeclined(fileId, relay)
 
         val until = now + 90.seconds
@@ -346,7 +347,7 @@ class FileStoreSemanticsJvmTest {
         val stored = assertNotNull(store.findById(fileId))
         assertEquals(device, stored.waitingDevice)
         assertEquals(until, stored.waitingUntil)
-        assertEquals(attemptId, stored.attemptId, "the view resolves the row's request-attempt id")
+        assertEquals(requestPacketId, stored.requestPacketId, "the view resolves the row's request packet id")
 
         val due = view.findDue(now, limit = 10).single()
         assertEquals(fileId, due.id)
@@ -362,10 +363,10 @@ class FileStoreSemanticsJvmTest {
     @Test
     fun pullCandidateStore_large_hasNoWaitingState() = runTest {
         val store = DefaultFilePullAttemptStore(db())
-        val attemptId = Uuid.random()
+        val requestPacketId = Uuid.random()
         store.start(fileId, FilePullClass.LARGE, now - 1.seconds)
-        store.setAttempt(fileId, attemptId)
-        val view = store.candidateStore(FilePullClass.LARGE)
+        store.setRequestPacket(fileId, requestPacketId)
+        val view = store.candidateLedger(FilePullClass.LARGE)
         view.addDeclined(fileId, relay)
 
         val due = view.findDue(now, limit = 10).single()
@@ -377,17 +378,17 @@ class FileStoreSemanticsJvmTest {
         assertNull(store.findById(fileId)?.waitingDevice, "setWaiting is a no-op for LARGE")
         assertNull(store.findById(fileId)?.waitingUntil)
         view.clearWaiting(fileId)
-        assertEquals(attemptId, store.findById(fileId)?.attemptId, "clearWaiting leaves LARGE untouched")
+        assertEquals(requestPacketId, store.findById(fileId)?.requestPacketId, "clearWaiting leaves LARGE untouched")
         assertNull(view.findDue(now, limit = 10).single().waiting)
     }
 
     @Test
-    fun syncCandidateStore_composesRowsAndHasNoWaiting() = runTest {
+    fun syncCandidateLedger_composesRowsAndHasNoWaiting() = runTest {
         val store = DefaultSyncAttemptStore(db())
-        val syncId = Uuid.random()
+        val syncId = SyncId(Uuid.random())
         store.start(syncId, now - 1.seconds)
         store.recordAttempt(syncId, now - 10.seconds)
-        val view = store.candidateStore()
+        val view = store.candidateLedger()
         view.addDeclined(syncId, device)
 
         val due = view.findDue(now, limit = 10).single()
@@ -425,9 +426,9 @@ class FileStoreSemanticsJvmTest {
     @Test
     fun syncFindDue_severalDeclinedDevices_pagesBySyncAndFoldsTheJoin() = runTest {
         val store = DefaultSyncAttemptStore(db())
-        val first = Uuid.random()
-        val second = Uuid.random()
-        val third = Uuid.random()
+        val first = SyncId(Uuid.random())
+        val second = SyncId(Uuid.random())
+        val third = SyncId(Uuid.random())
         store.start(first, now - 30.seconds)
         store.start(second, now - 20.seconds)
         store.start(third, now - 10.seconds)

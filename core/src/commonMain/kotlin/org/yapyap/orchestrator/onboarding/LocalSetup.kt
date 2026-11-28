@@ -160,12 +160,12 @@ internal class LocalSetup(
                     sharedSecret = secret,
                     accountSignature = signDeviceBinding(prepared.account, prepared.device, tor),
                 )
-                val requestId = bootstrapCarrier.sendBootstrap(
+                bootstrapCarrier.sendBootstrap(
                     request,
                     target = prepared.bootstrapEndpoint.peerId,
                     targetEndpoint = prepared.bootstrapEndpoint.torEndpoint,
                 )
-                onboardingProvider.awaitRequestDelivery(requestId)
+                onboardingProvider.awaitRequestDelivery(prepared.bootstrapEndpoint.peerId)
                 // No sponsor QR — direct to the supplied bootstrap endpoint.
                 SetupResult(inviteBytes = null, recoveryKey = null)
             }

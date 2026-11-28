@@ -8,33 +8,34 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.Causal_hold
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal data class Gap(
     val gapId: Uuid,
-    val missingPrevId: Uuid,
-    val orphanedMessageId: Uuid,
+    val missingPrevId: MessageId,
+    val orphanedMessageId: MessageId,
     val detectedTimestamp: Instant,
 )
 
 internal interface CausalHoldRepository {
 
-    suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant)
+    suspend fun insert(gapId: Uuid, missingPrevId: MessageId, orphanedMessageId: MessageId, detectedTimestamp: Instant)
 
-    suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap>
+    suspend fun findByMissingPrevId(missingPrevId: MessageId): List<Gap>
 
     suspend fun findByRoom(roomId: RoomId): List<Gap>
 
     suspend fun findAll(): List<Gap>
 
     /** Open holds against [orphanedMessageId] (non-zero while any parent is still missing). */
-    suspend fun countByOrphan(orphanedMessageId: Uuid): Long
+    suspend fun countByOrphan(orphanedMessageId: MessageId): Long
 
-    suspend fun deleteByMissingPrevId(missingPrevId: Uuid)
+    suspend fun deleteByMissingPrevId(missingPrevId: MessageId)
 
-    suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid)
+    suspend fun deleteByOrphanedMessageId(orphanedMessageId: MessageId)
 }
 
 internal class DefaultCausalHoldRepository(
@@ -44,7 +45,12 @@ internal class DefaultCausalHoldRepository(
 
     private val queries = database.messageQueries
 
-    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
+    override suspend fun insert(
+        gapId: Uuid,
+        missingPrevId: MessageId,
+        orphanedMessageId: MessageId,
+        detectedTimestamp: Instant
+    ) {
         withContext(dbDispatcher) {
             queries.insertCausalHold(gapId, missingPrevId, orphanedMessageId, detectedTimestamp)
             AppLog.info(
@@ -61,7 +67,7 @@ internal class DefaultCausalHoldRepository(
         }
     }
 
-    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
+    override suspend fun findByMissingPrevId(missingPrevId: MessageId): List<Gap> =
         withContext(dbDispatcher) {
             val rows = queries.selectCausalHoldsByMissingPrevId(missingPrevId).executeAsList().map { it.toRow() }
             AppLog.debug(
@@ -103,12 +109,12 @@ internal class DefaultCausalHoldRepository(
             rows
         }
 
-    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+    override suspend fun countByOrphan(orphanedMessageId: MessageId): Long =
         withContext(dbDispatcher) {
             queries.selectCausalHoldCountByOrphan(orphanedMessageId).executeAsOne()
         }
 
-    override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
+    override suspend fun deleteByMissingPrevId(missingPrevId: MessageId) {
         withContext(dbDispatcher) {
             queries.deleteCausalHoldsByMissingPrevId(missingPrevId)
             AppLog.debug(
@@ -120,7 +126,7 @@ internal class DefaultCausalHoldRepository(
         }
     }
 
-    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
+    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: MessageId) {
         withContext(dbDispatcher) {
             queries.deleteCausalHoldByOrphanedMessageId(orphanedMessageId)
             AppLog.debug(

@@ -12,7 +12,10 @@ kept open in the background, and sends only use connections that are already ope
 - Both session transports implement one contract (`SessionTransport<K>` in `transport/session`): per-remote
   `sessionStates` where `CONNECTED` holds iff `hasSession`, plus idempotent, asynchronous
   `openSession`/`closeSession`. WebRTC keys sessions by device id, Tor by onion endpoint.
-- The router sees them per device through `PeerLinks` (`routing/link`). Transport choice (`OutboundPolicy`)
+- The router sees them per device through `PeerLinks` (`routing/link`); Tor's endpoint-keyed sessions are
+  re-keyed by device id in `TorPeerSessions`, which owns the endpoint bindings (resolved from the routes
+  table, or proven by authenticated traffic) and is also where sends resolve a device's endpoint. Transport choice
+  (`OutboundPolicy`)
   takes the most preferred open link (`RouterConfig.linkPreference`: WebRTC, then Tor). With no link, outbox
   entries wait (deferred without counting an attempt) and relay deposits plus the pull path cover delivery;
   system traffic has Tor dial a stream on demand. Any link coming up wakes the peer's outbox entries.

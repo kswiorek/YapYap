@@ -4,6 +4,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -159,7 +160,7 @@ internal data class Intro(
     override val deviceType: DeviceType,
     override val torEndpoint: TorEndpoint,
     /** The sponsor's chainable frontier of the global room at reply time. */
-    val dagHeadTipIds: List<Uuid>,
+    val dagHeadTipIds: List<MessageId>,
 ) : BootstrapPayload {
     override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INTRO
 
@@ -171,7 +172,7 @@ internal data class Intro(
         val writer = ByteWriter(256)
         writer.writeBootstrapPayloadPrefix(kind, version, account, device, deviceType, torEndpoint)
         writer.writeInt(dagHeadTipIds.size)
-        dagHeadTipIds.forEach { writer.writeUuid(it) }
+        dagHeadTipIds.forEach { writer.writeMessageId(it) }
         return writer.toByteArray()
     }
 
@@ -201,7 +202,7 @@ internal data class Intro(
     companion object {
         fun decode(reader: ByteReader): Intro {
             val prefix = reader.readBootstrapPayloadPrefix()
-            val dagHeadTipIds = List(reader.readInt()) { reader.readUuid() }
+            val dagHeadTipIds = List(reader.readInt()) { reader.readMessageId() }
             reader.requireFullyRead()
             return Intro(
                 version = prefix.version,

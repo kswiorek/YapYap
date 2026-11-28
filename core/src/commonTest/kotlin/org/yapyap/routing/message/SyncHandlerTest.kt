@@ -6,8 +6,10 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -35,7 +37,7 @@ class SyncHandlerTest {
 
     private fun textMsg(): DagPayload.Text =
         DagPayload.Text(
-            messageId = Uuid.random(),
+            messageId = MessageId(Uuid.random()),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDevice,
@@ -48,7 +50,7 @@ class SyncHandlerTest {
     private fun syncRequest(): SyncPayload.Request =
         SyncPayload.Request(
             roomId = roomId,
-            syncId = Uuid.random(),
+            syncId = SyncId(Uuid.random()),
             missingIds = emptyList(),
             knownIds = emptyList(),
         )

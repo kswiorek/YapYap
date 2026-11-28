@@ -8,6 +8,7 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -46,7 +47,7 @@ class PerCarrierDeliveriesTest {
     )
 
     private fun textPayload() = DagPayload.Text(
-        messageId = Uuid.random(),
+        messageId = MessageId(Uuid.random()),
         roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("sender"),
         authorDeviceId = local,
@@ -125,11 +126,12 @@ class PerCarrierDeliveriesTest {
             assertTrue(bootstrapDeliveries.isEmpty(), "MESSAGE ACK must not appear on bootstrap.deliveries")
 
             // BOOTSTRAP path.
-            val bootstrapPacketId = router.bootstrap.sendBootstrap(
+            router.bootstrap.sendBootstrap(
                 introPayload(),
                 target = remote,
                 sharedSecret = bootstrapSecret,
             )
+            val bootstrapPacketId = outbox.enqueued.single { it.packetType == PacketType.BOOTSTRAP }.packetId
             tor.tryEmitIncoming(ackEnvelope(bootstrapPacketId, PacketType.BOOTSTRAP))
             withTimeout(10.seconds) {
                 while (bootstrapDeliveries.isEmpty()) delay(20.milliseconds)

@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.dag
 
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.DagPayload
@@ -58,7 +59,7 @@ internal data class RoomCreatedDraft(
  * *not* a new message.
  */
 internal data class VerificationStateChange(
-    val messageId: Uuid,
+    val messageId: MessageId,
     val roomId: RoomId,
     val fromState: VerificationState,
     val toState: VerificationState,
@@ -66,20 +67,20 @@ internal data class VerificationStateChange(
 
 internal sealed interface IngestResult {
     val payload: DagPayload
-    val closedGapMissingPrevIds: List<Uuid>
+    val closedGapMissingPrevIds: List<MessageId>
     val verificationState: VerificationState
 
     data class Inserted(
         override val payload: DagPayload,
-        override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
+        override val closedGapMissingPrevIds: List<MessageId> = emptyList(),
         override val verificationState: VerificationState = VerificationState.VERIFIED,
     ) : IngestResult
 
     data class BecameOrphan(
         override val payload: DagPayload,
-        override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
+        override val closedGapMissingPrevIds: List<MessageId> = emptyList(),
         /** Parent IDs of [payload] that are absent locally (one causal hold each). */
-        val missingPrevIds: List<Uuid>,
+        val missingPrevIds: List<MessageId>,
         override val verificationState: VerificationState = VerificationState.VERIFIED,
     ) : IngestResult
 }

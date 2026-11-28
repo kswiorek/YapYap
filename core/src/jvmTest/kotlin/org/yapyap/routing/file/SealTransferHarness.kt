@@ -136,7 +136,7 @@ internal fun sealTransferHarness(
     )
     val linkKeeper = LinkKeeper(
         name = "Tor-test",
-        sessions = ctx.peerLinks.tor,
+        sessions = ctx.torPeers,
         targets = { emptyList() },
         ready = flowOf(false),
         config = MutableStateFlow(routerConfig.torLinkKeeperConfig),
@@ -144,7 +144,7 @@ internal fun sealTransferHarness(
     )
     val processor = OutboxProcessor(
         ctx = ctx,
-        dispatcher = EnvelopeDispatcher(ctx, identity),
+        dispatcher = EnvelopeDispatcher(ctx),
         transportPolicy = LinkPreferencePolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
@@ -217,7 +217,7 @@ internal suspend fun SealTransferHarness.offerPacketOf(transferId: TransferId): 
 }
 
 internal suspend fun SealTransferHarness.ackOffer(transferId: TransferId, target: PeerId): OutboxOutcome.Acked =
-    OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_TRANSFER, transferId.value), target, offerPacketOf(transferId))
+    OutboxOutcome.Acked(OutboxTag.FileTransfer(transferId), target, offerPacketOf(transferId))
 
 internal suspend fun SealTransferHarness.awaitStatus(transferId: TransferId, vararg want: FileTransferStatus) {
     withTimeout(5.seconds) {
@@ -230,3 +230,7 @@ internal suspend fun SealTransferHarness.awaitOffers(count: Int) {
         while (offerHeaders().size < count) kotlinx.coroutines.delay(10.milliseconds)
     }
 }
+
+/** Hands [outcome] to its transfer's session, as [FileService] routes a FILE_TRANSFER outcome. */
+internal suspend fun TransferEngine.onOutcome(outcome: OutboxOutcome) =
+    onOutcome((outcome.tag as OutboxTag.FileTransfer).transferId, outcome)

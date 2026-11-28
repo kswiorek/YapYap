@@ -1,9 +1,9 @@
 package org.yapyap.routing.message.port
 
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.SyncPayload
-import kotlin.uuid.Uuid
 
 /**
  * Message pull content, supplied from above the router: what is missing, which accounts may hold
@@ -21,13 +21,13 @@ internal interface SyncPayloadProvider {
      * The request to send for [syncId] now (its target plus our current frontier as the
      * responder's stop set). Null once the sync is satisfied or gone: the router stops asking.
      */
-    suspend fun syncRequest(syncId: Uuid): SyncPayload.Request?
+    suspend fun syncRequest(syncId: SyncId): SyncPayload.Request?
 
     /** Accounts that may hold [syncId]'s target. */
-    suspend fun syncCandidates(syncId: Uuid): List<AccountId>
+    suspend fun syncCandidates(syncId: SyncId): List<AccountId>
 
     /** Pending syncs [account] is a candidate for. */
-    suspend fun syncsWithCandidate(account: AccountId): List<Uuid>
+    suspend fun syncsWithCandidate(account: AccountId): List<SyncId>
 
     /**
      * What to serve [requester] for [request]; empty when nothing is served (the request is

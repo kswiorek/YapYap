@@ -6,14 +6,15 @@ import org.yapyap.persistence.Pending_syncs
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.envelopes.SyncPayload
-import kotlin.uuid.Uuid
 
 internal data class PendingSync(
-    val syncId: Uuid,
+    val syncId: SyncId,
     val roomId: RoomId,
-    val targetMessageId: Uuid,
+    val targetMessageId: MessageId,
     val candidateAccounts: List<AccountId>,
 )
 
@@ -28,17 +29,17 @@ internal interface PendingSyncRepository {
      * At most one row per (room, target) exists; re-inserts are ignored.
      */
     suspend fun insertSync(
-        syncId: Uuid,
+        syncId: SyncId,
         roomId: RoomId,
-        targetMessageId: Uuid,
+        targetMessageId: MessageId,
         candidateAccounts: List<AccountId>,
     )
 
     /** Deletes a pending sync by its [syncId]. Cascades to its candidates. */
-    suspend fun deleteSync(syncId: Uuid)
+    suspend fun deleteSync(syncId: SyncId)
 
     /** Deletes pending syncs targeting [targetMessageId] (satisfied by an arrival). */
-    suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid)
+    suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: MessageId)
 
     /**
      * Builds the wire request for [syncId]: the row's target plus the requester's
@@ -46,16 +47,16 @@ internal interface PendingSyncRepository {
      * every attempt, never stored). Returns null when the row is gone or its target
      * is already present (stale row — the caller should delete it).
      */
-    suspend fun buildSyncRequest(syncId: Uuid): SyncPayload.Request?
+    suspend fun buildSyncRequest(syncId: SyncId): SyncPayload.Request?
 
-    suspend fun candidateAccounts(syncId: Uuid): List<AccountId>
+    suspend fun candidateAccounts(syncId: SyncId): List<AccountId>
 
     /** Pending syncs [accountId] is a candidate for. */
-    suspend fun syncIdsWithCandidate(accountId: AccountId): List<Uuid>
+    suspend fun syncIdsWithCandidate(accountId: AccountId): List<SyncId>
 
-    suspend fun syncIdsInRoom(roomId: RoomId): List<Uuid>
+    suspend fun syncIdsInRoom(roomId: RoomId): List<SyncId>
 
-    suspend fun allSyncIds(): List<Uuid>
+    suspend fun allSyncIds(): List<SyncId>
 
     /**
      * Appends [accountIds] to [syncId]'s candidates (insert-if-absent). The
@@ -64,7 +65,7 @@ internal interface PendingSyncRepository {
      * a candidate for the rows it touches — append-only, never replace, so one
      * trigger's candidates never evict another's.
      */
-    suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>)
+    suspend fun addCandidateAccounts(syncId: SyncId, accountIds: List<AccountId>)
 
     /**
      * Appends [accountIds] to every pending sync row in [roomId]
@@ -74,7 +75,7 @@ internal interface PendingSyncRepository {
     suspend fun appendCandidateAccountsForRoom(roomId: RoomId, accountIds: List<AccountId>)
 
     // Finds the sync targeting [targetMessageId] in the given [roomId].
-    suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSync?
+    suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: MessageId): PendingSync?
 }
 
 internal class DefaultPendingSyncRepository(
@@ -85,9 +86,9 @@ internal class DefaultPendingSyncRepository(
     private val queries = database.syncQueries
 
     override suspend fun insertSync(
-        syncId: Uuid,
+        syncId: SyncId,
         roomId: RoomId,
-        targetMessageId: Uuid,
+        targetMessageId: MessageId,
         candidateAccounts: List<AccountId>,
     ) {
         withContext(dbDispatcher) {
@@ -102,19 +103,19 @@ internal class DefaultPendingSyncRepository(
         }
     }
 
-    override suspend fun deleteSync(syncId: Uuid) {
+    override suspend fun deleteSync(syncId: SyncId) {
         withContext(dbDispatcher) {
             queries.deleteSync(syncId)
         }
     }
 
-    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid) {
+    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: MessageId) {
         withContext(dbDispatcher) {
             queries.deleteSyncsByTarget(roomId, targetMessageId)
         }
     }
 
-    override suspend fun buildSyncRequest(syncId: Uuid): SyncPayload.Request? =
+    override suspend fun buildSyncRequest(syncId: SyncId): SyncPayload.Request? =
         withContext(dbDispatcher) {
             val row = queries.selectSyncById(syncId).executeAsOneOrNull() ?: return@withContext null
             if (database.messageQueries.selectMessageById(row.target_message_id).executeAsOneOrNull() != null) {
@@ -130,27 +131,27 @@ internal class DefaultPendingSyncRepository(
             )
         }
 
-    override suspend fun candidateAccounts(syncId: Uuid): List<AccountId> =
+    override suspend fun candidateAccounts(syncId: SyncId): List<AccountId> =
         withContext(dbDispatcher) {
             queries.selectCandidateAccountsForSync(syncId).executeAsList()
         }
 
-    override suspend fun syncIdsWithCandidate(accountId: AccountId): List<Uuid> =
+    override suspend fun syncIdsWithCandidate(accountId: AccountId): List<SyncId> =
         withContext(dbDispatcher) {
             queries.selectSyncIdsWithCandidate(accountId).executeAsList()
         }
 
-    override suspend fun syncIdsInRoom(roomId: RoomId): List<Uuid> =
+    override suspend fun syncIdsInRoom(roomId: RoomId): List<SyncId> =
         withContext(dbDispatcher) {
             queries.selectSyncIdsInRoom(roomId).executeAsList()
         }
 
-    override suspend fun allSyncIds(): List<Uuid> =
+    override suspend fun allSyncIds(): List<SyncId> =
         withContext(dbDispatcher) {
             queries.selectAllSyncIds().executeAsList()
         }
 
-    override suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>) {
+    override suspend fun addCandidateAccounts(syncId: SyncId, accountIds: List<AccountId>) {
         withContext(dbDispatcher) {
             accountIds.forEach { accountId ->
                 queries.insertPendingSyncCandidateAccount(syncId, accountId)
@@ -166,7 +167,7 @@ internal class DefaultPendingSyncRepository(
         }
     }
 
-    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSync? =
+    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: MessageId): PendingSync? =
         withContext(dbDispatcher) {
             queries.findSyncByTarget(roomId, targetMessageId).executeAsOneOrNull()?.toRow()
         }

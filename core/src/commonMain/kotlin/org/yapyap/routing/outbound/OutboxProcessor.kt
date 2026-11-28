@@ -61,11 +61,9 @@ internal class OutboxProcessor(
      * may want to try that peer now.
      */
     private val linkKeeper: LinkKeeper,
-    relaySelection: RelaySelectionPolicy,
+    /** Picks the relays a message's store-and-forward copies go to (see [backUpToRelays]). */
+    private val relaySelection: RelaySelectionPolicy,
 ) {
-    /** Makes the store-and-forward copies of rows still owing a backup (see [backUpToRelays]). */
-    private val relayDepositor = RelayDepositor(ctx, relaySelection)
-
     /**
      * Peers whose last Tor dispatch failed with [TransportException.TorException.OnionNotFound].
      * Tor remembers such misses for minutes, so once the peer is known to be online again
@@ -136,6 +134,9 @@ internal class OutboxProcessor(
     /** Whether an entry carrying [tag] is still queued. */
     suspend fun hasQueued(tag: OutboxTag): Boolean = packetOutbox.hasTagged(tag)
 
+    /** Whether [packetId]'s entry is still queued. */
+    suspend fun isQueued(packetId: Uuid): Boolean = packetOutbox.isQueued(packetId)
+
     /** Whether [packetId] is a bootstrap packet in our outbox addressed to [target]. */
     suspend fun isPendingBootstrapTo(target: PeerId, packetId: Uuid): Boolean =
         packetOutbox.listAllForTarget(target).any {
@@ -197,7 +198,7 @@ internal class OutboxProcessor(
     suspend fun backUpToRelays(envelope: BinaryEnvelope, reason: String): Int {
         if (!packetOutbox.claimRelayBackup(envelope.packetId)) return 0
         val copies = try {
-            relayDepositor.copies(envelope).onEach { copy ->
+            relayCopies(envelope).onEach { copy ->
                 packetOutbox.enqueue(copy, ctx.clock.now())
             }.size
         } catch (e: CancellationException) {
@@ -225,6 +226,25 @@ internal class OutboxProcessor(
         )
         return copies
     }
+
+    /**
+     * One store-and-forward copy of the direct message [direct] per relay [relaySelection] picks
+     * for its recipient: the same routing header and content in a new envelope, signed by us and
+     * expiring with the original (a copy never outlives what it copies). Relays hold a copy and
+     * forward it once the recipient surfaces, so delivery doesn't need the sender and the
+     * recipient online at the same time.
+     */
+    private suspend fun relayCopies(direct: BinaryEnvelope): List<BinaryEnvelope> =
+        relaySelection.selectRelays(direct.target).map { relay ->
+            ctx.envelope(
+                packetType = direct.packetType,
+                target = relay,
+                routingHeader = direct.routingHeader,
+                content = direct.content,
+                expiresAt = direct.expiresAt,
+                dispositionRequested = true,
+            )
+        }
 
     /** [peerId] proved it is up (inbound traffic) or a link to it opened: its entries go now. */
     suspend fun onPeerOnline(peerId: PeerId) {

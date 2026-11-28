@@ -36,15 +36,16 @@ routing/
                           LocalLinkStatus
   inbound/                InboundEnvelopeHandler, InboundEnvelopeProcessor, and the two
                           kernel-owned family handlers: SystemInboundHandler, SignalInboundHandler
-  outbound/               EnvelopeDispatcher, OutboxProcessor, RetryLoop, SystemSender,
-                          RelayCopies, WebRtcSignaler
+  outbound/               EnvelopeDispatcher, OutboxProcessor (incl. relay copies), RetryLoop,
+                          SystemSender, WebRtcSignaler
   presence/               PresenceService, PingProvider, PeerAvailabilityRegistry
-  link/                   PeerLinks, LinkKeeper
+  link/                   PeerLinks (device-keyed links over every transport), TorPeerSessions
+                          (Tor's endpoint-keyed sessions re-keyed by device id), LinkKeeper
   policy/                 outbound/relay/sync policies
   candidate/              shared candidate-asking loop: CandidateStrategy (what every loop
-                          plugs in), OutboxAttemptStrategy (the packet half, carried by the
+                          plugs in, including its CandidateLedger), OutboxAttemptStrategy (the packet half, carried by the
                           outbox executor), CandidateRequestCore (engine)
-  store/                  routing-owned stores, OutboxTag, PacketStoreMaintenance
+  store/                  routing-owned stores, OutboxTag (sealed, typed ids), PacketStoreMaintenance
   message/                MessageService (+ inbound face, pull processor, messenger, ports)
   bootstrap/              BootstrapService (+ sender, inbound handler)
   file/                   FileService (+ port/, seal/, transfer/, relay/, inbound/, large/)
@@ -157,7 +158,11 @@ Owns outbox retry orchestration and the internal `RetryLoop`:
   terminal): removes the row and reports its outcome (applied by `InboundEnvelopeProcessor` on
   `InboundSideEffect.OutboxDisposition`). Expiry is the other exit, in `processDue()`.
 - `outcomes` — how each tagged entry left (`OutboxOutcome`: acked / nacked / expired); `DefaultRouter` routes
-  them by `OutboxTag.Kind` (message and bootstrap ACKs to `Router.deliveries`, sync attempts to `MessagePullProcessor`)
+  them by `OutboxTag.Kind` to the `OutcomeConsumer` that owns the kind (message ACKs to `MessageCarrier.deliveries`
+  by message id, bootstrap ACKs to `BootstrapCarrier.deliveries` by target device, sync attempts to
+  `MessagePullProcessor`). A tag carries its owner's typed correlation id (`Message(MessageId)`, `Sync(SyncId)`,
+  `FileTransfer(TransferId)`), stored in the same row as the packet; `Bootstrap` and `FileRequest` carry none (file
+  REQUESTs correlate by their packet id on the pull-attempt row)
 - `enqueueAndWake(envelope, nextRetryAt, tag = …)` — enqueue outbound send + wake loop (used by `OutboundMessenger`, `BootstrapSender`, `MessagePullProcessor`)
 - `recordSendAttempt(packetId, nextRetryAt, now)` — record dispatch attempt after immediate send
 - `wake()` — notify retry loop
@@ -196,10 +201,12 @@ Subscribes to `webRtcTransport.outgoingBootstrapSignals` in its own `runIn(scope
   build the kernel and the four services here: the kernel and services reference each other (the
   outbox needs the services' relay copies; the services need the outbox), which one composition
   root resolves with deferred references. Routing is its own composition root below wiring
-- build `PeerLinks` + `RoutingContext` in wiring, never here — the context is ambient facts
+- build `TorPeerSessions` + `RoutingContext` in wiring, never here — the context is ambient facts (it
+  derives `PeerLinks` from its transports)
 - own the transport subscriptions (inbound collectors, disposition scope, WebRTC signaler) and
-  route tagged outbox outcomes to the owning `RouterService`'s mailbox (each service declares the tag
-  kinds it owns)
+  route tagged outbox outcomes to the owning `OutcomeConsumer`'s mailbox (each declares the tag
+  kinds it owns). Every service is a `RouterService` (`runIn`); presence starts before the transports so
+  `localLinkStatus` mirrors Tor's bootstrap, the others once the transports are up
 - expose the services (`sendMessage` to `OutboundMessenger`, files to `FileService` (which is the `FileCarrier`))
 - read the Tor endpoint from `TorTransport.localTorEndpoint`; it caches no copy
 - file-transfer sizes arrive as the composition root's `FileLimits` piece (chained from the

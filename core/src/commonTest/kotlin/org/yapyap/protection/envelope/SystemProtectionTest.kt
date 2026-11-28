@@ -7,6 +7,7 @@ import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.FakeIdentityResolverForProtection
 import org.yapyap.protection.samplePacketAckPayload
 import org.yapyap.protection.samplePacketNackPayload
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -108,7 +109,7 @@ class SystemProtectionTest {
             pingId = Uuid.random(),
             isReply = false,
             selfReportedAvailability = 0.5,
-            roomFrontiers = listOf(RoomId(Uuid.random()) to listOf(Uuid.random())),
+            roomFrontiers = listOf(RoomId(Uuid.random()) to listOf(MessageId(Uuid.random()))),
         )
         val decoded = SystemPayload.decode(payload.encode()) as SystemPayload.Ping
         assertEquals(payload.pingId, decoded.pingId)

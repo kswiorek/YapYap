@@ -1,7 +1,9 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -54,9 +56,9 @@ class SystemEnvelopeCodecTest {
         // not as SYSTEM. The codec itself is unchanged; the family moved.
         val original = SyncPayload.Request(
             roomId = RoomId(Uuid.random()),
-            syncId = Uuid.random(),
-            missingIds = listOf(Uuid.random(), Uuid.random()),
-            knownIds = listOf(Uuid.random()),
+            syncId = SyncId(Uuid.random()),
+            missingIds = listOf(MessageId(Uuid.random()), MessageId(Uuid.random())),
+            knownIds = listOf(MessageId(Uuid.random())),
         )
         val decoded = SyncPayload.Request.decode(original.encode())
         assertSyncRequestEquals(original, decoded)
@@ -69,8 +71,8 @@ class SystemEnvelopeCodecTest {
             isReply = false,
             selfReportedAvailability = 0.2,
             roomFrontiers = listOf(
-                RoomId(Uuid.random()) to listOf(Uuid.random(), Uuid.random()),
-                RoomId(Uuid.random()) to listOf(Uuid.random()),
+                RoomId(Uuid.random()) to listOf(MessageId(Uuid.random()), MessageId(Uuid.random())),
+                RoomId(Uuid.random()) to listOf(MessageId(Uuid.random())),
             ),
         )
         val decoded = SystemPayload.Ping.decode(original.encode())

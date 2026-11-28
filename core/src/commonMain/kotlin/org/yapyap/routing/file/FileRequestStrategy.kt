@@ -7,7 +7,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.FileRequest
 import org.yapyap.routing.candidate.AttemptState
 import org.yapyap.routing.candidate.BuiltAttempt
-import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateLedger
 import org.yapyap.routing.candidate.CandidateStrategy
 import org.yapyap.routing.candidate.OutboxAttemptStrategy
 import org.yapyap.routing.candidate.SuccessAction
@@ -20,7 +20,6 @@ import org.yapyap.routing.store.FilePullAttemptStore
 import org.yapyap.routing.store.FilePullClass
 import org.yapyap.routing.store.OutboxTag
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /** Small-path plug into the shared candidate core: coverage-built REQUESTs, ACK→WAITING. */
 internal class FileRequestStrategy(
@@ -31,7 +30,7 @@ internal class FileRequestStrategy(
     private val outbox: OutboxProcessor,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId>, OutboxAttemptStrategy<FileId> {
-    override val attempts: CandidateAttemptStore<FileId> = pullAttempts.candidateStore(FilePullClass.SMALL)
+    override val ledger: CandidateLedger<FileId> = pullAttempts.candidateLedger(FilePullClass.SMALL)
 
     override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)
 
@@ -55,24 +54,24 @@ internal class FileRequestStrategy(
             sealedContent = ctx.envelopeProtections.file.sealRequest(request, device),
             expiresAt = now + ctx.routerConfig.value.filePullAttemptTimeout,
         )
-        // The attempt's id correlates its outbox outcome back to the file.
-        return BuiltAttempt(envelope, OutboxTag(OutboxTag.Kind.FILE_REQUEST, Uuid.random()))
+        return BuiltAttempt(envelope, OutboxTag.FileRequest)
     }
 
     override suspend fun afterEnqueue(id: FileId, built: BuiltAttempt) {
-        pullAttempts.setAttempt(id, built.tag.id)
+        // The request's packet id correlates its outbox outcome back to the file.
+        pullAttempts.setRequestPacket(id, built.envelope.packetId)
     }
 
     override suspend fun attemptState(id: FileId): AttemptState {
         val row = pullAttempts.findById(id) ?: return AttemptState.None
-        val attemptId = row.attemptId ?: return AttemptState.None
-        val queued = outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE_REQUEST, attemptId))
+        val packetId = row.requestPacketId ?: return AttemptState.None
+        val queued = outbox.isQueued(packetId)
         return if (queued) AttemptState.Pending else AttemptState.None
     }
 
     override suspend fun resolveOutcome(outcome: OutboxOutcome): FileId? {
-        if (outcome.tag.kind != OutboxTag.Kind.FILE_REQUEST) return null
-        return pullAttempts.findByAttemptId(outcome.tag.id)?.fileId
+        if (outcome.tag != OutboxTag.FileRequest) return null
+        return pullAttempts.findByRequestPacketId(outcome.packetId)?.fileId
     }
 
     override suspend fun onSuccess(id: FileId, device: PeerId): SuccessAction {
@@ -81,7 +80,7 @@ internal class FileRequestStrategy(
     }
 
     override suspend fun onExhausted(id: FileId): Boolean {
-        attempts.drop(id)
+        ledger.drop(id)
         fileGuarded("Failed to emit request-unavailable event; the request is already dropped") {
             events.emit(FileEvent.RequestUnavailable(id))
         }

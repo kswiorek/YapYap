@@ -15,8 +15,10 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.PendingSync
 import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SyncId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.SyncPayload
@@ -52,7 +54,6 @@ import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /** [InboundMessagePipeline] whose [ingestResults] can be driven manually. */
 internal class FakeInboundMessagePipeline : InboundMessagePipeline {
@@ -71,9 +72,9 @@ internal class FakeInboundMessagePipeline : InboundMessagePipeline {
  * [buildSyncRequest], mirroring the real repository (which never stores knownIds).
  */
 internal class FakePendingSyncRepository(
-    private val frontierOf: suspend (RoomId) -> List<Uuid> = { emptyList() },
+    private val frontierOf: suspend (RoomId) -> List<MessageId> = { emptyList() },
 ) : PendingSyncRepository {
-    private val rows = linkedMapOf<Uuid, PendingSync>()
+    private val rows = linkedMapOf<SyncId, PendingSync>()
     private val mutex = Mutex()
 
     // Test-only concurrency: multithreaded tests (Dispatchers.Default
@@ -81,9 +82,9 @@ internal class FakePendingSyncRepository(
     // (Mutex import kept for the withLock calls below.)
 
     override suspend fun insertSync(
-        syncId: Uuid,
+        syncId: SyncId,
         roomId: RoomId,
-        targetMessageId: Uuid,
+        targetMessageId: MessageId,
         candidateAccounts: List<AccountId>,
     ) = mutex.withLock {
         if (rows.values.none { it.roomId == roomId && it.targetMessageId == targetMessageId }) {
@@ -91,17 +92,17 @@ internal class FakePendingSyncRepository(
         }
     }
 
-    override suspend fun deleteSync(syncId: Uuid) {
+    override suspend fun deleteSync(syncId: SyncId) {
         mutex.withLock { rows.remove(syncId) }
     }
 
-    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid) {
+    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: MessageId) {
         mutex.withLock {
             rows.entries.removeAll { (_, row) -> row.roomId == roomId && row.targetMessageId == targetMessageId }
         }
     }
 
-    override suspend fun buildSyncRequest(syncId: Uuid): SyncPayload.Request? {
+    override suspend fun buildSyncRequest(syncId: SyncId): SyncPayload.Request? {
         // Snapshot under lock, then build outside it: frontierOf is caller
         // code and must never run under this mutex (non-reentrant).
         val row = mutex.withLock { rows[syncId] } ?: return null
@@ -113,18 +114,18 @@ internal class FakePendingSyncRepository(
         )
     }
 
-    override suspend fun candidateAccounts(syncId: Uuid): List<AccountId> =
+    override suspend fun candidateAccounts(syncId: SyncId): List<AccountId> =
         mutex.withLock { rows[syncId]?.candidateAccounts.orEmpty() }
 
-    override suspend fun syncIdsWithCandidate(accountId: AccountId): List<Uuid> =
+    override suspend fun syncIdsWithCandidate(accountId: AccountId): List<SyncId> =
         mutex.withLock { rows.values.filter { accountId in it.candidateAccounts }.map { it.syncId } }
 
-    override suspend fun syncIdsInRoom(roomId: RoomId): List<Uuid> =
+    override suspend fun syncIdsInRoom(roomId: RoomId): List<SyncId> =
         mutex.withLock { rows.values.filter { it.roomId == roomId }.map { it.syncId } }
 
-    override suspend fun allSyncIds(): List<Uuid> = mutex.withLock { rows.keys.toList() }
+    override suspend fun allSyncIds(): List<SyncId> = mutex.withLock { rows.keys.toList() }
 
-    override suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>) {
+    override suspend fun addCandidateAccounts(syncId: SyncId, accountIds: List<AccountId>) {
         mutex.withLock {
             rows[syncId]?.let {
                 rows[syncId] = it.copy(candidateAccounts = (it.candidateAccounts + accountIds).distinct())
@@ -139,7 +140,7 @@ internal class FakePendingSyncRepository(
             }
         }
 
-    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSync? =
+    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: MessageId): PendingSync? =
         mutex.withLock { rows.values.firstOrNull { it.roomId == roomId && it.targetMessageId == targetMessageId } }
 
     suspend fun all(): List<PendingSync> = mutex.withLock { rows.values.toList() }
@@ -156,11 +157,11 @@ internal class RecordingSyncPayloadProvider(
     val requests = mutableListOf<SyncPayload.Request>()
     val requesters = mutableListOf<AccountId>()
 
-    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? = pending.buildSyncRequest(syncId)
+    override suspend fun syncRequest(syncId: SyncId): SyncPayload.Request? = pending.buildSyncRequest(syncId)
 
-    override suspend fun syncCandidates(syncId: Uuid): List<AccountId> = pending.candidateAccounts(syncId)
+    override suspend fun syncCandidates(syncId: SyncId): List<AccountId> = pending.candidateAccounts(syncId)
 
-    override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> = pending.syncIdsWithCandidate(account)
+    override suspend fun syncsWithCandidate(account: AccountId): List<SyncId> = pending.syncIdsWithCandidate(account)
 
     override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> {
         requests.add(request)
@@ -171,8 +172,8 @@ internal class RecordingSyncPayloadProvider(
 
 /** Router stand-in for orchestrator-side sync tests: records what the coordinator asks of it. */
 internal class RecordingSyncRouter {
-    val started = mutableListOf<Pair<Uuid, Instant>>()
-    val reopened = mutableListOf<Pair<Uuid, AccountId>>()
+    val started = mutableListOf<Pair<SyncId, Instant>>()
+    val reopened = mutableListOf<Pair<SyncId, AccountId>>()
     val sent = mutableListOf<Pair<AccountId, DagPayload>>()
 
     val messages: MessageCarrier = object : NoopMessageCarrier() {
@@ -181,11 +182,11 @@ internal class RecordingSyncRouter {
         override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
         override val frontiers: Flow<PingFrontiers> = emptyFlow()
 
-        override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
+        override suspend fun startSync(syncId: SyncId, firstAttemptAt: Instant) {
             started += syncId to firstAttemptAt
         }
 
-        override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
+        override suspend fun reopenSync(syncId: SyncId, account: AccountId) {
             reopened += syncId to account
         }
 
@@ -245,15 +246,17 @@ internal fun buildSyncRoutingStack(
         routerConfig = routerConfig,
         protections = PassthroughFakeEnvelopeProtectionService(),
     )
+    // The recording transport has a session to every endpoint; bind them as a dial would.
+    torByPeer.forEach { (peer, endpoint) -> ctx.torPeers.bind(peer, endpoint) }
 
-    val dispatcher = EnvelopeDispatcher(ctx, identity)
+    val dispatcher = EnvelopeDispatcher(ctx)
     val policy = LinkPreferencePolicy(MutableStateFlow(routerConfig))
     val outbox = TrackingPacketOutbox()
     val availabilityRegistry =
         PeerAvailabilityRegistry(clock, MutableStateFlow(routerConfig), FakePeerAvailabilityStore())
     val torLinkKeeper = LinkKeeper(
         name = "Tor-test",
-        sessions = ctx.peerLinks.tor,
+        sessions = ctx.torPeers,
         targets = { emptyList() },
         ready = flowOf(false),
         config = MutableStateFlow(routerConfig.torLinkKeeperConfig),

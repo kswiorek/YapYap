@@ -33,6 +33,16 @@ public value class RoomId(public val value: Uuid) {
     }
 }
 
+/** A DAG message, content-addressed by its author at creation and the same on every device. */
+@JvmInline
+public value class MessageId(public val value: Uuid) : Comparable<MessageId> {
+    override fun compareTo(other: MessageId): Int = value.compareTo(other.value)
+}
+
+/** One sync: a request for a missing DAG message and its ancestry, tracked until it arrives. */
+@JvmInline
+public value class SyncId(public val value: Uuid)
+
 public data class TorEndpoint(
     val onionAddress: String,
     val port: Int = 80,

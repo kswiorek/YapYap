@@ -8,13 +8,13 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import kotlin.time.Clock
-import kotlin.uuid.Uuid
 
 /** One committed `room_members` row: the fold's member-at-some-point record. */
 internal data class RoomMember(
@@ -26,7 +26,7 @@ internal data class RoomMember(
      * bounded sync serve + ping-contradiction re-push). Null on ACTIVE rows and on
      * GLOBAL rows (no room-DAG removal exists there).
      */
-    val removalNodeId: Uuid? = null,
+    val removalNodeId: MessageId? = null,
 )
 
 /** One `rooms` row: genesis-merged display state (provisional UNKNOWN until the fold commits). */
@@ -79,7 +79,7 @@ internal interface RoomRepository {
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus = RoomMemberStatus.ACTIVE,
-        removalNodeId: Uuid? = null,
+        removalNodeId: MessageId? = null,
     )
 
     /**
@@ -176,7 +176,7 @@ internal class DefaultRoomRepository(
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
-        removalNodeId: Uuid?,
+        removalNodeId: MessageId?,
     ) {
         withContext(dbDispatcher) {
             database.roomQueries.insertRoomMember(roomId, accountId, role, status, removalNodeId, Clock.System.now())

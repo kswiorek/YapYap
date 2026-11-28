@@ -23,6 +23,7 @@ CREATE TABLE outbox (
     last_attempt_at INTEGER AS Instant NOT NULL,
     next_retry_at INTEGER AS Instant NOT NULL,
     -- What the packet is for (OutboxTag): who hears about its outcome. NULL: nobody waits.
+    -- tag_id is the owner's correlation id; NULL for owners that correlate by packet_id.
     tag_kind INTEGER,
     tag_id TEXT AS Uuid,
     -- Retry schedule (design 6.2): 0 standard message backoff and 1 flat for file chunks.
@@ -114,6 +115,9 @@ WHERE expires_at <= ?;
 
 hasTagged:
 SELECT EXISTS(SELECT 1 FROM outbox WHERE tag_kind = :kind AND tag_id = :id);
+
+isQueued:
+SELECT EXISTS(SELECT 1 FROM outbox WHERE packet_id = ?);
 
 deleteExpired:
 DELETE FROM outbox

@@ -3,7 +3,6 @@ package org.yapyap.routing.outbound
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.routing.router.DeviceRouteStore
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.tor.TorLinkId
@@ -11,7 +10,6 @@ import kotlin.time.Duration
 
 internal class EnvelopeDispatcher(
     private val ctx: RoutingContext,
-    private val routes: DeviceRouteStore,
 ) {
     suspend fun dispatch(
         envelope: BinaryEnvelope,
@@ -30,7 +28,7 @@ internal class EnvelopeDispatcher(
     ) {
         when (transport) {
             RouterTransport.TOR -> ctx.torTransport.send(
-                endpointOverride ?: routes.resolveTorEndpointForDevice(envelope.target)
+                endpointOverride ?: ctx.torPeers.resolve(envelope.target)
                 ?: throw NoKnownEndpointException(envelope.target),
                 envelope,
                 torBudget,

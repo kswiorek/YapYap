@@ -289,7 +289,7 @@ internal class SealRegistry(
             val shape = direct.shape
             val byteFrom = shape.chunkOffset(direct.contiguousAcked + 1).coerceAtMost(shape.byteTo)
             if (byteFrom >= shape.byteTo && shape.chunkCount > 0) return@withLock null
-            val relays = relaySelection.selectRelays(seal.targetDevice).filter { it != seal.targetDevice }
+            val relays = relaySelection.selectRelays(seal.targetDevice)
             if (relays.isEmpty()) return@withLock null
             if (!sealStore.claimDeposit(seal.sealId, ctx.clock.now())) return@withLock null
             DepositPlan(current, relays, TransferShape(shape.chunkSizeBytes, byteFrom, shape.byteTo), byteFrom)

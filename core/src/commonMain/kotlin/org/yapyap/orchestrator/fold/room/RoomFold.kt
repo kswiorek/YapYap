@@ -1,10 +1,10 @@
 package org.yapyap.orchestrator.fold.room
 
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessageId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.RoomEventPayload
-import kotlin.uuid.Uuid
 
 /**
  * Pure fold core of a chat room's membership DAG (see docs/room events.md).
@@ -16,7 +16,7 @@ import kotlin.uuid.Uuid
  * they are needed for ancestry closures and canonical positions but never exercise
  * authority. */
 internal data class RoomFoldNode(
-    val id: Uuid,
+    val id: MessageId,
     val authorAccountId: AccountId,
     val event: RoomEventPayload?,
 )
@@ -28,7 +28,7 @@ internal data class RoomFoldNode(
  * Its author becomes owner by definition; [ownerAccountId] is the adapter-resolved owner
  * (carried for call-site symmetry with the global `GenesisInfo`).
  */
-internal data class RoomGenesisInfo(val nodeId: Uuid, val ownerAccountId: AccountId)
+internal data class RoomGenesisInfo(val nodeId: MessageId, val ownerAccountId: AccountId)
 
 /**
  * Chain-derived member projection. Removal is a status, never a role.
@@ -40,7 +40,7 @@ internal data class FoldRoomMember(
     val accountId: AccountId,
     val role: RoomMemberRole,
     val status: RoomMemberStatus,
-    val removalNodeId: Uuid? = null,
+    val removalNodeId: MessageId? = null,
 )
 
 /**
@@ -57,7 +57,7 @@ internal data class RoomFoldOutput(
 internal data class RoomReplayResult(
     val output: RoomFoldOutput,
     /** First-in-canonical-order defining seal node per sealed account. */
-    val seals: Map<AccountId, Uuid>,
+    val seals: Map<AccountId, MessageId>,
 )
 
 /**
@@ -66,7 +66,7 @@ internal data class RoomReplayResult(
  * interval-scoped seal.
  */
 internal data class RoomRevocationState(
-    val seals: Map<AccountId, Uuid>,
+    val seals: Map<AccountId, MessageId>,
 )
 
 /**
@@ -86,9 +86,9 @@ private val roomRevocationRank = compareBy<RoomReplayResult>(
  * oracles, so unlike the global driver this needs no coroutine context.
  */
 internal fun roomFoldToFixpoint(
-    order: List<Uuid>,
-    nodes: Map<Uuid, RoomFoldNode>,
-    ancestors: Map<Uuid, Set<Uuid>>,
+    order: List<MessageId>,
+    nodes: Map<MessageId, RoomFoldNode>,
+    ancestors: Map<MessageId, Set<MessageId>>,
     genesis: RoomGenesisInfo?,
     onOscillation: () -> Unit = {},
     onWalk: (walkIndex: Int, result: RoomReplayResult) -> Unit = { _, _ -> },
@@ -126,22 +126,22 @@ internal fun roomFoldToFixpoint(
  * from [ancestors] is in [order].
  */
 internal fun replayRoomFold(
-    order: List<Uuid>,
-    nodes: Map<Uuid, RoomFoldNode>,
-    ancestors: Map<Uuid, Set<Uuid>>,
+    order: List<MessageId>,
+    nodes: Map<MessageId, RoomFoldNode>,
+    ancestors: Map<MessageId, Set<MessageId>>,
     genesis: RoomGenesisInfo?,
-    carriedSeals: Map<AccountId, Uuid>,
+    carriedSeals: Map<AccountId, MessageId>,
 ): RoomReplayResult {
     val members = LinkedHashMap<AccountId, FoldRoomMember>()
     var owner: AccountId? = null
-    val walkSeals = LinkedHashMap<AccountId, Uuid>()
+    val walkSeals = LinkedHashMap<AccountId, MessageId>()
     // Canonical positions, for the seal order gate below.
-    val positionOf = HashMap<Uuid, Int>(order.size)
+    val positionOf = HashMap<MessageId, Int>(order.size)
     for ((index, id) in order.withIndex()) positionOf[id] = index
 
     // Merged seal view: this walk's discoveries shadow the carried ones (identical in the
     // common case — the replay is deterministic over a fixed canonical order).
-    fun sealOf(account: AccountId): Uuid? = walkSeals[account] ?: carriedSeals[account]
+    fun sealOf(account: AccountId): MessageId? = walkSeals[account] ?: carriedSeals[account]
 
     fun isActive(account: AccountId): Boolean =
         members[account]?.status == RoomMemberStatus.ACTIVE
@@ -155,7 +155,7 @@ internal fun replayRoomFold(
         else -> false
     }
 
-    fun mutuallyRevoked(seal: Uuid, id: Uuid, event: RoomEventPayload, author: AccountId): Boolean {
+    fun mutuallyRevoked(seal: MessageId, id: MessageId, event: RoomEventPayload, author: AccountId): Boolean {
         if (id in ancestors.getValue(seal) || seal in ancestors.getValue(id)) return false
         val sealNode = nodes[seal] ?: return false
         val sealEvent = sealNode.event ?: return false
@@ -163,7 +163,7 @@ internal fun replayRoomFold(
                 revokesPrincipal(sealEvent, author)
     }
 
-    fun effectiveAdmin(account: AccountId, id: Uuid, event: RoomEventPayload): Boolean {
+    fun effectiveAdmin(account: AccountId, id: MessageId, event: RoomEventPayload): Boolean {
         val member = members[account] ?: return false
         if (member.status != RoomMemberStatus.ACTIVE) return false
         if (member.role == RoomMemberRole.ADMIN || member.role == RoomMemberRole.OWNER) return true
@@ -177,7 +177,7 @@ internal fun replayRoomFold(
 
     // Seal: voids admin-gated events at-or-before the seal that sit outside its ancestry.
     // Post-seal events are positional (re-grants reopen).
-    fun sealed(account: AccountId, id: Uuid, event: RoomEventPayload): Boolean {
+    fun sealed(account: AccountId, id: MessageId, event: RoomEventPayload): Boolean {
         val seal = sealOf(account) ?: return false
         if (seal == id) return false
         if (mutuallyRevoked(seal, id, event, account)) return false
@@ -186,7 +186,7 @@ internal fun replayRoomFold(
     }
 
     /** Mint the interval-scoped seal on [target]; first in canonical order defines it. */
-    fun mintSeal(target: AccountId, id: Uuid) {
+    fun mintSeal(target: AccountId, id: MessageId) {
         if (target !in walkSeals) walkSeals[target] = id
     }
 

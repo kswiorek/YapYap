@@ -32,6 +32,7 @@ import org.yapyap.routing.file.inbound.FileInboundHandler
 import org.yapyap.routing.file.inbound.FileServeHandler
 import org.yapyap.routing.file.inbound.TargetSide
 import org.yapyap.routing.file.large.LargeFileService
+import org.yapyap.routing.file.onOutcome
 import org.yapyap.routing.file.seal.SealRegistry
 import org.yapyap.routing.file.transfer.TransferEngine
 import org.yapyap.routing.link.LinkKeeper
@@ -168,7 +169,7 @@ class FileRelayTest {
             clock = clock,
         )
         val idleKeeper = LinkKeeper(
-            name = "idle", sessions = ctx.peerLinks.tor, targets = { emptyList() },
+            name = "idle", sessions = ctx.torPeers, targets = { emptyList() },
             ready = flowOf(false), config = MutableStateFlow(config.torLinkKeeperConfig), clock = clock,
         )
         val requestProcessor = org.yapyap.routing.file.FilePullProcessor(
@@ -363,7 +364,7 @@ class FileRelayTest {
         // Marker ACKed → every stored chunk streams from the store.
         h.engine.onOutcome(
             OutboxOutcome.Acked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, forward.transferId.value),
+                OutboxTag.FileTransfer(forward.transferId),
                 h.targetId,
                 marker.first.packetId
             )
@@ -381,7 +382,7 @@ class FileRelayTest {
         for ((env, _) in forwardedChunks) {
             h.engine.onOutcome(
                 OutboxOutcome.Acked(
-                    OutboxTag(OutboxTag.Kind.FILE_TRANSFER, forward.transferId.value),
+                    OutboxTag.FileTransfer(forward.transferId),
                     h.targetId,
                     env.packetId
                 )
@@ -401,7 +402,7 @@ class FileRelayTest {
         val forward = h.transfers.bySourceTransfer(transferId).single()
         h.engine.onOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_TRANSFER, forward.transferId.value),
+                OutboxTag.FileTransfer(forward.transferId),
                 h.targetId,
                 h.sent.single().first.packetId,
                 PacketNackReason.DECLINED
