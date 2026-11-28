@@ -18,13 +18,13 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.testTorPeers
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -168,7 +168,7 @@ class CandidateCoreTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            torPeers = TorPeerSessions(identity, tor),
+            torPeers = testTorPeers(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),

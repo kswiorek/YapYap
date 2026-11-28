@@ -23,7 +23,6 @@ import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.file.large.LargeFileService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
@@ -35,6 +34,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
+import org.yapyap.routing.router.testTorPeers
 import org.yapyap.routing.store.FilePullClass
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.testfixtures.FakeClock
@@ -152,7 +152,7 @@ class FilePullProcessorTest {
             devices = identity,
             torTransport = tor,
             webRtcTransport = webRtc,
-            torPeers = TorPeerSessions(identity, tor),
+            torPeers = testTorPeers(identity, tor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(220 * 1024, 220 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService(),
@@ -225,8 +225,8 @@ class FilePullProcessorTest {
     fun ack_movesToWaitingWithoutNewAttempt() = kotlinx.coroutines.runBlocking {
         val h = harness()
         h.request()
-        val (_, tag) = h.queuedRequest()
-        h.processor.onAttemptOutcome(OutboxOutcome.Acked(tag, holderDevice, Uuid.random()))
+        val (packet, tag) = h.queuedRequest()
+        h.processor.onAttemptOutcome(OutboxOutcome.Acked(tag, holderDevice, packet.packetId))
         val row = assertNotNull(h.attempts.findById(fileId))
         assertEquals(holderDevice, row.waitingDevice)
         h.runFor()
@@ -248,9 +248,9 @@ class FilePullProcessorTest {
     fun declined_movesToNextCandidate() = kotlinx.coroutines.runBlocking {
         val h = harness(devices = listOf(holderDevice, otherDevice))
         h.request()
-        val (_, tag) = h.queuedRequest()
+        val (packet, tag) = h.queuedRequest()
         h.processor.onAttemptOutcome(
-            OutboxOutcome.Nacked(tag, holderDevice, Uuid.random(), PacketNackReason.DECLINED)
+            OutboxOutcome.Nacked(tag, holderDevice, packet.packetId, PacketNackReason.DECLINED)
         )
         assertTrue(holderDevice in h.attempts.declinedDevices(fileId))
     }
@@ -290,8 +290,8 @@ class FilePullProcessorTest {
             job.cancel()
             scope.cancel()
         }
-        val (_, firstTag) = h.outbox.enqueued.single().let { it to h.outbox.tagOf(it.packetId)!! }
-        h.processor.onAttemptOutcome(OutboxOutcome.Acked(firstTag, holderDevice, Uuid.random()))
+        val (first, firstTag) = h.outbox.enqueued.single().let { it to h.outbox.tagOf(it.packetId)!! }
+        h.processor.onAttemptOutcome(OutboxOutcome.Acked(firstTag, holderDevice, first.packetId))
         // The holder never sends its OFFER: advance past the wait timeout.
         (h.ctx.clock as FakeClock).advanceBy(91.seconds)
         h.policy.nextDevice = otherDevice

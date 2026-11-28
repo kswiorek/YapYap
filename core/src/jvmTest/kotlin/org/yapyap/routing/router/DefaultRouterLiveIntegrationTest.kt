@@ -22,7 +22,6 @@ import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -132,7 +131,7 @@ class DefaultRouterLiveIntegrationTest {
             tor: org.yapyap.transport.tor.transport.TorTransport,
             webRtc: org.yapyap.transport.webrtc.transport.WebRtcTransport,
         ): DefaultRouter {
-            val torPeers = TorPeerSessions(identity, tor)
+            val torPeers = testTorPeers(identity, tor)
             val ctx = RoutingContext(
                 localIdentity = identity,
                 localDeviceId = identity.localDeviceId,

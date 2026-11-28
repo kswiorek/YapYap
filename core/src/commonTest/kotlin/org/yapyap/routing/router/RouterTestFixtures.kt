@@ -879,6 +879,9 @@ internal class FakeIdentityResolverForRouter(
 
     val localDeviceId: PeerId get() = localDevice.deviceId
 
+    /** Every peer endpoint this directory knows right now. */
+    val knownTorEndpoints: Map<PeerId, TorEndpoint> get() = torByPeer.toMap()
+
     override suspend fun getLocalDeviceIdentity(): DeviceIdentity = localDevice
 
     override suspend fun getLocalAccountIdentity(): AccountIdentity =
@@ -1153,6 +1156,9 @@ internal class E2eeIdentityResolverForRouter(
     private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
     private val localAccount: AccountId = AccountId("local-account"),
 ) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
+    /** Every peer endpoint this directory knows right now. */
+    val knownTorEndpoints: Map<PeerId, TorEndpoint> get() = torByPeer.toMap()
+
 
     val localDeviceId: PeerId get() = local.device.deviceId
 
@@ -1305,7 +1311,7 @@ internal fun testRoutingContext(
     protections: EnvelopeProtections,
     fileChunkSize: Int = 220 * 1024,
 ): RoutingContext {
-    val torPeers = TorPeerSessions(identity, tor)
+    val torPeers = testTorPeers(identity, tor)
     return RoutingContext(
         localIdentity = identity,
         localDeviceId = identity.localDeviceId,
@@ -1336,7 +1342,7 @@ internal fun testRoutingContext(
     protections: EnvelopeProtections,
     fileChunkSize: Int = 220 * 1024,
 ): RoutingContext {
-    val torPeers = TorPeerSessions(identity, tor)
+    val torPeers = testTorPeers(identity, tor)
     return RoutingContext(
         localIdentity = identity,
         localDeviceId = identity.localDeviceId,
@@ -1491,3 +1497,28 @@ internal fun defaultRouterUnderTest(
         filePullAttemptStore = fileRequestAttemptStore,
     )
 }
+
+/**
+ * [TorPeerSessions] over [tor] with every endpoint [identity] knows already bound, as the link
+ * keeper's dials would bind them: the recording transports report a session to any endpoint
+ * without a dial, so nothing else would bind it.
+ */
+internal fun testTorPeers(identity: FakeIdentityResolverForRouter, tor: TorTransport): TorPeerSessions =
+    TorPeerSessions(identity, tor).apply {
+        identity.knownTorEndpoints.forEach { (peer, endpoint) ->
+            bind(
+                peer,
+                endpoint
+            )
+        }
+    }
+
+internal fun testTorPeers(identity: E2eeIdentityResolverForRouter, tor: TorTransport): TorPeerSessions =
+    TorPeerSessions(identity, tor).apply {
+        identity.knownTorEndpoints.forEach { (peer, endpoint) ->
+            bind(
+                peer,
+                endpoint
+            )
+        }
+    }

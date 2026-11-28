@@ -55,7 +55,6 @@ import org.yapyap.protocol.envelopes.FileHeader
 import org.yapyap.routing.file.port.FileIngestPort
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileReceiveEnd
-import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.presence.FakePeerAvailabilityStore
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.E2eeIdentityResolverForRouter
@@ -69,6 +68,7 @@ import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.router.testTorPeers
 import org.yapyap.routing.store.DefaultFileIncomingStore
 import org.yapyap.routing.store.DefaultFilePullAttemptStore
 import org.yapyap.routing.store.DefaultFileSealStore
@@ -291,7 +291,7 @@ class FileRelayThreeRouterTest {
             availability: FakePeerAvailabilityStore = FakePeerAvailabilityStore(),
             outbox: TrackingPacketOutbox = TrackingPacketOutbox(),
         ): DefaultRouter {
-            val torPeers = TorPeerSessions(identity, tor)
+            val torPeers = testTorPeers(identity, tor)
             val ctx = RoutingContext(
                 localIdentity = identity,
                 localDeviceId = identity.localDeviceId,

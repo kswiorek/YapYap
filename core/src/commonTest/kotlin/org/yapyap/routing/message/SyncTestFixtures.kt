@@ -246,8 +246,6 @@ internal fun buildSyncRoutingStack(
         routerConfig = routerConfig,
         protections = PassthroughFakeEnvelopeProtectionService(),
     )
-    // The recording transport has a session to every endpoint; bind them as a dial would.
-    torByPeer.forEach { (peer, endpoint) -> ctx.torPeers.bind(peer, endpoint) }
 
     val dispatcher = EnvelopeDispatcher(ctx)
     val policy = LinkPreferencePolicy(MutableStateFlow(routerConfig))

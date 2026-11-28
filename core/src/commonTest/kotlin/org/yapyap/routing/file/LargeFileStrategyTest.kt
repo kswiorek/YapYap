@@ -32,7 +32,6 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.TorPeerSessions
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.router.DeviceDirectory
 import org.yapyap.routing.router.FakeFilePorts
@@ -44,6 +43,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
+import org.yapyap.routing.router.testTorPeers
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
@@ -210,7 +210,7 @@ class LargeFileStrategyTest {
             devices = identity,
             torTransport = requesterTor,
             webRtcTransport = requesterWebRtc,
-            torPeers = TorPeerSessions(identity, requesterTor),
+            torPeers = testTorPeers(identity, requesterTor),
             transportLimits = MutableStateFlow(testTransportLimits()),
             fileLimits = MutableStateFlow(FileLimits(32 * 1024, 32 * 1024, maxSealBytes = 64 * 1024)),
             envelopeProtections = PassthroughFakeEnvelopeProtectionService(),

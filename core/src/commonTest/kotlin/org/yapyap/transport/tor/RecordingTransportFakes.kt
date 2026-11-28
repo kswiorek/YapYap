@@ -123,6 +123,7 @@ internal class RecordingTorTransport(
         stopCalls++
     }
 
+    @OptIn(InternalCoroutinesApi::class)
     override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?, via: TorLinkId?) {
         sendsMutex.withLock { sendVias += via }
         if (failNextSend && !envelope.isHeartbeat()) {
@@ -135,7 +136,7 @@ internal class RecordingTorTransport(
             nextSendError = null
             throw it
         }
-        sendsMutex.withLock { sends.add(target to envelope) }
+        synchronized(sendsGuard) { sends.add(target to envelope) }
     }
 
     /** [sends] excluding heartbeat envelopes (ping / log-off), for assertions on message traffic. */

@@ -80,6 +80,7 @@ import org.yapyap.routing.store.RelayBackup
 import org.yapyap.routing.store.RetryClass
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -99,6 +100,9 @@ internal open class JvmRouterIdentity(
     private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
 ) : LocalIdentity, DeviceDirectory, DeviceRouteStore {
     val localDeviceId: PeerId get() = localPeer
+
+    /** Every peer endpoint this directory knows right now. */
+    val knownTorEndpoints: Map<PeerId, TorEndpoint> get() = torByPeer.toMap()
 
     private fun known(deviceId: PeerId): Boolean =
         deviceId == localPeer || peersByAccount.values.any { deviceId in it }
@@ -313,6 +317,17 @@ internal class EmptyFrontiers : FrontierSnapshotProvider {
         emptyList()
 }
 
+/** [TorPeerSessions] with [identity]'s endpoints bound, as dials would bind them (see the common `testTorPeers`). */
+internal fun testTorPeers(identity: JvmRouterIdentity, tor: TorTransport): TorPeerSessions =
+    TorPeerSessions(identity, tor).apply {
+        identity.knownTorEndpoints.forEach { (peer, endpoint) ->
+            bind(
+                peer,
+                endpoint
+            )
+        }
+    }
+
 internal fun jvmRoutingContext(
     identity: JvmRouterIdentity,
     tor: RecordingTorTransport,
@@ -323,7 +338,7 @@ internal fun jvmRoutingContext(
     chunkSize: Int = 220 * 1024,
     transportLimits: org.yapyap.routing.router.TransportLimits = org.yapyap.crypto.e2ee.testTransportLimits(),
 ): RoutingContext {
-    val torPeers = TorPeerSessions(identity, tor)
+    val torPeers = testTorPeers(identity, tor)
     return RoutingContext(
         localIdentity = identity,
         localDeviceId = identity.localDeviceId,
